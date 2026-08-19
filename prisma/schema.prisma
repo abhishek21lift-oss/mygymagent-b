@@ -1,0 +1,559 @@
+// ============================================================================
+// MyGymAgent - Core Platform Schema
+//
+// Scope of this phase ("deep foundation"): multi-tenancy, RBAC, auth, audit
+// logging, and the core gym domain (organizations, branches, staff, members,
+// membership plans/subscriptions, attendance).
+//
+// Everything else described in the product blueprint (AI, billing/payments,
+// workouts, nutrition, inventory, CRM/leads, notifications, events, files,
+// search, analytics) is intentionally NOT modeled here yet. See
+// docs/ARCHITECTURE.md for how those domains will attach to this schema --
+// they will all hang off Organization / Branch / Member / User the same way
+// the tables below do, keeping tenant isolation uniform across the system.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Tenancy root
+// ----------------------------------------------------------------------------
+
+enum OrganizationStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+/// The top-level tenant. Every tenant-owned row is reachable from an
+/// Organization, directly or via Branch. Row access is always scoped by
+/// organizationId server-side (see TenantContext / PrismaService) -- never
+/// by client-supplied filters alone.
+model Organization {
+  id       String             @id @default(uuid())
+  name     String
+  slug     String             @unique
+  status   OrganizationStatus @default(TRIAL)
+  timezone String             @default("UTC")
+  currency String             @default("USD")
+
+  /// Self-relation so a franchise / holding company can group multiple
+  /// legal-entity organizations together without collapsing their data.
+  parentOrganizationId String?
+  parentOrganization   Organization?  @relation("OrganizationHierarchy", fields: [parentOrganizationId], references: [id])
+  childOrganizations   Organization[] @relation("OrganizationHierarchy")
+
+  settings Json @default("{}")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  branches        Branch[]
+  users           User[]
+  members         Member[]
+  roles           Role[]
+  membershipPlans MembershipPlan[]
+  memberships     Membership[]
+  attendances     Attendance[]
+  auditLogs       AuditLog[]
+  userRoles       UserRole[]
+
+  @@index([parentOrganizationId])
+  @@map("organizations")
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Branch {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  slug     String
+  status   BranchStatus @default(ACTIVE)
+  timezone String?
+  phone    String?
+  email    String?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  staffProfiles   StaffProfile[]
+  membershipPlans MembershipPlan[]
+  memberships     Membership[]
+  attendances     Attendance[]
+  userRoles       UserRole[]
+  primaryUsers    User[]           @relation("UserPrimaryBranch")
+  primaryMembers  Member[]         @relation("MemberPrimaryBranch")
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("branches")
+}
+
+// ----------------------------------------------------------------------------
+// Identity, auth, RBAC
+// ----------------------------------------------------------------------------
+
+enum PlatformRole {
+  PLATFORM_OWNER
+  PLATFORM_ADMIN
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+/// A login identity. Staff, trainers, org admins and platform admins are all
+/// Users. Gym clients are modeled separately as Member (see below) and only
+/// gain a User row if/when member-portal login is enabled for them.
+model User {
+  id             String        @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Set only for platform-level staff (organizationId is null for these).
+  platformRole PlatformRole?
+
+  email        String  @unique
+  passwordHash String?
+  firstName    String
+  lastName     String
+  phone        String?
+
+  status          UserStatus @default(INVITED)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  primaryBranchId String?
+  primaryBranch   Branch? @relation("UserPrimaryBranch", fields: [primaryBranchId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  staffProfile            StaffProfile?
+  member                  Member?                  @relation("MemberPortalUser")
+  userRoles               UserRole[]
+  permissionOverrides     UserPermissionOverride[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  auditLogsAsActor        AuditLog[]               @relation("AuditActor")
+  assignedMembers         Member[]                 @relation("MemberAssignedTrainer")
+  recordedAttendances     Attendance[]             @relation("AttendanceRecordedBy")
+  staffAttendances        Attendance[]             @relation("AttendanceStaffUser")
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+/// Staff/trainer-specific fields, kept off User to keep the auth identity lean.
+model StaffProfile {
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  branchId       String?
+  branch         Branch? @relation(fields: [branchId], references: [id])
+
+  employeeCode    String?
+  jobTitle        String?
+  isTrainer       Boolean   @default(false)
+  specializations String[]  @default([])
+  bio             String?
+  commissionRate  Decimal?  @db.Decimal(5, 2)
+  hireDate        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([branchId])
+  @@map("staff_profiles")
+}
+
+/// Permission catalog, e.g. "members.read", "payments.refund". Global, not
+/// tenant-scoped -- every organization draws from the same catalog.
+model Permission {
+  id          String  @id @default(uuid())
+  key         String  @unique
+  resource    String
+  action      String
+  description String?
+
+  rolePermissions RolePermission[]
+  userOverrides   UserPermissionOverride[]
+
+  @@index([resource])
+  @@map("permissions")
+}
+
+/// A role is either a system role (organizationId null, seeded once and
+/// available to every tenant) or a custom role an organization defines for
+/// itself (organizationId set).
+model Role {
+  id             String        @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key         String
+  name        String
+  description String?
+  isSystem    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Assigns a role to a user, optionally scoped to a single branch (e.g.
+/// "Branch Manager at Branch X" vs. an organization-wide role).
+model UserRole {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId         String
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId, branchId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+/// Per-user exceptions layered on top of role-derived permissions. DENY
+/// always wins over ALLOW so an org admin can carve out an exception without
+/// redesigning the role graph.
+model UserPermissionOverride {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId   String
+  permission     Permission       @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  organizationId String
+  branchId       String?
+  effect         PermissionEffect
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, permissionId, branchId])
+  @@map("user_permission_overrides")
+}
+
+/// One row per issued refresh token / device session -- enables device
+/// listing and "log out everywhere".
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  deviceName String?
+  ipAddress  String?
+  userAgent  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// Audit log
+// ----------------------------------------------------------------------------
+
+/// Immutable record of sensitive actions. Never updated or deleted by
+/// application code.
+model AuditLog {
+  id             String        @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  branchId       String?
+
+  actorUserId String?
+  actorUser   User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  action     String
+  resource   String
+  resourceId String?
+
+  beforeState Json?
+  afterState  Json?
+
+  ipAddress String?
+  userAgent String?
+  requestId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([resource, resourceId])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------------------------------
+// Core gym domain: members, membership plans/subscriptions, attendance
+// ----------------------------------------------------------------------------
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNDISCLOSED
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  FROZEN
+  EXPIRED
+}
+
+model Member {
+  id              String       @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  primaryBranchId String
+  primaryBranch   Branch       @relation("MemberPrimaryBranch", fields: [primaryBranchId], references: [id])
+
+  memberCode String
+
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+
+  dateOfBirth DateTime?
+  gender      Gender?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  profilePhotoUrl String?
+  status          MemberStatus @default(ACTIVE)
+
+  assignedTrainerId String?
+  assignedTrainer   User?   @relation("MemberAssignedTrainer", fields: [assignedTrainerId], references: [id], onDelete: SetNull)
+
+  /// Set only if/when this member is granted member-portal login.
+  userId String? @unique
+  user   User?   @relation("MemberPortalUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  joinedAt  DateTime  @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships Membership[]
+  attendances Attendance[]
+
+  @@unique([organizationId, memberCode])
+  @@index([organizationId, primaryBranchId])
+  @@index([assignedTrainerId])
+  @@map("members")
+}
+
+model MembershipPlan {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Null means available across all branches of the organization.
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  durationDays  Int
+  price         Decimal  @db.Decimal(10, 2)
+  currency      String   @default("USD")
+  benefits      String[] @default([])
+  maxFreezeDays Int      @default(0)
+  isActive      Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+
+  @@index([organizationId, branchId])
+  @@map("membership_plans")
+}
+
+enum MembershipStatus {
+  PENDING
+  ACTIVE
+  FROZEN
+  EXPIRED
+  CANCELLED
+}
+
+/// A member's subscription to a plan. Price is snapshotted at purchase time
+/// so historical financial records never drift when the plan's price
+/// changes later. Freezes/upgrades/transfers create a new Membership row
+/// linked via previousMembershipId rather than mutating history in place.
+model Membership {
+  id               String         @id @default(uuid())
+  organizationId   String
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String
+  branch           Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  memberId         String
+  member           Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membershipPlanId String
+  membershipPlan   MembershipPlan @relation(fields: [membershipPlanId], references: [id])
+
+  status MembershipStatus @default(PENDING)
+
+  startDate DateTime
+  endDate   DateTime
+
+  freezeStartDate     DateTime?
+  freezeEndDate       DateTime?
+  totalFreezeDaysUsed Int       @default(0)
+
+  price     Decimal @db.Decimal(10, 2)
+  currency  String  @default("USD")
+  autoRenew Boolean @default(false)
+
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  previousMembershipId String?     @unique
+  previousMembership   Membership? @relation("MembershipChain", fields: [previousMembershipId], references: [id])
+  nextMembership       Membership? @relation("MembershipChain")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, branchId])
+  @@index([memberId])
+  @@index([status, endDate])
+  @@map("memberships")
+}
+
+enum AttendanceMethod {
+  QR
+  MANUAL
+  KIOSK
+  APP
+  STAFF
+}
+
+/// Check-in/out for both members and staff (exactly one of memberId /
+/// staffUserId is set).
+model Attendance {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  memberId    String?
+  member      Member? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  staffUserId String?
+  staffUser   User?   @relation("AttendanceStaffUser", fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  checkInAt  DateTime         @default(now())
+  checkOutAt DateTime?
+  method     AttendanceMethod @default(MANUAL)
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, branchId, checkInAt])
+  @@index([memberId, checkInAt])
+  @@map("attendances")
+}
