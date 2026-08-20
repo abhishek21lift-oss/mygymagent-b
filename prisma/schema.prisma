@@ -66,6 +66,8 @@ model Organization {
   attendances     Attendance[]
   auditLogs       AuditLog[]
   userRoles       UserRole[]
+  payments        Payment[]
+  refunds         Refund[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -104,6 +106,7 @@ model Branch {
   memberships     Membership[]
   attendances     Attendance[]
   userRoles       UserRole[]
+  payments        Payment[]
   primaryUsers    User[]           @relation("UserPrimaryBranch")
   primaryMembers  Member[]         @relation("MemberPrimaryBranch")
 
@@ -170,6 +173,8 @@ model User {
   assignedMembers         Member[]                 @relation("MemberAssignedTrainer")
   recordedAttendances     Attendance[]             @relation("AttendanceRecordedBy")
   staffAttendances        Attendance[]             @relation("AttendanceStaffUser")
+  paymentsRecorded        Payment[]                @relation("PaymentRecordedBy")
+  refundsRecorded         Refund[]                 @relation("RefundRecordedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -437,6 +442,7 @@ model Member {
 
   memberships Membership[]
   attendances Attendance[]
+  payments    Payment[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -516,6 +522,8 @@ model Membership {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  payments Payment[]
+
   @@index([organizationId, branchId])
   @@index([memberId])
   @@index([status, endDate])
@@ -556,4 +564,85 @@ model Attendance {
   @@index([organizationId, branchId, checkInAt])
   @@index([memberId, checkInAt])
   @@map("attendances")
+}
+
+// ----------------------------------------------------------------------------
+// Gym operational billing: member payments and refunds. NOT the same thing
+// as platform billing (what a gym pays this SaaS) -- see
+// docs/saas/billing-separation.md for why those are deliberately separate
+// model families, not one shared "Transaction" table.
+// ----------------------------------------------------------------------------
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  COMPLETED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+/// A member paying the gym (membership fee, PT session, product, ...).
+/// Immutable once created: amount/currency never change after the fact --
+/// a refund is a new linked Refund row, never a mutation of this row. See
+/// docs/database/data-retention.md's financial-records section.
+model Payment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// Nullable: a payment can be a one-off (PT session, product) not tied to
+  /// a membership purchase/renewal.
+  membershipId String?
+  membership   Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+
+  amount   Decimal       @db.Decimal(10, 2)
+  currency String        @default("USD")
+  method   PaymentMethod @default(CASH)
+  status   PaymentStatus @default(COMPLETED)
+  note     String?
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  refunds Refund[]
+
+  @@index([organizationId, branchId, createdAt])
+  @@index([memberId, createdAt])
+  @@index([membershipId])
+  @@map("payments")
+}
+
+/// A refund against a Payment. Never mutates or deletes the original
+/// Payment row -- the original amount stays the historical record of what
+/// was actually charged; refunds are what were given back, tracked
+/// separately so both numbers stay independently auditable.
+model Refund {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  paymentId      String
+  payment        Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  amount Decimal @db.Decimal(10, 2)
+  reason String?
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("RefundRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([paymentId])
+  @@map("refunds")
 }

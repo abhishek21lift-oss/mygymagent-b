@@ -188,6 +188,49 @@ describe('Tenant isolation (e2e)', () => {
     ).expect(404);
   });
 
+  it('Org A cannot record, read, or refund a payment against a member belonging to Org B', async () => {
+    const memberB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: orgB.branchId,
+        firstName: 'Payment',
+        lastName: 'TargetB',
+      }),
+    ).expect(201);
+
+    // Org A cannot record a payment against Org B's member.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).post('/payments').send({
+        memberId: memberB.body.data.id,
+        amount: 50,
+      }),
+    ).expect(404);
+
+    // Org B records its own payment...
+    const paymentB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/payments').send({
+        memberId: memberB.body.data.id,
+        amount: 75,
+      }),
+    ).expect(201);
+
+    // ...which Org A can neither read nor refund by guessing the id.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get(`/payments/${paymentB.body.data.id}`),
+    ).expect(404);
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).post(
+        `/payments/${paymentB.body.data.id}/refund`,
+      ),
+    ).expect(404);
+
+    const listA = await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get('/payments'),
+    ).expect(200);
+    expect(
+      listA.body.data.items.map((p: { id: string }) => p.id),
+    ).not.toContain(paymentB.body.data.id);
+  });
+
   it('rejects (rather than silently ignoring) an attempt to inject organizationId into the request body', async () => {
     // CreateMemberDto has no organizationId field, and the global
     // ValidationPipe runs with forbidNonWhitelisted: true, so an injected

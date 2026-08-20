@@ -1,11 +1,40 @@
 # billing
 
-**Status: not implemented in this phase.** Empty NestJS module only, registered in `AppModule` to reserve the seam.
+**Status: partially implemented.** Payments and refunds are real
+(`PaymentsController`/`PaymentsService`, backed by the `Payment`/`Refund`
+tables). Invoices, discounts, taxes, and trainer payouts/commissions
+described in `docs/ARCHITECTURE.md#billing-architecture` are still not
+built.
 
-Payments, invoices, refunds, discounts, taxes, trainer payouts/commissions. See docs/ARCHITECTURE.md#billing-architecture. Ledger-style: financial records are never mutated in place, only appended and superseded, the same immutable-history pattern used by Membership.previousMembershipId.
+This is gym **operational** billing (a member paying the gym) — not
+platform billing (the gym paying this SaaS), which is a separate,
+not-yet-built model family. See `docs/saas/billing-separation.md`.
 
-When this module is built, it will follow the same conventions as the implemented core modules (organizations, branches, users, members, membership-plans, memberships, attendance):
-- Every query/mutation scoped by `organizationId` taken from `@CurrentUser()`, never from client input.
-- Routes protected by `@RequirePermissions('billing.<action>')` against the permission catalog in `src/rbac/permissions.catalog.ts` (already seeded).
-- Mutating endpoints annotated `@Audited(...)` for the audit trail.
-- Cross-module effects via the domain event bus (`src/events/domain-events.ts`) rather than direct service-to-service coupling.
+## What exists
+
+- `POST /payments` — record a payment (`payments.create`). Optionally
+  linked to a `Membership`; otherwise a one-off charge (PT session,
+  product, walk-in fee).
+- `GET /payments`, `GET /payments/:id` — list/view (`payments.read`),
+  filterable by `memberId`/`membershipId`.
+- `POST /payments/:id/refund` — issue a full or partial refund
+  (`payments.refund`). Never mutates the original `Payment.amount` — see
+  `docs/database/data-retention.md`'s financial-records section. A payment
+  can be refunded multiple times (partial refunds) up to its original
+  amount; `Payment.status` tracks `COMPLETED` → `PARTIALLY_REFUNDED` →
+  `REFUNDED`.
+
+Every query/mutation is scoped by `organizationId` taken from
+`@CurrentUser()`, same as every other implemented module — see
+`test/tenant-isolation.e2e-spec.ts`'s payments case.
+
+## What's still missing
+
+- No payment gateway integration — payments are staff-recorded (cash/card/
+  UPI/bank transfer logged after the fact), not processed through Razorpay/
+  Stripe/etc. That's `docs/integrations/overview.md`'s `PaymentProcessor`
+  adapter, not built yet.
+- No invoices, discounts, or tax handling.
+- No trainer payout/commission calculation (`StaffProfile.commissionRate`
+  exists on the schema but nothing computes against it yet).
+- No platform billing (SaaS subscription) — see `docs/saas/`.

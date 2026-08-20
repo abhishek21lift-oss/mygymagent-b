@@ -23,10 +23,10 @@ import { MembershipPlansModule } from './membership-plans/membership-plans.modul
 import { MembershipsModule } from './memberships/memberships.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { PlatformModule } from './platform/platform.module';
+import { BillingModule } from './billing/billing.module';
 
 // Deferred domains -- empty module skeletons, see each directory's README.md.
 import { AiModule } from './ai/ai.module';
-import { BillingModule } from './billing/billing.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
@@ -57,13 +57,13 @@ import { AnalyticsModule } from './analytics/analytics.module';
     MembershipPlansModule,
     MembershipsModule,
     AttendanceModule,
+    BillingModule,
 
     // Platform (cross-tenant) administration -- see docs/security/overview.md
     PlatformModule,
 
     // Deferred domains (empty skeletons -- see docs/ARCHITECTURE.md)
     AiModule,
-    BillingModule,
     WorkoutsModule,
     NutritionModule,
     InventoryModule,
