@@ -1,0 +1,51 @@
+# Local development stack: Postgres + the API in watch mode.
+# Not used for staging/production — those deploy the image built by
+# Dockerfile directly (see docs/deployment/overview.md).
+name: mygymagent-b
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mygymagent
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      target: build
+    working_dir: /app
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mygymagent?schema=public
+      JWT_ACCESS_SECRET: dev-access-secret-change-me-in-production-please
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-me-in-production-please
+      JWT_REFRESH_EXPIRES_IN: 30d
+      CORS_ORIGIN: http://localhost:3000
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - ./test:/app/test
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

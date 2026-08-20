@@ -3,7 +3,9 @@
 NestJS + PostgreSQL (Prisma) backend for the MyGymAgent multi-tenant gym management platform.
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full technical blueprint — what's
-built, what's deliberately deferred, and how each domain is meant to attach to what's here.
+built, what's deliberately deferred, and how each domain is meant to attach to what's here. See
+**[docs/README.md](docs/README.md)** for the full documentation index (ADRs, database, API, security,
+deployment, testing, and design docs for domains not built yet).
 
 ## Stack
 
@@ -23,10 +25,19 @@ npm install
 cp .env.example .env        # fill in DATABASE_URL and JWT secrets
 npx prisma migrate dev      # creates the schema
 npm run db:seed             # seeds the permission catalog + system roles
+npm run db:seed:dev         # optional: adds a full demo org/branches/staff/members (dev only, never production)
 npm run start:dev
 ```
 
-The API listens on `PORT` (default `4000`). `GET /health` is public and checks DB connectivity.
+Or via Docker Compose (Postgres + API, no local Node/Postgres install required):
+
+```bash
+docker compose up
+```
+
+The API listens on `PORT` (default `4000`). `GET /health` is a liveness check (process up, no
+dependency checks); `GET /ready` additionally checks DB connectivity and returns `503` if the
+database is unreachable — see `docs/deployment/overview.md`.
 
 ## Testing
 
@@ -56,3 +67,13 @@ request to a specific branch where relevant (e.g. filtering members/attendance b
 
 Success: `{ "data": <payload>, "meta": { "requestId": "..." } }`
 Error: `{ "error": { "code": "...", "message": "...", "details"?: ..., "requestId": "..." } }`
+
+See **[docs/api/conventions.md](docs/api/conventions.md)** for the full rundown (pagination, status
+codes, versioning).
+
+## Deployment
+
+`Dockerfile` + `docker-compose.yml` (local dev) live in this repo; `.github/workflows/ci.yml` runs
+typecheck/lint/unit/e2e/build/Docker-build on every push. See
+**[docs/deployment/overview.md](docs/deployment/overview.md)** for environments, migration strategy,
+rollback approach, and how this repo is actually deployed today.
