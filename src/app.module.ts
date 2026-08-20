@@ -10,6 +10,7 @@ import { RbacModule } from './rbac/rbac.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { PlatformRoleGuard } from './common/guards/platform-role.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -21,6 +22,7 @@ import { MembersModule } from './members/members.module';
 import { MembershipPlansModule } from './membership-plans/membership-plans.module';
 import { MembershipsModule } from './memberships/memberships.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { PlatformModule } from './platform/platform.module';
 
 // Deferred domains -- empty module skeletons, see each directory's README.md.
 import { AiModule } from './ai/ai.module';
@@ -56,6 +58,9 @@ import { AnalyticsModule } from './analytics/analytics.module';
     MembershipsModule,
     AttendanceModule,
 
+    // Platform (cross-tenant) administration -- see docs/security/overview.md
+    PlatformModule,
+
     // Deferred domains (empty skeletons -- see docs/ARCHITECTURE.md)
     AiModule,
     BillingModule,
@@ -72,6 +77,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: PlatformRoleGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],

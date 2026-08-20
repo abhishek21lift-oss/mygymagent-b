@@ -26,6 +26,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:dev": "tsx prisma/seed-dev.ts",
+    "platform:create-admin": "tsx prisma/create-platform-admin.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

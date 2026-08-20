@@ -10,10 +10,22 @@ exists in the system.
 - Permissions are `resource.action` strings (46 in the catalog, `src/rbac/permissions.catalog.ts`).
 - Roles are either system-seeded (available to every org) or organization-custom
   (`Role.organizationId` set). 14 system roles ship today (`src/rbac/roles.catalog.ts`), including
-  `PLATFORM_OWNER`/`PLATFORM_ADMIN` — **note:** these two exist in the catalog and on
-  `User.platformRole` but nothing currently assigns them; there is no cross-tenant platform-admin
-  capability wired up yet (no bootstrap flow, no endpoint bypasses `organizationId` scoping). Building
-  that is future work, not a hidden feature.
+  `PLATFORM_OWNER`/`PLATFORM_ADMIN`.
+- **Platform administration** is a deliberately separate path from org-scoped RBAC, not an
+  extension of it: `PermissionsService.hasPermission()` always returns `false` for a null
+  `organizationId`, so a platform user can never accumulate access via the normal permission system.
+  Instead, `User.platformRole` is checked directly by `PlatformRoleGuard` +
+  `@RequirePlatformRole()`, gating the cross-tenant endpoints under `/platform/*`
+  (`src/platform/`) — currently: list all organizations, read one, change its status
+  (`TRIAL`/`ACTIVE`/`SUSPENDED`/`CANCELLED`). These are the only endpoints in the codebase that
+  don't scope by the caller's own `organizationId`; see `PlatformOrganizationsService`'s class
+  comment and ADR 0001's trade-offs section. A platform action is recorded in `AuditLog` against
+  the *target* organization, not the actor's (null) one — done explicitly in the service, not via
+  `@Audited()`, since that interceptor would otherwise misfile it under no organization.
+- No platform admin exists by default and none can be created through `/auth/register` or any
+  other HTTP endpoint — deliberately, since platform-admin access must never be self-service. Create
+  one with `npm run platform:create-admin -- --email=... --password=... --firstName=... --lastName=...`
+  (`prisma/create-platform-admin.ts`), run manually against the target database.
 - Roles can be assigned org-wide or scoped to a single branch (`UserRole.branchId`).
 - Per-user `ALLOW`/`DENY` overrides layer on top of role-derived permissions; **DENY always wins**,
   so an admin can carve out an exception without redesigning the role graph.
@@ -62,6 +74,7 @@ only. See `src/auth/auth.controller.ts` for the authoritative numbers.
 | Malicious upload / unauthorized file access | N/A — `files` module not built |
 | Prompt injection | N/A — no AI/LLM integration exists yet |
 | Rate abuse | ⚠️ Throttler is configured and manually verified via the tight per-endpoint auth limits, but no e2e test asserts a `429` is actually returned after exceeding a limit |
+| Ordinary org user → `/platform/*` (cross-tenant admin surface) | ✅ `test/platform.e2e-spec.ts` — also verifies unauthenticated access is rejected, and that a platform action's audit entry is attributed to the target org, not the actor's null one |
 
 The unchecked rows above are the honest gap list — call them out explicitly rather than claiming a
 security review passed when it only covers what's listed as ✅.

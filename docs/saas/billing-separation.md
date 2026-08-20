@@ -39,10 +39,9 @@ model PlatformInvoice {
 }
 ```
 Owned by: the platform. Visible to: the organization's owner/admin (their own invoices only) and
-platform admins (all organizations' invoices). This is the table a future `PLATFORM_ADMIN` role
-(see `docs/security/overview.md`'s note on the currently-unwired `platformRole`) would need
-cross-tenant read access to — which is exactly the kind of endpoint that needs a deliberately
-separate, explicitly-guarded code path rather than the normal `organizationId`-scoped one, per ADR
+platform admins (all organizations' invoices) via the `/platform/*` surface
+(`src/platform/`, see `docs/security/overview.md`) — the same deliberately-separate,
+explicitly-guarded pattern already used for cross-tenant organization administration, per ADR
 0001's trade-offs section.
 
 ### Gym operational billing (member ← gym)

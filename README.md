@@ -63,6 +63,25 @@ organization can never read, list, modify, or delete another organization's data
 Every other endpoint requires `Authorization: Bearer <accessToken>`. Send `x-branch-id` to scope a
 request to a specific branch where relevant (e.g. filtering members/attendance by branch).
 
+## Platform administration (managing gyms, not gym members)
+
+There is no default super-admin account, and none can be created via `/auth/register` — that flow
+only ever creates an org-scoped owner for a *new* organization. To control organizations
+(gyms) across the whole platform — list them, suspend/reactivate one, etc. — you need a platform
+admin account, created once, out-of-band:
+
+```bash
+npm run platform:create-admin -- \
+  --email=you@example.com --password='...' --firstName=Jane --lastName=Doe
+```
+
+Then log in normally at `POST /auth/login` with that email/password. A platform admin's token
+unlocks `GET /platform/organizations`, `GET /platform/organizations/:id`, and
+`PATCH /platform/organizations/:id/status` — every other endpoint is unaffected (a platform admin
+has no organization, so org-scoped endpoints like `/members` don't apply to them). See
+`docs/security/overview.md`'s "Platform administration" section for how this is guarded, and
+`src/platform/` for the code.
+
 ## Response shape
 
 Success: `{ "data": <payload>, "meta": { "requestId": "..." } }`
