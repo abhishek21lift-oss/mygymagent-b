@@ -1,6 +1,9 @@
-# Local development stack: Postgres + the API in watch mode.
+# Local development stack: Postgres + Redis + the API in watch mode.
 # Not used for staging/production — those deploy the image built by
-# Dockerfile directly (see docs/deployment/overview.md).
+# Dockerfile directly (see docs/deployment/overview.md). Object storage
+# (s3rver) isn't included here — no official Docker image exists for it
+# (see .github/workflows/ci.yml's comment) — run it separately with
+# `npx s3rver ...`, see README.md's "Object storage" setup section.
 name: mygymagent-b
 
 services:
@@ -21,6 +24,17 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: .
@@ -34,6 +48,7 @@ services:
       NODE_ENV: development
       PORT: 4000
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mygymagent?schema=public
+      REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: dev-access-secret-change-me-in-production-please
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_SECRET: dev-refresh-secret-change-me-in-production-please
@@ -45,6 +60,8 @@ services:
       - ./test:/app/test
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

@@ -37,6 +37,13 @@ Gym client CRUD plus the Member 360 collection/history layer.
   mutable via `PATCH`; milestones are the goal's own progress trail, so (unlike
   status/branch/trainer above) there's no separate `MemberGoalHistory` table — the milestone list
   already is the history.
+- `MemberDocumentsController`/`MemberDocumentsService` — `/members/:memberId/documents`
+  (multipart upload via `FileInterceptor`). Backed by `FileStorageService` (`src/files/`) —
+  MIME-type allowlist + 10MB size cap enforced before anything reaches storage; every read returns
+  a signed URL generated fresh per request, never a stored/permanent one. `category` (`DOCUMENT`/
+  `PROGRESS_PHOTO`/`ID_SCAN`/`OTHER`) is a field on the same table, not a separate resource per
+  category — "progress photo" and "document" are the same shape (an uploaded file attached to a
+  member), so they don't need separate tables/endpoints.
 
 Every sub-resource method re-runs `MembersService.getOne()` (tenant + branch + assignment scoping)
 before touching its own table, rather than trusting a bare `memberId` — see
@@ -52,10 +59,10 @@ isolation tests for the regression check.
   `members.read`/`members.read_assigned`/`members.update` as the parent `Member` — the master
   spec's "reception sees basic info, trainer sees training info" sensitivity split (§7) isn't
   applied within Member 360 sub-resources yet.
-- **Documents and progress photos are not built.** They need the `files/` object-storage seam
-  first (still a stub) — see `docs/architecture/discovery-report.md`'s roadmap. This is why
-  `MemberAssessment` has no photo attachment field even though the master spec calls for progress
-  photos alongside assessments.
+- **`MemberAssessment` still has no photo attachment field.** Progress photos are their own
+  `MemberDocument` rows (category=`PROGRESS_PHOTO`), not linked to a specific assessment session
+  the way measurements/fitness-tests/screenings optionally are — associating a progress photo with
+  a specific assessment is real future work, not attempted here.
 - **Appointments are not built.** A separate future domain, not a sub-resource of this module.
 - **No unified activity timeline.** Aggregating `MemberStatusHistory`/`MemberBranchHistory`/
   `MemberTrainerHistory`/`MemberNote`/`MemberGoal`/`Membership`/`Attendance`/... into one feed is

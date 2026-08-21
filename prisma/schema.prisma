@@ -4,17 +4,15 @@
 // Multi-tenancy, RBAC, auth, audit logging, and the core gym domain
 // (organizations, branches, staff, members, membership plans/subscriptions,
 // attendance) plus billing (payments/refunds), workouts, nutrition,
-// inventory, CRM/leads, AI usage tracking, and Member 360 (addresses,
-// emergency contacts, notes, consents, status/branch/trainer history,
-// assessments/measurements/fitness tests/screenings, goals/milestones)
-// are modeled and built.
+// inventory, CRM/leads, AI usage tracking, a BullMQ job queue, and Member
+// 360 (addresses, emergency contacts, notes, consents, status/branch/
+// trainer history, assessments/measurements/fitness tests/screenings,
+// goals/milestones, documents/progress photos) are modeled and built.
 //
 // Still reserved seams, not modeled here yet (see
 // docs/architecture/discovery-report.md for the current gap list):
-// notifications, files/object storage, search, analytics, platform SaaS
-// billing (as opposed to the gym-side Payment/Refund tables below),
-// Appointments, and Documents/progress photos (the last two need the
-// files/ seam first, for actual file storage). New tables all hang off
+// search, analytics, platform SaaS billing (as opposed to the gym-side
+// Payment/Refund tables below), Appointments. New tables all hang off
 // Organization / Branch / Member / User the same way the tables below do,
 // keeping tenant isolation uniform across the system.
 // ============================================================================
@@ -98,6 +96,8 @@ model Organization {
   memberScreenings        MemberScreening[]
   memberGoals             MemberGoal[]
   memberGoalMilestones    MemberGoalMilestone[]
+  files                   File[]
+  memberDocuments         MemberDocument[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -228,6 +228,7 @@ model User {
   fitnessTestsRecorded     MemberFitnessTestResult[] @relation("FitnessTestRecordedBy")
   screeningsRecorded       MemberScreening[]         @relation("ScreeningRecordedBy")
   goalsCreated             MemberGoal[]              @relation("GoalCreatedBy")
+  filesUploaded            File[]                    @relation("FileUploadedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -514,6 +515,7 @@ model Member {
   fitnessResults    MemberFitnessTestResult[]
   screenings        MemberScreening[]
   goals             MemberGoal[]
+  documents         MemberDocument[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -1511,4 +1513,77 @@ model MemberGoalMilestone {
 
   @@index([organizationId, goalId])
   @@map("member_goal_milestones")
+}
+
+// ----------------------------------------------------------------------------
+// Object storage -- the files/ seam, finally built (see
+// docs/architecture/discovery-report.md's Phase D). `File` is the generic,
+// tenant-scoped record of an object actually sitting in S3-compatible
+// storage (src/files/); `MemberDocument` attaches one to a Member with a
+// category, closing the last two deferred Member 360 items (Documents and
+// Progress Photos -- the latter is just category=PROGRESS_PHOTO, not a
+// separate table, since the two are the same shape). Other future
+// attachment points (org logo, invoices, exercise media) reuse `File` the
+// same way -- a new join table per attachment point, not a new storage
+// abstraction each time.
+// ----------------------------------------------------------------------------
+
+enum FilePurpose {
+  MEMBER_DOCUMENT
+  PROFILE_PHOTO
+  OTHER
+}
+
+/// The object-storage record. `key` is the S3 object key (never exposed to
+/// clients directly -- API responses always carry a short-lived signed URL,
+/// generated on read, never stored). Deleting a File deletes the
+/// underlying S3 object in the same request (FileStorageService.delete) --
+/// this row is not kept as history once that happens, unlike most
+/// financial/audit tables in this schema, because a deleted upload has no
+/// "what was it" value once the bytes are gone.
+model File {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key          String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  purpose      FilePurpose
+
+  uploadedByUserId String?
+  uploadedByUser   User?   @relation("FileUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  memberDocument MemberDocument?
+
+  @@index([organizationId])
+  @@map("files")
+}
+
+enum MemberDocumentCategory {
+  DOCUMENT
+  PROGRESS_PHOTO
+  ID_SCAN
+  OTHER
+}
+
+model MemberDocument {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  fileId         String       @unique
+  file           File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  category    MemberDocumentCategory
+  description String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, category])
+  @@map("member_documents")
 }

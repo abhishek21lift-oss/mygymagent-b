@@ -80,6 +80,16 @@ Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })` — any
 is rejected outright, not stripped silently. This is what makes the "can't inject `organizationId`"
 guarantee structural rather than something every DTO author has to remember.
 
+## File uploads
+`MemberDocumentsService` (`src/members/`) enforces a MIME-type allowlist (JPEG/PNG/WebP/PDF) and a
+10MB size cap before anything reaches S3-compatible storage — an unsupported type or oversized file
+is rejected with `400` before an upload is attempted, not after. Object keys are never returned to
+a client; every read goes through `FileStorageService.getSignedUrl()`, generated fresh per request
+with a 15-minute expiry, so a leaked URL self-expires and storage credentials/bucket structure are
+never exposed. Access to a specific member's documents is enforced the same way as the rest of
+Member 360 (tenant/branch/assignment scoping via `MembersService.getOne()`), not a separate
+files-specific permission check that could drift out of sync with it. See `src/files/README.md`.
+
 ## Rate limiting
 Global throttle (120 req/min per client) via `@nestjs/throttler`, with tighter per-endpoint limits
 on `/auth/register` (5/min), `/auth/login` (20/min), and `/auth/forgot-password` (5/min — deliberately
@@ -104,7 +114,7 @@ only. See `src/auth/auth.controller.ts` for the authoritative numbers.
 | Trainer → unauthorized member (a trainer reading a member not assigned to them) | ✅ `test/member-assignment-scoping.e2e-spec.ts` — a TRAINER's member list/detail endpoints only return members where `assignedTrainerId` is their own id; a broad `members.read` holder (e.g. the org owner) is unaffected. NUTRITIONIST is a documented exception, not covered — see the RBAC section above |
 | Branch user → another branch (within the same org) | ✅ `test/branch-scoping.e2e-spec.ts` — a manager whose only grant is scoped to Branch A is denied outright without the `x-branch-id` header, and with it still can't create/read/update/list/pay/check-in against Branch B's data, across Members, Payments, Attendance, Leads, and Users/staff (including that a branch-scoped grantor can't hand out an org-wide or other-branch role) |
 | AI agent → unauthorized data | ✅ `test/ai.e2e-spec.ts` — the tool executor is exercised directly (no live model needed): `read_member` never returns another org's member or raw PII fields, and `create_workout_draft`/`create_diet_draft` reject a cross-org exercise/food-item reference. See `docs/ai/architecture.md` for the tool-scoping model |
-| Malicious upload / unauthorized file access | N/A — `files` module not built |
+| Malicious upload / unauthorized file access | ✅ `test/member-documents.e2e-spec.ts` — a MIME-type allowlist + 10MB size cap reject an unsupported/oversized upload (400), cross-tenant access is denied the same way as the rest of Member 360 (404 via `MembersService.getOne()`), and every read goes through a signed URL generated fresh per request (never a stored/permanent one) — see `src/files/README.md` |
 | Prompt injection | ⚠️ Not yet a dedicated test — the tool allowlist + per-tool argument validation (`class-validator`) structurally bound what a model can do regardless of what it's told (see `test/ai.e2e-spec.ts`'s tool-executor tests), but no test drives a crafted prompt through a live model end-to-end to confirm that holds in practice; that requires a real `OPENROUTER_API_KEY`, which isn't configured for this test environment |
 | Rate abuse | ✅ `test/rate-limiting.e2e-spec.ts` — asserts a real `429` after exceeding the tight `/auth/register` and `/auth/forgot-password` limits, and that a handful of calls to an unthrottled route never trips the global 120/min limit |
 | Cross-tenant Member 360 access (addresses/emergency contacts/notes/consents/status-branch-trainer history) | ✅ `test/member-360.e2e-spec.ts` — org B gets `404` reading or writing org A's member sub-resources, since every `MemberDetailsService`/`MembersService` history method re-runs the same `MembersService.getOne()` tenant/branch/assignment scoping the parent Member route uses, never a bare id lookup |

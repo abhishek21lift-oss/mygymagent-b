@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
+import { FilesModule } from './files/files.module';
 import { AuditModule } from './audit/audit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { AuthModule } from './auth/auth.module';
@@ -32,10 +33,9 @@ import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 
 // NotificationsModule now has a first real capability (queue-backed welcome
-// email, see its README.md); files/search/analytics are still empty
-// module skeletons -- see each directory's README.md.
+// email, see its README.md); search/analytics are still empty module
+// skeletons -- see each directory's README.md.
 import { NotificationsModule } from './notifications/notifications.module';
-import { FilesModule } from './files/files.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
@@ -48,6 +48,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     // Foundation
     PrismaModule,
     QueueModule,
+    FilesModule,
     AuditModule,
     RbacModule,
     AuthModule,
@@ -74,7 +75,6 @@ import { AnalyticsModule } from './analytics/analytics.module';
     // NotificationsModule has a first real capability now; files/search/
     // analytics are still empty skeletons -- see docs/ARCHITECTURE.md.
     NotificationsModule,
-    FilesModule,
     SearchModule,
     AnalyticsModule,
   ],

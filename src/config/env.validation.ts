@@ -32,6 +32,18 @@ export const envSchema = z.object({
   // enqueue call just stays pending until Redis is reachable again rather
   // than erroring (see the class comment on MemberCreatedListener for why).
   REDIS_URL: z.string().default('redis://localhost:6379'),
+
+  // Object storage (src/files/), S3-compatible -- Cloudflare R2 in
+  // production, s3rver locally (see docker-compose.yml / README). All
+  // optional and checked together at call time (FileStorageService),
+  // same pattern as OPENROUTER_API_KEY: unset means upload endpoints
+  // return a clear 503 rather than the app failing to boot over a
+  // missing optional integration.
+  S3_ENDPOINT: z.string().optional(),
+  S3_REGION: z.string().default('auto'),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

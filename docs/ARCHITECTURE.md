@@ -80,14 +80,15 @@ driver-adapter generator). `prisma/schema.prisma` is organized in sections:
   (append-only), `MemberStatusHistory`, `MemberBranchHistory`, `MemberTrainerHistory` (the last
   three append-only, auto-written by `MembersService.create()`/`update()`), `MemberAssessment` (+
   `MemberMeasurement`, `MemberFitnessTestResult`, `MemberScreening`), `MemberGoal` (+
-  `MemberGoalMilestone`) — see `docs/database/data-ownership.md` for the per-table
-  ownership/scope/history answers and `src/members/README.md` for the API shape.
+  `MemberGoalMilestone`), `MemberDocument` (+ `File`, the generic tenant-scoped object-storage
+  record shared by any future attachment point — see §12) — see `docs/database/data-ownership.md`
+  for the per-table ownership/scope/history answers and `src/members/README.md`/`src/files/README.md`
+  for the API shape.
 
 `Member` itself is still the flat "current state" row from the deep-foundation phase
 (`addressLine1`/`emergencyContactName`/`notes`/`status`/`primaryBranchId`/`assignedTrainerId` as
 single denormalized fields) — the tables above are the collection/history layer *around* it, not a
-replacement for it. Still not built: Appointments, Documents/progress photos (the last two need the
-`files/` seam first). See `docs/architecture/discovery-report.md` §6.
+replacement for it. Still not built: Appointments. See `docs/architecture/discovery-report.md` §6.
 
 Conventions: UUID primary keys; `createdAt`/`updatedAt` on every table; soft delete
 (`deletedAt`) where a record has downstream references that must survive deletion (Organization,
@@ -249,12 +250,18 @@ Deliberate choices, worth knowing before extending this:
   existing Postgres one, since e2e tests exercise the real enqueue → process → complete flow
   against real Redis, not a mock.
 
-## 12. File/storage architecture **[PLANNED — seam reserved]**
+## 12. File/storage architecture **[BUILT: generic adapter + Member Documents. PLANNED: other attachment points]**
 
-`src/files/` is reserved for an object-storage abstraction (S3-compatible — R2 or equivalent) for
-profile photos, progress photos, documents, and exercise media. Large binary data is never intended
-to go through PostgreSQL directly; `Member.profilePhotoUrl` and similar fields already anticipate
-storing a URL/key rather than bytes.
+`src/files/` — `FileStorageService`, a thin adapter over any S3-compatible object store (Cloudflare
+R2 in production, `s3rver` locally — real S3-protocol requests in tests too, not mocked). `File`
+(`prisma/schema.prisma`) is the generic, tenant-scoped record of an object actually in storage;
+large binary data never goes through PostgreSQL itself. The only thing attached to it so far is
+Member 360's Documents/Progress Photos (`MemberDocument`, `src/members/`) — profile photos,
+invoices, and exercise media are still unbuilt attachment points, each needing only its own small
+join table against `File`, not a new storage abstraction. Every read is a signed URL generated
+fresh per request (15 min expiry) — a raw key or permanent URL is never handed to a client. See
+`src/files/README.md` for what's built vs. deliberately out of scope (no image processing, no
+malware scanning, no orphan-object cleanup job).
 
 ## 13. Search architecture **[PLANNED — seam reserved]**
 
@@ -315,13 +322,14 @@ modules (branches, users, members, membership plans, memberships, attendance) al
   make outbound requests), file-upload validation (once Files module exists), prompt injection
   defense (§9 — designed for, enforced once AI module exists).
 
-## 18. Testing architecture **[BUILT — 103 e2e tests across 16 suites, 8 unit tests]**
+## 18. Testing architecture **[BUILT — 107 e2e tests across 17 suites, 8 unit tests]**
 
 - **Unit**: `src/rbac/permissions.service.spec.ts` — the DENY-wins-over-ALLOW resolution logic,
   against a mocked Prisma client (no DB needed). `src/notifications/welcome-email.processor.spec.ts`
   — the job processor calls the mailer with the right args and ignores a job it doesn't recognize.
 - **E2E** (`test/*.e2e-spec.ts`, run via `npm run test:e2e` against a dedicated `mygymagent_test`
-  database + real Redis, migrated/seeded by `test/global-setup.ts`) — 16 suites, headline ones:
+  database + real Redis + real S3-protocol server (`s3rver`), migrated/seeded by
+  `test/global-setup.ts`) — 17 suites, headline ones:
   - `app.e2e-spec.ts` — health check.
   - `auth.e2e-spec.ts` — register/login/refresh-rotation/logout/me, wrong-password and
     unknown-email give identical responses, account lockout after repeated failures.
@@ -341,6 +349,8 @@ modules (branches, users, members, membership plans, memberships, attendance) al
   - `notifications-queue.e2e-spec.ts` — creating a member with an email actually enqueues and
     completes a real welcome-email job against real Redis (not a mock), and confirms no job is
     enqueued for a member with no email on file.
+  - `member-documents.e2e-spec.ts` — full upload → signed-URL list → real-fetch-confirms-content →
+    delete cycle against real `s3rver`, MIME-type/size rejection, and cross-tenant isolation.
 - **[PLANNED]** Structured-output validation tests, prompt-injection resistance against a *live*
   model (today's AI tests exercise the tool executor directly, not a real model call — no API key
   configured in the test environment), load/performance testing at scale, frontend/backend contract
@@ -396,7 +406,8 @@ src/
   branches/               branch CRUD
   users/                  staff invite/list/update/deactivate, role assignment
   members/                gym client CRUD + Member 360 (addresses, notes, consents,
-                          status/branch/trainer history, assessments, goals) -- see src/members/README.md
+                          status/branch/trainer history, assessments, goals, documents/photos) --
+                          see src/members/README.md
   membership-plans/       plan CRUD
   memberships/            sell/freeze/resume/cancel a member's subscription
   attendance/             check-in/check-out
@@ -409,15 +420,17 @@ src/
   platform/               cross-tenant platform-admin surface (org list/status)
   queue/                  BullMQ + Redis, registered globally -- see src/queue/queue.module.ts
   notifications/          first real capability: queue-backed welcome email -- see README.md
-  files/ search/ analytics/
-                          still reserved module seams -- see each directory's README.md
+  files/                  FileStorageService (S3-compatible adapter) + generic File table, global
+                          module -- see src/files/README.md
+  search/ analytics/      still reserved module seams -- see each directory's README.md
 prisma/
   schema.prisma           the full data model
   seed.ts                 idempotent: seeds the permission catalog + system roles
 test/
-  *.e2e-spec.ts            16 suites -- auth, tenant isolation, branch scoping, assignment scoping,
-                           Member 360, assessments/goals, rate limiting, platform admin, AI tool
-                           executor, the notifications queue, and the core domain modules
+  *.e2e-spec.ts            17 suites -- auth, tenant isolation, branch scoping, assignment scoping,
+                           Member 360, assessments/goals, member documents, rate limiting, platform
+                           admin, AI tool executor, the notifications queue, and the core domain
+                           modules
 ```
 
 See `docs/architecture/discovery-report.md` for the current, dated gap analysis this summary

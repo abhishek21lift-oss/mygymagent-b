@@ -58,7 +58,14 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: E2E tests (migrates + seeds the test database)
+      # No official s3rver Docker image exists, unlike Postgres/Redis above --
+      # run it as a background process instead (same binary the e2e suite's
+      # own README/local setup uses), so CI exercises the exact same
+      # S3-protocol test double as local dev, not a different mock.
+      - name: Start local S3-compatible test server (s3rver)
+        run: npx s3rver -d /tmp/s3rver-data -a 0.0.0.0 -p 4568 --allow-mismatched-signatures &
+
+      - name: E2E tests (migrates + seeds the test database, creates the test bucket)
         run: npm run test:e2e
 
       - name: Build

@@ -29,7 +29,7 @@ npm run db:seed:dev         # optional: adds a full demo org/branches/staff/memb
 npm run start:dev
 ```
 
-Or via Docker Compose (Postgres + API, no local Node/Postgres install required):
+Or via Docker Compose (Postgres + Redis + API, no local Node/Postgres/Redis install required):
 
 ```bash
 docker compose up
@@ -38,6 +38,32 @@ docker compose up
 The API listens on `PORT` (default `4000`). `GET /health` is a liveness check (process up, no
 dependency checks); `GET /ready` additionally checks DB connectivity and returns `503` if the
 database is unreachable — see `docs/deployment/overview.md`.
+
+### Background job queue (Redis)
+
+`src/queue/` (BullMQ) needs a reachable `REDIS_URL` (`.env.example` defaults to
+`redis://localhost:6379`; `docker compose up` starts one for you). A missing/unreachable Redis
+doesn't crash the app or fail the request that tried to enqueue a job — see
+`src/queue/queue.module.ts` — but jobs (e.g. the welcome email sent on member creation) silently
+won't run without it.
+
+### Object storage
+
+`src/files/` needs an S3-compatible endpoint. In production this is Cloudflare R2; locally and in
+CI it's [`s3rver`](https://github.com/jamhall/s3rver) (an npm devDependency, real S3-protocol
+requests, not a mock) run as a background process — there's no official Docker image for it, so
+it's not part of `docker-compose.yml`:
+
+```bash
+npx s3rver -d /tmp/s3rver-data -a 0.0.0.0 -p 4568 --allow-mismatched-signatures &
+```
+
+`.env.example`'s `S3_*` defaults already point at this (`http://localhost:4568`, bucket
+`mygymagent-dev`, credentials `S3RVER`/`S3RVER` — s3rver's fixed local defaults, not secrets). The
+bucket isn't created automatically for local dev the way `test/global-setup.ts` does for the test
+suite — create it once with any S3 client, or let the first upload attempt's error message point you
+at it. Without `S3_*` configured, upload endpoints (e.g. member documents) return a clear `503`
+rather than the app failing to boot — see `src/files/README.md`.
 
 ## Testing
 
