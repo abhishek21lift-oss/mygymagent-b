@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -16,9 +17,10 @@ export class AttendanceController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListAttendanceQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.attendanceService.list(user.organizationId!, query, {
-      branchId: query.branchId,
+      branchId: branchScope ?? query.branchId,
       memberId: query.memberId,
     });
   }
@@ -26,14 +28,31 @@ export class AttendanceController {
   @Post('check-in')
   @RequirePermissions('attendance.create')
   @Audited({ resource: 'attendance', action: 'check_in' })
-  checkIn(@CurrentUser() user: AuthenticatedUser, @Body() dto: CheckInDto) {
-    return this.attendanceService.checkIn(user.organizationId!, user.id, dto);
+  checkIn(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CheckInDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.attendanceService.checkIn(
+      user.organizationId!,
+      user.id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/check-out')
   @RequirePermissions('attendance.create')
   @Audited({ resource: 'attendance', action: 'check_out' })
-  checkOut(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.attendanceService.checkOut(user.organizationId!, id);
+  checkOut(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.attendanceService.checkOut(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
   }
 }

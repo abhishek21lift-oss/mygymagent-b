@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { RequestedBranchId } from '../common/decorators/branch-id.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -27,22 +28,35 @@ export class MembersController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: PaginationQueryDto,
-    @RequestedBranchId() branchId?: string,
+    @RequestedBranchId() requestedBranchId: string | undefined,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membersService.list(user.organizationId!, query, branchId);
+    return this.membersService.list(
+      user.organizationId!,
+      query,
+      branchScope ?? requestedBranchId,
+    );
   }
 
   @Get(':id')
   @RequirePermissions('members.read')
-  getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.membersService.getOne(user.organizationId!, id);
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membersService.getOne(user.organizationId!, id, branchScope);
   }
 
   @Post()
   @RequirePermissions('members.create')
   @Audited({ resource: 'member', action: 'create' })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMemberDto) {
-    return this.membersService.create(user.organizationId!, dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMemberDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membersService.create(user.organizationId!, dto, branchScope);
   }
 
   @Patch(':id')
@@ -52,14 +66,24 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateMemberDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membersService.update(user.organizationId!, id, dto);
+    return this.membersService.update(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Delete(':id')
   @RequirePermissions('members.delete')
   @Audited({ resource: 'member', action: 'delete' })
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.membersService.remove(user.organizationId!, id);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membersService.remove(user.organizationId!, id, branchScope);
   }
 }

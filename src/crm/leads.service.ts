@@ -24,13 +24,18 @@ export class LeadsService {
     private readonly events: EventEmitter2,
   ) {}
 
-  async list(organizationId: string, query: ListLeadsQueryDto) {
+  async list(
+    organizationId: string,
+    query: ListLeadsQueryDto,
+    branchScope: string | null = null,
+  ) {
     const where: Prisma.LeadWhereInput = {
       organizationId,
       ...(query.status ? { status: query.status } : {}),
       ...(query.assignedToUserId
         ? { assignedToUserId: query.assignedToUserId }
         : {}),
+      ...(branchScope ? { branchId: branchScope } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.lead.findMany({
@@ -49,9 +54,17 @@ export class LeadsService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const lead = await this.prisma.lead.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       include: {
         assignedToUser: {
           select: { id: true, firstName: true, lastName: true },
@@ -63,12 +76,41 @@ export class LeadsService {
     return lead;
   }
 
-  create(organizationId: string, dto: CreateLeadDto) {
-    return this.prisma.lead.create({ data: { organizationId, ...dto } });
+  create(
+    organizationId: string,
+    dto: CreateLeadDto,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && dto.branchId && dto.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot create a lead outside your assigned branch',
+      );
+    }
+    return this.prisma.lead.create({
+      data: {
+        organizationId,
+        ...dto,
+        branchId: dto.branchId ?? branchScope ?? undefined,
+      },
+    });
   }
 
-  async update(organizationId: string, id: string, dto: UpdateLeadDto) {
-    await this.getOne(organizationId, id);
+  async update(
+    organizationId: string,
+    id: string,
+    dto: UpdateLeadDto,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope);
+    if (
+      branchScope &&
+      dto.branchId !== undefined &&
+      dto.branchId !== branchScope
+    ) {
+      throw new BadRequestException(
+        'Cannot move a lead outside your assigned branch',
+      );
+    }
     return this.prisma.lead.update({ where: { id }, data: dto });
   }
 
@@ -76,8 +118,9 @@ export class LeadsService {
     organizationId: string,
     id: string,
     dto: UpdateLeadStatusDto,
+    branchScope: string | null = null,
   ) {
-    const lead = await this.getOne(organizationId, id);
+    const lead = await this.getOne(organizationId, id, branchScope);
     if (lead.status === 'WON') {
       throw new BadRequestException(
         'A won lead has already been converted; its status cannot be changed directly',
@@ -92,8 +135,13 @@ export class LeadsService {
   /** Creates a real Member from this lead's info and marks the lead WON.
    * Delegates to MembersService.create() -- the same path the REST /members
    * endpoint uses -- rather than duplicating member-creation logic here. */
-  async convert(organizationId: string, id: string, dto: ConvertLeadDto) {
-    const lead = await this.getOne(organizationId, id);
+  async convert(
+    organizationId: string,
+    id: string,
+    dto: ConvertLeadDto,
+    branchScope: string | null = null,
+  ) {
+    const lead = await this.getOne(organizationId, id, branchScope);
     if (lead.status === 'WON') {
       throw new BadRequestException('This lead has already been converted');
     }
@@ -104,13 +152,20 @@ export class LeadsService {
       );
     }
 
-    const member = await this.membersService.create(organizationId, {
-      primaryBranchId: branchId,
-      firstName: lead.firstName,
-      lastName: lead.lastName,
-      email: lead.email ?? undefined,
-      phone: lead.phone ?? undefined,
-    });
+    // MembersService.create() re-checks branchScope itself -- passing it
+    // through means a branch-scoped caller can't launder a cross-branch
+    // member creation through the lead-conversion path.
+    const member = await this.membersService.create(
+      organizationId,
+      {
+        primaryBranchId: branchId,
+        firstName: lead.firstName,
+        lastName: lead.lastName,
+        email: lead.email ?? undefined,
+        phone: lead.phone ?? undefined,
+      },
+      branchScope,
+    );
 
     const converted = await this.prisma.lead.update({
       where: { id },
@@ -136,8 +191,9 @@ export class LeadsService {
     leadId: string,
     dto: CreateFollowUpDto,
     createdByUserId: string,
+    branchScope: string | null = null,
   ) {
-    await this.getOne(organizationId, leadId);
+    await this.getOne(organizationId, leadId, branchScope);
     return this.prisma.leadFollowUp.create({
       data: {
         organizationId,
@@ -153,7 +209,11 @@ export class LeadsService {
     organizationId: string,
     leadId: string,
     followUpId: string,
+    branchScope: string | null = null,
   ) {
+    // Confirms the parent lead is both in this org and within branchScope
+    // (leadFollowUp itself carries no branchId to filter by directly).
+    await this.getOne(organizationId, leadId, branchScope);
     const followUp = await this.prisma.leadFollowUp.findFirst({
       where: { id: followUpId, leadId, organizationId },
     });

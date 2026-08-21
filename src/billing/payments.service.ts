@@ -31,11 +31,13 @@ export class PaymentsService {
     query: PaginationQueryDto,
     memberId?: string,
     membershipId?: string,
+    branchScope: string | null = null,
   ) {
     const where: Prisma.PaymentWhereInput = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(membershipId ? { membershipId } : {}),
+      ...(branchScope ? { branchId: branchScope } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.payment.findMany({
@@ -52,9 +54,17 @@ export class PaymentsService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const payment = await this.prisma.payment.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       include: {
         member: { select: { id: true, firstName: true, lastName: true } },
         membership: { include: { membershipPlan: true } },
@@ -69,6 +79,7 @@ export class PaymentsService {
     organizationId: string,
     dto: CreatePaymentDto,
     recordedByUserId: string,
+    branchScope: string | null = null,
   ) {
     const [organization, member, membership] = await Promise.all([
       this.prisma.organization.findFirst({ where: { id: organizationId } }),
@@ -92,10 +103,17 @@ export class PaymentsService {
       );
     }
 
+    const branchId = membership?.branchId ?? member.primaryBranchId;
+    if (branchScope && branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot record a payment for a member outside your assigned branch',
+      );
+    }
+
     const payment = await this.prisma.payment.create({
       data: {
         organizationId,
-        branchId: membership?.branchId ?? member.primaryBranchId,
+        branchId,
         memberId: member.id,
         membershipId: membership?.id,
         amount: dto.amount,
@@ -124,8 +142,9 @@ export class PaymentsService {
     id: string,
     dto: RefundPaymentDto,
     recordedByUserId: string,
+    branchScope: string | null = null,
   ) {
-    const payment = await this.getOne(organizationId, id);
+    const payment = await this.getOne(organizationId, id, branchScope);
     if (payment.status === 'REFUNDED') {
       throw new BadRequestException('Payment is already fully refunded');
     }

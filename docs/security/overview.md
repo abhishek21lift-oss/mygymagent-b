@@ -26,7 +26,14 @@ exists in the system.
   other HTTP endpoint — deliberately, since platform-admin access must never be self-service. Create
   one with `npm run platform:create-admin -- --email=... --password=... --firstName=... --lastName=...`
   (`prisma/create-platform-admin.ts`), run manually against the target database.
-- Roles can be assigned org-wide or scoped to a single branch (`UserRole.branchId`).
+- Roles can be assigned org-wide or scoped to a single branch (`UserRole.branchId`). A branch-scoped
+  grant is enforced two ways: `PermissionsGuard` denies the request outright unless the caller sends
+  the matching `x-branch-id` header, and it also resolves *how* the permission was granted --
+  org-wide or branch-only -- exposing that as `request.branchScope` (see the guard's class comment).
+  Every service method that touches a branch-scoped resource (Members, Attendance, Memberships,
+  Payments, Leads) folds that into its `where` clause and into any client-supplied `branchId` on
+  create/update, the same way `organizationId` is already mandatory everywhere. Users/staff
+  management is a deliberate exception -- not yet branch-enforced, see the test matrix below.
 - Per-user `ALLOW`/`DENY` overrides layer on top of role-derived permissions; **DENY always wins**,
   so an admin can carve out an exception without redesigning the role graph.
 - Enforced by `PermissionsGuard` + `@RequirePermission()`, backed by
@@ -69,11 +76,11 @@ only. See `src/auth/auth.controller.ts` for the authoritative numbers.
 | Refresh token rotation + reuse-after-rotation detection | ✅ `test/auth.e2e-spec.ts` |
 | Account lockout after repeated failed logins | ✅ `test/auth.e2e-spec.ts` |
 | Trainer → unauthorized member (a trainer reading a member not assigned to them) | ⚠️ Not yet a dedicated test — the same `organizationId`-scoping mechanism applies, but assignment-level scoping (trainer can only see *their* assigned members within their own org) isn't separately verified |
-| Branch user → another branch (within the same org) | ⚠️ Not yet a dedicated test — `UserRole.branchId` scoping exists in the schema/RBAC model but isn't exercised by an e2e test yet |
-| AI agent → unauthorized data | N/A — `ai` module not built; see `docs/ai/architecture.md` for the intended tool-scoping model |
+| Branch user → another branch (within the same org) | ✅ `test/branch-scoping.e2e-spec.ts` — a manager whose only grant is scoped to Branch A is denied outright without the `x-branch-id` header, and with it still can't create/read/update/list/pay/check-in against Branch B's data, across Members, Payments, Attendance, and Leads. Users/staff management is **not** covered — see the RBAC section above |
+| AI agent → unauthorized data | ✅ `test/ai.e2e-spec.ts` — the tool executor is exercised directly (no live model needed): `read_member` never returns another org's member or raw PII fields, and `create_workout_draft`/`create_diet_draft` reject a cross-org exercise/food-item reference. See `docs/ai/architecture.md` for the tool-scoping model |
 | Malicious upload / unauthorized file access | N/A — `files` module not built |
-| Prompt injection | N/A — no AI/LLM integration exists yet |
-| Rate abuse | ⚠️ Throttler is configured and manually verified via the tight per-endpoint auth limits, but no e2e test asserts a `429` is actually returned after exceeding a limit |
+| Prompt injection | ⚠️ Not yet a dedicated test — the tool allowlist + per-tool argument validation (`class-validator`) structurally bound what a model can do regardless of what it's told (see `test/ai.e2e-spec.ts`'s tool-executor tests), but no test drives a crafted prompt through a live model end-to-end to confirm that holds in practice; that requires a real `OPENROUTER_API_KEY`, which isn't configured for this test environment |
+| Rate abuse | ✅ `test/rate-limiting.e2e-spec.ts` — asserts a real `429` after exceeding the tight `/auth/register` and `/auth/forgot-password` limits, and that a handful of calls to an unthrottled route never trips the global 120/min limit |
 | Ordinary org user → `/platform/*` (cross-tenant admin surface) | ✅ `test/platform.e2e-spec.ts` — also verifies unauthenticated access is rejected, and that a platform action's audit entry is attributed to the target org, not the actor's null one |
 
 The unchecked rows above are the honest gap list — call them out explicitly rather than claiming a

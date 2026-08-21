@@ -32,8 +32,13 @@ export class MembershipsService {
     organizationId: string,
     query: PaginationQueryDto,
     memberId?: string,
+    branchScope: string | null = null,
   ) {
-    const where = { organizationId, ...(memberId ? { memberId } : {}) };
+    const where = {
+      organizationId,
+      ...(memberId ? { memberId } : {}),
+      ...(branchScope ? { branchId: branchScope } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.membership.findMany({
         where,
@@ -49,16 +54,28 @@ export class MembershipsService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const membership = await this.prisma.membership.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       include: { membershipPlan: true, member: true },
     });
     if (!membership) throw new NotFoundException('Membership not found');
     return membership;
   }
 
-  async create(organizationId: string, dto: CreateMembershipDto) {
+  async create(
+    organizationId: string,
+    dto: CreateMembershipDto,
+    branchScope: string | null = null,
+  ) {
     const [member, plan] = await Promise.all([
       this.prisma.member.findFirst({
         where: { id: dto.memberId, organizationId, deletedAt: null },
@@ -71,6 +88,13 @@ export class MembershipsService {
     if (!plan)
       throw new NotFoundException('Membership plan not found or inactive');
 
+    const branchId = plan.branchId ?? member.primaryBranchId;
+    if (branchScope && branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot create a membership for a member outside your assigned branch',
+      );
+    }
+
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
     const endDate = new Date(
       startDate.getTime() + plan.durationDays * MS_PER_DAY,
@@ -79,7 +103,7 @@ export class MembershipsService {
     const membership = await this.prisma.membership.create({
       data: {
         organizationId,
-        branchId: plan.branchId ?? member.primaryBranchId,
+        branchId,
         memberId: member.id,
         membershipPlanId: plan.id,
         status: 'ACTIVE',
@@ -101,8 +125,13 @@ export class MembershipsService {
     return membership;
   }
 
-  async freeze(organizationId: string, id: string, dto: FreezeMembershipDto) {
-    const membership = await this.getOne(organizationId, id);
+  async freeze(
+    organizationId: string,
+    id: string,
+    dto: FreezeMembershipDto,
+    branchScope: string | null = null,
+  ) {
+    const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status !== 'ACTIVE') {
       throw new BadRequestException('Only an active membership can be frozen');
     }
@@ -125,8 +154,12 @@ export class MembershipsService {
     });
   }
 
-  async resume(organizationId: string, id: string) {
-    const membership = await this.getOne(organizationId, id);
+  async resume(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status !== 'FROZEN' || !membership.freezeStartDate) {
       throw new BadRequestException('Membership is not currently frozen');
     }
@@ -150,8 +183,13 @@ export class MembershipsService {
     });
   }
 
-  async cancel(organizationId: string, id: string, dto: CancelMembershipDto) {
-    const membership = await this.getOne(organizationId, id);
+  async cancel(
+    organizationId: string,
+    id: string,
+    dto: CancelMembershipDto,
+    branchScope: string | null = null,
+  ) {
+    const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status === 'CANCELLED') {
       throw new BadRequestException('Membership is already cancelled');
     }

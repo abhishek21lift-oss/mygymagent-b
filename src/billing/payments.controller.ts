@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -17,19 +18,25 @@ export class PaymentsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListPaymentsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.paymentsService.list(
       user.organizationId!,
       query,
       query.memberId,
       query.membershipId,
+      branchScope,
     );
   }
 
   @Get(':id')
   @RequirePermissions('payments.read')
-  getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.paymentsService.getOne(user.organizationId!, id);
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.paymentsService.getOne(user.organizationId!, id, branchScope);
   }
 
   @Post()
@@ -38,8 +45,14 @@ export class PaymentsController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePaymentDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.paymentsService.create(user.organizationId!, dto, user.id);
+    return this.paymentsService.create(
+      user.organizationId!,
+      dto,
+      user.id,
+      branchScope,
+    );
   }
 
   @Post(':id/refund')
@@ -49,7 +62,14 @@ export class PaymentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: RefundPaymentDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.paymentsService.refund(user.organizationId!, id, dto, user.id);
+    return this.paymentsService.refund(
+      user.organizationId!,
+      id,
+      dto,
+      user.id,
+      branchScope,
+    );
   }
 }

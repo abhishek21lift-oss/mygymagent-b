@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -28,21 +29,30 @@ export class LeadsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListLeadsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.leadsService.list(user.organizationId!, query);
+    return this.leadsService.list(user.organizationId!, query, branchScope);
   }
 
   @Get(':id')
   @RequirePermissions('leads.read')
-  getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.leadsService.getOne(user.organizationId!, id);
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.leadsService.getOne(user.organizationId!, id, branchScope);
   }
 
   @Post()
   @RequirePermissions('leads.manage')
   @Audited({ resource: 'lead', action: 'create' })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateLeadDto) {
-    return this.leadsService.create(user.organizationId!, dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateLeadDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.leadsService.create(user.organizationId!, dto, branchScope);
   }
 
   @Patch(':id')
@@ -52,8 +62,9 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateLeadDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.leadsService.update(user.organizationId!, id, dto);
+    return this.leadsService.update(user.organizationId!, id, dto, branchScope);
   }
 
   @Patch(':id/status')
@@ -63,8 +74,14 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateLeadStatusDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.leadsService.updateStatus(user.organizationId!, id, dto);
+    return this.leadsService.updateStatus(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/convert')
@@ -74,8 +91,14 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: ConvertLeadDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.leadsService.convert(user.organizationId!, id, dto);
+    return this.leadsService.convert(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/follow-ups')
@@ -85,12 +108,14 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: CreateFollowUpDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.leadsService.addFollowUp(
       user.organizationId!,
       id,
       dto,
       user.id,
+      branchScope,
     );
   }
 
@@ -101,11 +126,13 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Param('followUpId') followUpId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.leadsService.completeFollowUp(
       user.organizationId!,
       id,
       followUpId,
+      branchScope,
     );
   }
 }

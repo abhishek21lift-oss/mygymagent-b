@@ -1,10 +1,13 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 
-/** Reads the caller's requested branch scope from the `x-branch-id` header.
- * This is a hint only -- callers must still verify (via BranchAccessGuard
- * or an explicit query) that the authenticated user actually has access to
- * that branch before using it to scope a query. */
+/** Reads the caller's requested branch *filter* from the `x-branch-id`
+ * header -- an unverified client hint used only to narrow a list query a
+ * caller is already unrestricted on (e.g. "show me just Branch A"). It is
+ * NOT an access check: a service must never use this value as the sole
+ * gate for scoping a query to one branch. For the enforced restriction
+ * derived from the caller's actual grants, see `@CurrentBranchScope()`
+ * (`branch-scope.decorator.ts`) and `PermissionsGuard`'s class comment. */
 export const RequestedBranchId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const request = ctx.switchToHttp().getRequest<Request>();

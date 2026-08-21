@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -18,18 +19,28 @@ export class MembershipsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMembershipsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.membershipsService.list(
       user.organizationId!,
       query,
       query.memberId,
+      branchScope,
     );
   }
 
   @Get(':id')
   @RequirePermissions('memberships.read')
-  getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.membershipsService.getOne(user.organizationId!, id);
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.getOne(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
   }
 
   @Post()
@@ -38,8 +49,13 @@ export class MembershipsController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.create(user.organizationId!, dto);
+    return this.membershipsService.create(
+      user.organizationId!,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/freeze')
@@ -49,15 +65,29 @@ export class MembershipsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: FreezeMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.freeze(user.organizationId!, id, dto);
+    return this.membershipsService.freeze(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/resume')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'resume' })
-  resume(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.membershipsService.resume(user.organizationId!, id);
+  resume(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.resume(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
   }
 
   @Post(':id/cancel')
@@ -67,7 +97,13 @@ export class MembershipsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: CancelMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.cancel(user.organizationId!, id, dto);
+    return this.membershipsService.cancel(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 }

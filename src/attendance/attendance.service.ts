@@ -48,7 +48,13 @@ export class AttendanceService {
     organizationId: string,
     recordedByUserId: string,
     dto: CheckInDto,
+    branchScope: string | null = null,
   ) {
+    if (branchScope && dto.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot check in a member/staff to a branch outside your assignment',
+      );
+    }
     if (!dto.memberId && !dto.staffUserId) {
       throw new BadRequestException(
         'Either memberId or staffUserId is required',
@@ -98,9 +104,17 @@ export class AttendanceService {
     return record;
   }
 
-  async checkOut(organizationId: string, id: string) {
+  async checkOut(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const record = await this.prisma.attendance.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
     });
     if (!record) throw new NotFoundException('Attendance record not found');
     if (record.checkOutAt) throw new BadRequestException('Already checked out');

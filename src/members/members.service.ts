@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import {
@@ -51,9 +55,18 @@ export class MembersService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const member = await this.prisma.member.findFirst({
-      where: { id, organizationId, deletedAt: null },
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
       include: {
         primaryBranch: { select: { id: true, name: true } },
         assignedTrainer: {
@@ -70,7 +83,16 @@ export class MembersService {
     return member;
   }
 
-  async create(organizationId: string, dto: CreateMemberDto) {
+  async create(
+    organizationId: string,
+    dto: CreateMemberDto,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && dto.primaryBranchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot create a member outside your assigned branch',
+      );
+    }
     const memberCode = await this.generateMemberCode(organizationId);
     const member = await this.prisma.member.create({
       data: {
@@ -89,8 +111,22 @@ export class MembersService {
     return member;
   }
 
-  async update(organizationId: string, id: string, dto: UpdateMemberDto) {
-    await this.getOne(organizationId, id);
+  async update(
+    organizationId: string,
+    id: string,
+    dto: UpdateMemberDto,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope);
+    if (
+      branchScope &&
+      dto.primaryBranchId !== undefined &&
+      dto.primaryBranchId !== branchScope
+    ) {
+      throw new BadRequestException(
+        'Cannot move a member outside your assigned branch',
+      );
+    }
     return this.prisma.member.update({
       where: { id },
       data: {
@@ -100,8 +136,12 @@ export class MembersService {
     });
   }
 
-  async remove(organizationId: string, id: string) {
-    await this.getOne(organizationId, id);
+  async remove(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope);
     return this.prisma.member.update({
       where: { id },
       data: { deletedAt: new Date(), status: 'INACTIVE' },
