@@ -19,8 +19,32 @@ export interface OpenRouterToolCall {
   function: { name: string; arguments: string };
 }
 
+export interface OpenRouterUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  /// USD -- only present when OpenRouter reports generation cost (requested
+  /// via `usage: { include: true }` below); left undefined otherwise rather
+  /// than estimated, per docs/architecture/discovery-report.md's "never
+  /// guess a financial-adjacent number" call.
+  costUsd?: number;
+}
+
+export interface OpenRouterCompletion {
+  message: ChatMessage;
+  usage?: OpenRouterUsage;
+  model?: string;
+}
+
 interface OpenRouterResponse {
+  model?: string;
   choices: { message: ChatMessage }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost?: number;
+  };
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -41,7 +65,7 @@ const MAX_OUTPUT_TOKENS = 2000;
 export class OpenRouterProvider {
   constructor(private readonly config: ConfigService) {}
 
-  async chatCompletion(messages: ChatMessage[]): Promise<ChatMessage> {
+  async chatCompletion(messages: ChatMessage[]): Promise<OpenRouterCompletion> {
     const apiKey = this.config.get<string>('OPENROUTER_API_KEY');
     if (!apiKey) {
       throw new ServiceUnavailableException(
@@ -65,6 +89,7 @@ export class OpenRouterProvider {
           messages,
           tools: AI_TOOL_DEFINITIONS,
           max_tokens: MAX_OUTPUT_TOKENS,
+          usage: { include: true },
         }),
       });
 
@@ -82,7 +107,15 @@ export class OpenRouterProvider {
           'AI provider returned no completion choices.',
         );
       }
-      return message;
+      const usage: OpenRouterUsage | undefined = json.usage
+        ? {
+            promptTokens: json.usage.prompt_tokens,
+            completionTokens: json.usage.completion_tokens,
+            totalTokens: json.usage.total_tokens,
+            costUsd: json.usage.cost,
+          }
+        : undefined;
+      return { message, usage, model: json.model ?? model };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new InternalServerErrorException(

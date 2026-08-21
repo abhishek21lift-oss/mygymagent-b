@@ -1,18 +1,19 @@
 # MyGymAgent — Technical Blueprint
 
 This is the architecture blueprint for the AI-driven, multi-tenant Gym Management + Personal
-Training platform. It is a greenfield build: two repositories, `mygymagent-b` (this repo, the
-NestJS/PostgreSQL API) and `mygymagent-f` (Next.js frontend), sharing one branch during initial
-development.
+Training platform. Two repositories, `mygymagent-b` (this repo, the NestJS/PostgreSQL API) and
+`mygymagent-f` (Next.js frontend), sharing one branch during initial development.
 
-**Build strategy: deep foundation first.** Rather than sketching every domain shallowly, this
-phase builds multi-tenancy, auth/RBAC, audit logging, and the core gym domain (organizations,
-branches, staff, members, membership plans/subscriptions, attendance) to a real production
-standard, end-to-end (DB → API → tests). Every other domain in the product vision (AI, billing,
-workouts, nutrition, inventory, CRM, notifications, files, search, analytics) has its **module
-seam already reserved** (`src/<domain>/`, empty `@Module({})` + README) and its **permission keys
-already seeded**, so it slots into the same conventions without a redesign. Sections below mark
-each domain **[BUILT]** or **[PLANNED]** accordingly.
+**Build strategy: deep foundation first, then breadth.** The initial phase built multi-tenancy,
+auth/RBAC, audit logging, and the core gym domain (organizations, branches, staff, members,
+membership plans/subscriptions, attendance) to a real production standard, end-to-end (DB → API →
+tests), with every other domain's module seam reserved (`src/<domain>/`, empty `@Module({})` +
+README) and permission keys pre-seeded. Since then, six more domains have been built out for real:
+**AI (v1 tool-calling agent), billing (payments/refunds), workouts, nutrition, inventory, and CRM
+(leads)**. Notifications, files, search, and analytics are still reserved seams, not built.
+Sections below mark each domain **[BUILT]** or **[PLANNED]** accordingly — see
+`docs/architecture/discovery-report.md` for a fuller, dated audit of built-vs-planned across every
+domain, including sub-entity-level gaps (e.g. Member 360) this summary doesn't go into.
 
 ---
 
@@ -56,10 +57,10 @@ and adds real operational complexity (every connection needs a session-scoped te
 revisiting once there are direct-DB consumers (e.g. an analytics warehouse) that don't go through
 the API.
 
-## 4. Database architecture **[BUILT for the core domain]**
+## 4. Database architecture **[BUILT for the domains listed below]**
 
 PostgreSQL via Prisma (`prisma-client-js` generator — see the note in §19 on why not the newer
-driver-adapter generator). `prisma/schema.prisma` is organized in three sections:
+driver-adapter generator). `prisma/schema.prisma` is organized in sections:
 
 - **Tenancy root**: `Organization`, `Branch`.
 - **Identity/auth/RBAC**: `User`, `StaffProfile`, `Permission`, `Role`, `RolePermission`,
@@ -67,6 +68,19 @@ driver-adapter generator). `prisma/schema.prisma` is organized in three sections
   `EmailVerificationToken`.
 - **Audit**: `AuditLog` (immutable — application code only ever inserts, never updates/deletes).
 - **Core gym domain**: `Member`, `MembershipPlan`, `Membership`, `Attendance`.
+- **Billing**: `Payment`, `Refund` (gym-side; platform SaaS billing is still unmodeled — see
+  `docs/saas/billing-separation.md`).
+- **Workouts**: `Exercise`, `WorkoutPlan`, `WorkoutAssignment`.
+- **Nutrition**: `FoodItem`, `DietPlan`, `DietAssignment`.
+- **CRM**: `Lead`, `LeadFollowUp`.
+- **Inventory**: `Product`, `StockMovement`.
+- **AI**: `AiUsageLog` (per-request token/cost/latency tracking; no conversation-persistence table
+  yet — see §9).
+
+`Member` today is intentionally still the "core gym domain" version from the deep-foundation phase
+— one flat table, no sub-entities for assessments/goals/documents/consents/history. See
+`docs/architecture/discovery-report.md` §6 for what a full Member 360 model needs; it hasn't been
+built yet and is the single largest schema gap in the system.
 
 Conventions: UUID primary keys; `createdAt`/`updatedAt` on every table; soft delete
 (`deletedAt`) where a record has downstream references that must survive deletion (Organization,
@@ -145,29 +159,37 @@ responses. Every DTO uses `class-validator`; the global `ValidationPipe` runs wi
 `whitelist: true, forbidNonWhitelisted: true` — an unexpected body field is a hard 400, not a
 silently-ignored one (see the tenant-isolation test for why that matters).
 
-## 8. Frontend architecture **[PLANNED — being built in `mygymagent-f`]**
+## 8. Frontend architecture **[BUILT — `mygymagent-f`]**
 
-Next.js App Router, TypeScript, Tailwind, shadcn/ui. A typed API client wraps the `{ data, meta }`
-/ `{ error }` envelope this API returns, with Zod schemas mirroring the backend DTOs. Server
-components by default; client components only where interactivity requires them. Navigation is
-permission-aware, driven by `GET /auth/me`'s `permissions` array — client-side hiding is UX only,
-never the authorization boundary (that's always server-side, per §6).
+Next.js App Router, TypeScript, Tailwind, shadcn/ui, ~20 routed pages under `(app)/` covering every
+built backend domain plus a permission-aware dashboard. A typed API client wraps the
+`{ data, meta }` / `{ error }` envelope this API returns, with Zod schemas mirroring the backend
+DTOs. Server components by default; client components only where interactivity requires them.
+Navigation is permission-aware, driven by `GET /auth/me`'s `permissions` array — client-side hiding
+is UX only, never the authorization boundary (that's always server-side, per §6). Deployed to
+Vercel; see `docs/architecture/discovery-report.md` §13 for a couple of open items (no virtualized
+large-list rendering confirmed yet).
 
-## 9. AI architecture **[PLANNED]**
+## 9. AI architecture **[BUILT: v1 tool-calling chat. PLANNED: the full pipeline below]**
 
-Layered as **AI Gateway → Model Router → Provider Adapters → Specialized Agents → Domain Tools →
-Structured Output Validation → Persistence/Audit**. The AI layer will never query the database
-directly — it calls permission-aware tools (`get_member_profile`, `create_workout_draft`, ...) that
-go through the exact same `PermissionsGuard` checks as the REST API, so an AI agent can never do
-anything the requesting user couldn't do themselves, and can never reach across tenants (tool
-inputs are validated against the caller's `organizationId`, never trusted from the model's output).
-Consequential AI output (a generated workout, a diet plan, a business recommendation) is always a
-**draft** requiring explicit human approval before it's committed — no AI action silently mutates
-a record. Retrieved content (member notes, documents) fed into a prompt is treated as untrusted
-data: it can never override system instructions or grant a tool call permissions it wouldn't
-otherwise have. Provider access goes through an `AIProvider` interface (`generateText`,
-`generateStructured`, `streamText`, `embed`, `moderate`) so no application code depends on one
-vendor's SDK directly, with usage/cost/latency tracked per organization/user/feature.
+Target shape: **AI Gateway → Model Router → Provider Adapters → Specialized Agents → Domain Tools →
+Structured Output Validation → Persistence/Audit**. v1 (`POST /ai/chat`, `src/ai/`) is a scoped-down
+slice of this: one endpoint, one provider (OpenRouter, behind an adapter — swapping/adding
+providers is a new class, not a rewrite), one configured model (no routing yet). What v1 already
+gets right, matching the target design's hard rules: the AI layer never queries the database
+directly — every tool (`read_member`, `create_workout_draft`, ...) calls the exact same
+`organizationId`-scoped domain service the REST API uses, so an AI agent can never do anything the
+requesting user couldn't do themselves and can never reach across tenants (tool arguments are
+validated via DTOs before touching a service; `organizationId` comes only from the caller's JWT,
+never trusted from model output). `create_workout_draft`/`create_diet_draft` write **inert,
+unassigned drafts** — a human has to explicitly assign a plan before it affects a member, which is
+how v1 satisfies "consequential output needs approval" without a formal approval-queue table yet
+(the `ai.approve` permission is reserved for when a tool needs one). Every AI request logs an
+`AiUsageLog` row — organization, tokens, cost when known, latency, status — on success and failure
+alike. **Not built**: conversation persistence (client resends history each call), model routing,
+budget enforcement against the usage log, an approval queue, prompt-injection test coverage against
+a live model. See `src/ai/README.md` for the full accounting and `docs/ai/architecture.md` for the
+target design these gaps are measured against.
 
 ## 10. Event architecture **[BUILT: bus + 4 events. PLANNED: full catalog]**
 
@@ -209,11 +231,16 @@ performance). These are meant to be computed via scheduled aggregation jobs agai
 tables (or a read replica), not calculated ad hoc on every dashboard request — the domain event bus
 (§10) is the natural trigger point for incremental aggregation once this module exists.
 
-## 15. Billing architecture **[PLANNED — seam reserved]**
+## 15. Billing architecture **[BUILT: payments/refunds. PLANNED: invoices, taxes, payouts, platform billing]**
 
-`src/billing/` is reserved for payments, invoices, refunds, discounts, taxes, and trainer
-payouts/commissions. Financial records will follow the same immutable-history pattern already
-established for `Membership` (§4): never mutate a committed financial row, only append/supersede.
+`src/billing/` (`payments.controller.ts`/`payments.service.ts`) covers gym-side `Payment`/`Refund` —
+a member paying the gym, org/branch-scoped, following the same immutable-history pattern already
+established for `Membership` (§4): a refund is a new linked row, never a mutation of the original
+payment. Not yet built: invoices, discounts/taxes as first-class concepts, trainer
+payouts/commissions, and — distinct from all of the above — **platform SaaS billing** (the gym
+paying *us*), which `docs/saas/billing-separation.md` deliberately models as a separate table
+family (`PlatformSubscription`/`PlatformInvoice`) so gym revenue and platform revenue can never
+collide in a query. Still fully design-only.
 
 ## 16. Audit architecture **[BUILT]**
 
@@ -250,12 +277,12 @@ modules (branches, users, members, membership plans, memberships, attendance) al
   make outbound requests), file-upload validation (once Files module exists), prompt injection
   defense (§9 — designed for, enforced once AI module exists).
 
-## 18. Testing architecture **[BUILT for the core domain]**
+## 18. Testing architecture **[BUILT — 80 e2e tests across 13 suites, 6 unit tests]**
 
 - **Unit**: `src/rbac/permissions.service.spec.ts` — the DENY-wins-over-ALLOW resolution logic,
   against a mocked Prisma client (no DB needed).
 - **E2E** (`test/*.e2e-spec.ts`, run via `npm run test:e2e` against a dedicated `mygymagent_test`
-  database, migrated and seeded by `test/global-setup.ts`):
+  database, migrated and seeded by `test/global-setup.ts`) — 13 suites, headline ones:
   - `app.e2e-spec.ts` — health check.
   - `auth.e2e-spec.ts` — register/login/refresh-rotation/logout/me, wrong-password and
     unknown-email give identical responses, account lockout after repeated failures.
@@ -263,14 +290,26 @@ modules (branches, users, members, membership plans, memberships, attendance) al
     organizations, asserting Tenant A can never read/list/update/delete Tenant B's branches,
     members, membership plans, or memberships, including by guessing ids and by injecting a
     foreign `organizationId` into a request body.
-- **[PLANNED]** AI-specific tests (structured-output validation, tool authorization, prompt
-  injection resistance) once the AI module exists.
+  - `branch-scoping.e2e-spec.ts` / `member-assignment-scoping.e2e-spec.ts` — branch-scoped and
+    trainer-assigned-only RBAC, see §6.
+  - `rate-limiting.e2e-spec.ts` — asserts real `429`s past the tight per-route throttle limits.
+  - `platform.e2e-spec.ts` — cross-tenant platform-admin surface, including audit attribution.
+  - `ai.e2e-spec.ts` — the tool executor never leaks cross-org data, rejects malformed/cross-org
+    tool arguments, and (as of the AI usage-tracking work) logs an `AiUsageLog` row on failure.
+- **[PLANNED]** Structured-output validation tests, prompt-injection resistance against a *live*
+  model (today's AI tests exercise the tool executor directly, not a real model call — no API key
+  configured in the test environment), load/performance testing at scale, frontend/backend contract
+  tests. See `docs/testing/strategy.md` and `docs/architecture/discovery-report.md` §16 for the full
+  honest gap list.
 
-## 19. Deployment architecture **[PLANNED — local dev documented, no infra provisioned]**
+## 19. Deployment architecture **[BUILT]**
 
-This phase is code-only by design (no cloud infrastructure was provisioned in building it — see
-`README.md` for local setup against a local Postgres). One implementation note worth recording:
-Prisma 7's default `prisma-client` generator produces a raw-TypeScript, ESM-only client (it uses
+Deployed: Render (this API) + Vercel (`mygymagent-f`) + Supabase (Postgres) — see
+`docs/deployment/overview.md` for the auto-migrate-on-boot behavior (`npm start` runs
+`prisma migrate deploy` before starting the server) and its one known sharp edge (concurrent
+migrations if the API ever scales to multiple instances). `.github/workflows/ci.yml` runs CI.
+One implementation note worth recording: Prisma 7's default `prisma-client` generator produces a
+raw-TypeScript, ESM-only client (it uses
 `import.meta.url`) that is fundamentally incompatible with being `require()`'d from a CommonJS
 Node process — every combination of `ts-node`, `tsx`, and plain compiled output was tried and each
 hit the same `import.meta` vs. CJS conflict. This project pins `prisma`/`@prisma/client` to the
@@ -278,7 +317,7 @@ stable v6 line with the classic `prisma-client-js` generator, which is a well-su
 CJS-compatible choice appropriate for a production NestJS service. Revisit once the ecosystem
 (NestJS, ts-jest, tsx) has settled on Prisma 7 interop.
 
-## 20. Observability architecture **[BUILT: basics. PLANNED: metrics/tracing]**
+## 20. Observability architecture **[BUILT: basics + error tracking. PLANNED: metrics/tracing]**
 
 `GET /health` (public) checks live DB connectivity (`SELECT 1`) and reports status/latency —
 suitable for a container orchestrator's liveness/readiness probe. Every request carries a
@@ -286,8 +325,12 @@ correlation id (`RequestIdMiddleware`, echoed in the `x-request-id` response hea
 every success envelope, error envelope, and audit log row), so a single request can be traced
 across logs, error responses, and the audit trail. NestJS's built-in `Logger` is used for
 structured server-side logging (5xx errors logged with the request id and stack trace).
-**[PLANNED]** Metrics (queue health, AI latency/cost, API latency percentiles) and distributed
-tracing once there's a queue/AI module to instrument.
+**Error tracking**: `AllExceptionsFilter` reports every 5xx to Sentry (`src/instrument.ts`,
+`SENTRY_DSN` env var — a no-op when unset, so this stays optional per deployment) tagged with the
+request id, so a production 5xx is now visible without a user report, not just in server logs.
+AI usage/cost is tracked per-request (`AiUsageLog`, §9) but not yet surfaced as a metric/dashboard.
+**[PLANNED]** API latency percentiles, queue health metrics (once a queue exists), and distributed
+tracing.
 
 ---
 
@@ -295,26 +338,37 @@ tracing once there's a queue/AI module to instrument.
 
 ```
 src/
-  auth/                 JWT + refresh-token auth, register/login/refresh/logout, password reset, email verification
-  rbac/                 permission catalog, role catalog, PermissionsService, PermissionsGuard
-  audit/                AuditService (+ AuditInterceptor lives in common/)
-  events/                domain event catalog (EventEmitter2-backed)
-  prisma/                PrismaService (the only place PrismaClient is constructed)
-  common/                guards, decorators, interceptors, filters, middleware, mailer stub, pagination helpers
-  organizations/         org profile + settings
+  instrument.ts           Sentry init (imported first in main.ts) -- no-op without SENTRY_DSN
+  auth/                   JWT + refresh-token auth, register/login/refresh/logout, password reset, email verification
+  rbac/                   permission catalog, role catalog, PermissionsService, PermissionsGuard
+  audit/                  AuditService (+ AuditInterceptor lives in common/)
+  events/                 domain event catalog (EventEmitter2-backed)
+  prisma/                 PrismaService (the only place PrismaClient is constructed)
+  common/                 guards, decorators, interceptors, filters, middleware, mailer stub, pagination helpers
+  organizations/          org profile + settings
   branches/               branch CRUD
   users/                  staff invite/list/update/deactivate, role assignment
-  members/                gym client CRUD
+  members/                gym client CRUD (flat Member model -- no Member 360 sub-entities yet)
   membership-plans/       plan CRUD
-  memberships/             sell/freeze/resume/cancel a member's subscription
+  memberships/            sell/freeze/resume/cancel a member's subscription
   attendance/             check-in/check-out
-  ai/ billing/ workouts/ nutrition/ inventory/ crm/ notifications/ files/ search/ analytics/
+  billing/                gym-side Payment/Refund (platform SaaS billing still unbuilt)
+  workouts/               exercises, workout plans, assignments
+  nutrition/              food items, diet plans, assignments
+  crm/                    leads + follow-ups
+  inventory/              products + stock movements
+  ai/                     v1 tool-calling chat over OpenRouter, AiUsageLog tracking -- see src/ai/README.md
+  platform/               cross-tenant platform-admin surface (org list/status)
+  notifications/ files/ search/ analytics/
                           reserved module seams -- see each directory's README.md
 prisma/
   schema.prisma           the full data model
   seed.ts                 idempotent: seeds the permission catalog + system roles
 test/
-  auth.e2e-spec.ts
-  tenant-isolation.e2e-spec.ts
-  app.e2e-spec.ts
+  *.e2e-spec.ts            13 suites -- auth, tenant isolation, branch scoping, assignment scoping,
+                           rate limiting, platform admin, AI tool executor, and the core domain modules
 ```
+
+See `docs/architecture/discovery-report.md` for the current, dated gap analysis this summary
+doesn't repeat in full (Member 360 depth, PT-as-commerce, Assessments/Goals/Appointments, durable
+job queue, platform billing, and more).

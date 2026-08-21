@@ -82,7 +82,13 @@ make that class of bug structurally harder to write, the same reasoning ADR 0001
 isolation itself.
 
 ## What exists today
-Nothing — the `billing` module is a skeleton (`src/billing/README.md`). `Membership.price` (which
-does exist) is gym-side data (what a member's subscription costs), not platform billing — it's the
-*plan price*, not a *payment record*; a `Payment` row referencing a `Membership` is what would
-represent the member actually paying for it, once built.
+The **gym operational billing** side: `Payment` and `Refund` (`src/billing/payments.controller.ts`,
+`payments.service.ts`) — real, org/branch-scoped records of a member paying the gym, following the
+immutability rule above (a refund is a new linked row, never a mutation of the original `Payment`).
+`Payment.membershipId` is nullable exactly as this doc anticipated, for one-off product/PT sales not
+tied to a membership.
+
+**Platform billing** (`PlatformSubscription`, `PlatformInvoice`) is still design-only — nothing
+charges an organization for using MyGymAgent yet. This is the one gap this doc's own separation
+argument was written to protect: build it as its own model family when prioritized, never by adding
+a `type` column to `Payment`.

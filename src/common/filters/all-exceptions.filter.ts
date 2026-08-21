@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { Prisma } from '@prisma/client';
+import * as Sentry from '@sentry/node';
 
 interface ApiErrorEnvelope {
   error: {
@@ -37,6 +38,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `[${request.requestId}] ${request.method} ${request.url} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+      // A no-op if SENTRY_DSN is unset (src/instrument.ts never called
+      // Sentry.init) -- server logs remain the only record in that case,
+      // same as before this was wired up.
+      Sentry.captureException(exception, {
+        tags: { requestId: request.requestId },
+      });
     }
 
     response.status(status).json(body);

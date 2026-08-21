@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { ToolExecutorService } from '../src/ai/tools/tool-executor.service';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 
 /**
@@ -17,6 +18,7 @@ describe('AI (e2e)', () => {
   let orgA: RegisteredAccount;
   let orgB: RegisteredAccount;
   let toolExecutor: ToolExecutorService;
+  let prisma: PrismaService;
 
   async function registerOrg(name: string): Promise<RegisteredAccount> {
     const email = `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random()
@@ -52,6 +54,7 @@ describe('AI (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     toolExecutor = app.get(ToolExecutorService);
+    prisma = app.get(PrismaService);
     orgA = await registerOrg('AI Test Gym A');
     orgB = await registerOrg('AI Test Gym B');
   });
@@ -71,6 +74,24 @@ describe('AI (e2e)', () => {
     await authed(orgA.accessToken)(
       request(app.getHttpServer()).post('/ai/chat').send({ message: 'hi' }),
     ).expect(503);
+  });
+
+  it('logs an AiUsageLog row with ERROR status when the provider call fails', async () => {
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).post('/ai/chat').send({ message: 'hi' }),
+    ).expect(503);
+
+    const rows = await prisma.aiUsageLog.findMany({
+      where: { organizationId: orgA.organizationId, userId: orgA.userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    const latest = rows[0];
+    expect(latest.status).toBe('ERROR');
+    expect(latest.feature).toBe('chat');
+    expect(latest.provider).toBe('openrouter');
+    expect(latest.errorMessage).toContain('OPENROUTER_API_KEY');
+    expect(latest.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
   it("the read_member tool never returns another organization's member", async () => {

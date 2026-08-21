@@ -1,10 +1,13 @@
-# AI architecture (design only — `ai` module is a skeleton, no logic implemented)
+# AI architecture
 
-## Why this is design-only right now
-Per ADR 0004, breadth domains got a design doc before code. AI is the domain where skipping the
-design pass is most dangerous — an under-designed AI integration is how you get `execute_sql()`
-handed to a model, or unvalidated LLM JSON landing in a financial table. This doc exists so that
-when the `ai` module is actually built, it's built against real constraints instead of `some function` genericism.
+## Status
+This was written as a design-only doc before the `ai` module existed (per ADR 0004 — breadth
+domains got a design pass before code, since an under-designed AI integration is how you get
+`execute_sql()` handed to a model). **The module is now built** — v1 scope, not the full pipeline
+below. See `src/ai/README.md` for exactly what exists vs. what's still a deliberate v1
+simplification (no conversation persistence, no model routing, no budget enforcement yet, no
+approval queue — v1's write tools are safe by construction instead). The layered pipeline below is
+still the target shape for where this grows, not a description of what runs today.
 
 ## Layers
 
@@ -73,10 +76,11 @@ caller, **never** save a manually-patched or partially-valid object. Raw LLM out
   attendance log).
 - **Caching**: cache stable inputs (e.g. an exercise library lookup a prompt references repeatedly)
   rather than re-sending them every call, once prompt-caching-worthy patterns exist.
-- **Per-tenant usage tracking + budget controls**: every AI call logs `organizationId`, token count,
-  and estimated cost — this is the same mechanism the SaaS plan/limit system needs (see
-  `docs/saas/plans-and-limits.md`) to enforce "AI usage" as a plan-limited resource, not a separate
-  system.
+- **Per-tenant usage tracking**: built — every `chat()` call writes an `AiUsageLog` row
+  (`organizationId`, token count, cost when the provider reports it, latency, status), on both
+  success and failure paths. **Budget controls are not built** — nothing reads this table to reject
+  a request yet; that's the remaining piece `docs/saas/plans-and-limits.md`'s "AI usage" plan limit
+  needs.
 - **Rate limits**: per-org and per-user request-rate caps, independent of the general API throttle,
   since a single runaway AI feature (e.g. a UI bug that re-triggers generation in a loop) is a much
   larger cost event than a runaway REST call.

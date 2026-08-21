@@ -4,6 +4,7 @@ import { CrmModule } from '../crm/crm.module';
 import { MembersModule } from '../members/members.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
+import { AiUsageService } from './ai-usage.service';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { OpenRouterProvider } from './providers/openrouter.provider';
@@ -24,6 +25,11 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     NutritionModule,
   ],
   controllers: [AiController],
-  providers: [AiService, OpenRouterProvider, ToolExecutorService],
+  providers: [
+    AiService,
+    OpenRouterProvider,
+    ToolExecutorService,
+    AiUsageService,
+  ],
 })
 export class AiModule {}

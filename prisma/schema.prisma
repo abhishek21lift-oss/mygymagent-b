@@ -1,16 +1,19 @@
 // ============================================================================
 // MyGymAgent - Core Platform Schema
 //
-// Scope of this phase ("deep foundation"): multi-tenancy, RBAC, auth, audit
-// logging, and the core gym domain (organizations, branches, staff, members,
-// membership plans/subscriptions, attendance).
+// Multi-tenancy, RBAC, auth, audit logging, and the core gym domain
+// (organizations, branches, staff, members, membership plans/subscriptions,
+// attendance) plus billing (payments/refunds), workouts, nutrition,
+// inventory, CRM/leads, and AI usage tracking are modeled and built.
 //
-// Everything else described in the product blueprint (AI, billing/payments,
-// workouts, nutrition, inventory, CRM/leads, notifications, events, files,
-// search, analytics) is intentionally NOT modeled here yet. See
-// docs/ARCHITECTURE.md for how those domains will attach to this schema --
-// they will all hang off Organization / Branch / Member / User the same way
-// the tables below do, keeping tenant isolation uniform across the system.
+// Still reserved seams, not modeled here yet (see
+// docs/architecture/discovery-report.md for the current gap list):
+// notifications, files/object storage, search, analytics, platform SaaS
+// billing (as opposed to the gym-side Payment/Refund tables below), and the
+// Member 360 sub-entities (Assessments, Goals, Appointments, documents,
+// consents, status/branch history). New tables all hang off
+// Organization / Branch / Member / User the same way the tables below do,
+// keeping tenant isolation uniform across the system.
 // ============================================================================
 
 generator client {
@@ -78,6 +81,7 @@ model Organization {
   dietAssignments     DietAssignment[]
   products            Product[]
   stockMovements      StockMovement[]
+  aiUsageLogs         AiUsageLog[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -193,6 +197,7 @@ model User {
   dietPlansCreated        DietPlan[]                @relation("DietPlanCreatedBy")
   dietAssignmentsMade     DietAssignment[]          @relation("DietAssignedBy")
   stockMovementsRecorded  StockMovement[]           @relation("StockMovementRecordedBy")
+  aiUsageLogs             AiUsageLog[]              @relation("AiUsageActor")
 
   @@index([organizationId])
   @@map("users")
@@ -1000,4 +1005,57 @@ model StockMovement {
   @@index([organizationId])
   @@index([productId])
   @@map("stock_movements")
+}
+
+// ----------------------------------------------------------------------------
+// AI usage/cost tracking
+// ----------------------------------------------------------------------------
+
+enum AiUsageStatus {
+  SUCCESS
+  ERROR
+}
+
+/// One row per user-facing AI request (e.g. one POST /ai/chat call, tokens
+/// summed across every provider round-trip the tool-calling loop made for
+/// it) -- not one row per provider call. This is what
+/// docs/ai/architecture.md's cost-control section requires before AI usage
+/// can be enforced as a plan-limited resource (docs/saas/plans-and-limits.md)
+/// and is the only visibility into AI spend this system has today; a failed
+/// provider call is still logged (status ERROR) so an outage or a
+/// misconfigured key shows up in usage data, not just server logs. Writing
+/// this row must never be able to fail the actual AI response -- see
+/// AiUsageService.record()'s try/catch.
+model AiUsageLog {
+  id             String        @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  userId         String?
+  user           User?         @relation("AiUsageActor", fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Stable label for the AI entry point, e.g. "chat" -- lets usage be
+  /// broken down per feature as more AI surfaces are added.
+  feature  String
+  provider String
+  model    String?
+
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  /// USD, when the provider reports generation cost; null if unknown --
+  /// never guessed/estimated from a static per-model table, to avoid a
+  /// silently-wrong number entering plan-limit enforcement.
+  costUsd Decimal? @db.Decimal(10, 6)
+
+  latencyMs    Int
+  status       AiUsageStatus
+  errorMessage String?
+
+  requestId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@map("ai_usage_logs")
 }

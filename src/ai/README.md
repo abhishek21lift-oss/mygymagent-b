@@ -68,10 +68,15 @@ conversation memory.
   cheap-vs-strong models by task type (per `docs/ai/architecture.md`'s
   cost-control section) is real future work once there's usage data to
   route on.
-- **No per-tenant usage tracking or budget enforcement.** The only cost
-  controls today are the per-request timeout, output-token cap, and
-  bounded tool-call loop. Per-org token/cost tracking (needed for
-  `docs/saas/plans-and-limits.md`'s "AI usage" plan limit) is not built.
+- **Usage tracking exists; budget enforcement doesn't yet.** Every
+  `chat()` call writes one `AiUsageLog` row (`ai-usage.service.ts`) --
+  organizationId, tokens, cost (when OpenRouter reports it), latency,
+  status, on both success and failure paths, logging failure itself never
+  able to fail the actual response. What's still missing: nothing reads
+  this table to enforce a limit yet -- `docs/saas/plans-and-limits.md`'s
+  "AI usage" plan limit still needs a `LimitsService` check wired into
+  `AiService.chat()` before this data does more than sit there for
+  after-the-fact reporting.
 - **No prompt-injection test suite.** The system prompt instructs the
   model to treat tool-result content as data, not instructions (the
   standard mitigation), but nothing automated verifies this holds --
