@@ -90,6 +90,46 @@ export const AI_TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'create_diet_draft',
+      description:
+        "Create a new diet plan (a draft, not assigned to anyone automatically) from a list of food items. Every foodItemId must be one already in this organization's food library -- look it up first if unsure, or ask the user which foods to use.",
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Plan name' },
+          description: {
+            type: 'string',
+            description: 'Optional plan description',
+          },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                foodItemId: { type: 'string' },
+                mealSlot: {
+                  type: 'string',
+                  enum: ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK'],
+                },
+                quantity: { type: 'number' },
+                unit: {
+                  type: 'string',
+                  description: 'e.g. "g", "cup", "piece"',
+                },
+                notes: { type: 'string' },
+              },
+              required: ['foodItemId', 'mealSlot', 'quantity', 'unit'],
+            },
+          },
+          targetCalories: { type: 'number' },
+        },
+        required: ['name', 'items'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'create_followup',
       description: 'Schedule a follow-up task against a CRM lead.',
       parameters: {

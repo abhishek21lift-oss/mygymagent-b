@@ -149,6 +149,55 @@ describe('AI (e2e)', () => {
     ).rejects.toThrow();
   });
 
+  it("creates a diet draft scoped to the caller's org, rejecting a food item from another org", async () => {
+    const foodA = await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post('/food-items')
+        .send({ name: 'AI Test Chicken' }),
+    ).expect(201);
+
+    const result = (await toolExecutor.execute(
+      'create_diet_draft',
+      {
+        name: 'AI Diet Draft',
+        items: [
+          {
+            foodItemId: foodA.body.data.id,
+            mealSlot: 'LUNCH',
+            quantity: 200,
+            unit: 'g',
+          },
+        ],
+      },
+      { organizationId: orgA.organizationId, userId: orgA.userId },
+    )) as { id: string };
+    expect(result.id).toBeDefined();
+
+    const foodB = await authed(orgB.accessToken)(
+      request(app.getHttpServer())
+        .post('/food-items')
+        .send({ name: 'Org B Only Food' }),
+    ).expect(201);
+
+    await expect(
+      toolExecutor.execute(
+        'create_diet_draft',
+        {
+          name: 'Cross-tenant diet draft',
+          items: [
+            {
+              foodItemId: foodB.body.data.id,
+              mealSlot: 'LUNCH',
+              quantity: 200,
+              unit: 'g',
+            },
+          ],
+        },
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      ),
+    ).rejects.toThrow();
+  });
+
   it("create_followup creates a real, auditable follow-up scoped to the caller's org", async () => {
     const lead = await authed(orgA.accessToken)(
       request(app.getHttpServer()).post('/leads').send({

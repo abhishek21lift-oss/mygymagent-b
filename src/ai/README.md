@@ -18,15 +18,15 @@ conversation memory.
 - **Explicit tool allowlist** (`tools/tool-definitions.ts`), exactly the
   set `docs/ai/architecture.md` specified: `read_member`,
   `read_workout_history`, `read_attendance`, `create_workout_draft`,
-  `create_followup`. No `execute_sql`-shaped tool exists or ever should --
-  see `docs/ai/architecture.md`'s "§56" section.
+  `create_diet_draft`, `create_followup`. No `execute_sql`-shaped tool
+  exists or ever should -- see `docs/ai/architecture.md`'s "§56" section.
 - **No special-cased data path**: every tool executor
   (`tools/tool-executor.service.ts`) calls the exact same
   organizationId-scoped domain service the REST API uses
   (`MembersService`, `AttendanceService`, `WorkoutPlansService`,
-  `WorkoutAssignmentsService`, `LeadsService`). `organizationId` comes
-  from the authenticated caller's JWT (`AiController` -> `AiService`),
-  never from anything the model said.
+  `WorkoutAssignmentsService`, `DietPlansService`, `LeadsService`).
+  `organizationId` comes from the authenticated caller's JWT
+  (`AiController` -> `AiService`), never from anything the model said.
 - **Structured validation before persistence**: every tool's arguments are
   validated against a DTO (`tools/validate-tool-args.ts`, the same
   class-validator machinery the global `ValidationPipe` uses) before
@@ -50,9 +50,10 @@ conversation memory.
   output is always a draft requiring human approval before commit" (the
   `ai.approve` permission in the catalog is reserved for this, unused
   today). v1's two write tools are safe without one *by construction*,
-  not because the rule was dropped: `create_workout_draft` creates an
-  **unassigned** `WorkoutPlan` -- inert until a human explicitly assigns
-  it via `POST /workout-plans/:id/assign`, which is not an AI tool; and
+  not because the rule was dropped: `create_workout_draft` and
+  `create_diet_draft` create an **unassigned** plan -- inert until a
+  human explicitly assigns it (`POST /workout-plans/:id/assign` or
+  `POST /diet-plans/:id/assign`, neither of which is an AI tool); and
   `create_followup` creates a task for a *human* to act on (call/email a
   lead), not an autonomous action on the lead itself. If a future tool
   does something directly consequential (assigns a plan, converts a lead,

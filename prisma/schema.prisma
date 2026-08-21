@@ -73,6 +73,9 @@ model Organization {
   workoutAssignments  WorkoutAssignment[]
   leads               Lead[]
   leadFollowUps       LeadFollowUp[]
+  foodItems           FoodItem[]
+  dietPlans           DietPlan[]
+  dietAssignments     DietAssignment[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -185,6 +188,8 @@ model User {
   workoutAssignmentsMade  WorkoutAssignment[]       @relation("WorkoutAssignedBy")
   leadsAssigned           Lead[]                    @relation("LeadAssignedTo")
   leadFollowUpsCreated    LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
+  dietPlansCreated        DietPlan[]                @relation("DietPlanCreatedBy")
+  dietAssignmentsMade     DietAssignment[]          @relation("DietAssignedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -454,6 +459,7 @@ model Member {
   attendances Attendance[]
   payments    Payment[]
   workoutAssignments WorkoutAssignment[]
+  dietAssignments    DietAssignment[]
   /// Set if this member originated from a converted Lead -- the opposite
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
@@ -835,4 +841,97 @@ model LeadFollowUp {
   @@index([organizationId])
   @@index([leadId, dueAt])
   @@map("lead_follow_ups")
+}
+
+// ----------------------------------------------------------------------------
+// Nutrition engine -- v1 scope, mirrors the Workouts v1 shape exactly (see
+// that section's comment): a food library, named diet plans (a flat list
+// of food items with quantities as JSON, not a versioned/relational meal
+// hierarchy), and assigning a plan to a member with status tracking.
+// ----------------------------------------------------------------------------
+
+/// An organization's food/ingredient library entry, same reasoning as
+/// Exercise: custom per org, no shared global catalog in v1.
+model FoodItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  servingSize String? // e.g. "100g", "1 cup"
+  calories    Int?
+  proteinG    Decimal? @db.Decimal(6, 2)
+  carbsG      Decimal? @db.Decimal(6, 2)
+  fatG        Decimal? @db.Decimal(6, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("food_items")
+}
+
+/// A named, reusable diet plan. `items` is a denormalized JSON array
+/// (`[{foodItemId, quantity, unit, mealSlot, notes}]`) for the same reason
+/// WorkoutPlan.exercises is JSON, not a join table -- see that model's
+/// comment. Optional daily macro targets live directly on the plan since
+/// there's exactly one set of targets per plan, not a many-side relation.
+model DietPlan {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  items       Json    @default("[]")
+
+  targetCalories Int?
+  targetProteinG Decimal? @db.Decimal(6, 2)
+  targetCarbsG   Decimal? @db.Decimal(6, 2)
+  targetFatG     Decimal? @db.Decimal(6, 2)
+
+  createdByUserId String?
+  createdByUser   User?   @relation("DietPlanCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments DietAssignment[]
+
+  @@index([organizationId])
+  @@map("diet_plans")
+}
+
+enum DietAssignmentStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+/// A DietPlan assigned to a specific member -- same shape as
+/// WorkoutAssignment.
+model DietAssignment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dietPlanId     String
+  dietPlan       DietPlan     @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  assignedByUserId String?
+  assignedByUser   User?   @relation("DietAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  status    DietAssignmentStatus @default(ACTIVE)
+  startDate DateTime             @default(now())
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([memberId])
+  @@index([dietPlanId])
+  @@map("diet_assignments")
 }

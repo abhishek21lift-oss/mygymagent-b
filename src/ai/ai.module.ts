@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { CrmModule } from '../crm/crm.module';
 import { MembersModule } from '../members/members.module';
+import { NutritionModule } from '../nutrition/nutrition.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
@@ -15,7 +16,13 @@ import { ToolExecutorService } from './tools/tool-executor.service';
  * docs/ai/architecture.md.
  */
 @Module({
-  imports: [MembersModule, AttendanceModule, WorkoutsModule, CrmModule],
+  imports: [
+    MembersModule,
+    AttendanceModule,
+    WorkoutsModule,
+    CrmModule,
+    NutritionModule,
+  ],
   controllers: [AiController],
   providers: [AiService, OpenRouterProvider, ToolExecutorService],
 })

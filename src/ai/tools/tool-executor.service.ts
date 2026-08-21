@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AttendanceService } from '../../attendance/attendance.service';
 import { AuditService } from '../../audit/audit.service';
 import { LeadsService } from '../../crm/leads.service';
+import { CreateDietPlanDto } from '../../nutrition/dto/create-diet-plan.dto';
+import { DietPlansService } from '../../nutrition/diet-plans.service';
 import { CreateWorkoutPlanDto } from '../../workouts/dto/create-workout-plan.dto';
 import { MembersService } from '../../members/members.service';
 import { WorkoutAssignmentsService } from '../../workouts/workout-assignments.service';
@@ -34,6 +36,7 @@ export class ToolExecutorService {
     private readonly workoutPlansService: WorkoutPlansService,
     private readonly workoutAssignmentsService: WorkoutAssignmentsService,
     private readonly leadsService: LeadsService,
+    private readonly dietPlansService: DietPlansService,
     private readonly audit: AuditService,
   ) {}
 
@@ -51,6 +54,8 @@ export class ToolExecutorService {
         return this.readAttendance(rawArgs, context);
       case 'create_workout_draft':
         return this.createWorkoutDraft(rawArgs, context);
+      case 'create_diet_draft':
+        return this.createDietDraft(rawArgs, context);
       case 'create_followup':
         return this.createFollowup(rawArgs, context);
       default: {
@@ -141,6 +146,27 @@ export class ToolExecutorService {
       resource: 'workout_plan',
       resourceId: plan.id,
       afterState: { name: plan.name, exerciseCount: dto.exercises.length },
+    });
+    return { id: plan.id, name: plan.name };
+  }
+
+  private async createDietDraft(
+    rawArgs: unknown,
+    { organizationId, userId }: ToolCallContext,
+  ) {
+    const dto = validateToolArgs(CreateDietPlanDto, rawArgs);
+    const plan = await this.dietPlansService.create(
+      organizationId,
+      dto,
+      userId,
+    );
+    await this.audit.record({
+      organizationId,
+      actorUserId: userId,
+      action: 'ai_tool.create_diet_draft',
+      resource: 'diet_plan',
+      resourceId: plan.id,
+      afterState: { name: plan.name, itemCount: dto.items.length },
     });
     return { id: plan.id, name: plan.name };
   }
