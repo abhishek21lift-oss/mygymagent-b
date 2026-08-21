@@ -25,12 +25,12 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { PlatformModule } from './platform/platform.module';
 import { BillingModule } from './billing/billing.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { CrmModule } from './crm/crm.module';
 
 // Deferred domains -- empty module skeletons, see each directory's README.md.
 import { AiModule } from './ai/ai.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { CrmModule } from './crm/crm.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FilesModule } from './files/files.module';
 import { SearchModule } from './search/search.module';
@@ -59,6 +59,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     AttendanceModule,
     BillingModule,
     WorkoutsModule,
+    CrmModule,
 
     // Platform (cross-tenant) administration -- see docs/security/overview.md
     PlatformModule,
@@ -67,7 +68,6 @@ import { AnalyticsModule } from './analytics/analytics.module';
     AiModule,
     NutritionModule,
     InventoryModule,
-    CrmModule,
     NotificationsModule,
     FilesModule,
     SearchModule,

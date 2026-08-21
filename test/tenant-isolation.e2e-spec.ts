@@ -293,6 +293,42 @@ describe('Tenant isolation (e2e)', () => {
     ).expect(404);
   });
 
+  it('Org A cannot see, convert, or add follow-ups to a lead belonging to Org B', async () => {
+    const leadB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/leads').send({
+        firstName: 'Prospect',
+        lastName: 'TargetB',
+        branchId: orgB.branchId,
+      }),
+    ).expect(201);
+
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get(`/leads/${leadB.body.data.id}`),
+    ).expect(404);
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/leads/${leadB.body.data.id}/status`)
+        .send({ status: 'CONTACTED' }),
+    ).expect(404);
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post(`/leads/${leadB.body.data.id}/convert`)
+        .send({}),
+    ).expect(404);
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post(`/leads/${leadB.body.data.id}/follow-ups`)
+        .send({ dueAt: new Date().toISOString(), note: 'Call them' }),
+    ).expect(404);
+
+    const listA = await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get('/leads'),
+    ).expect(200);
+    expect(
+      listA.body.data.items.map((l: { id: string }) => l.id),
+    ).not.toContain(leadB.body.data.id);
+  });
+
   it('rejects (rather than silently ignoring) an attempt to inject organizationId into the request body', async () => {
     // CreateMemberDto has no organizationId field, and the global
     // ValidationPipe runs with forbidNonWhitelisted: true, so an injected

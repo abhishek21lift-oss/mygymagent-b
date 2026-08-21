@@ -1,11 +1,36 @@
 # crm
 
-**Status: not implemented in this phase.** Empty NestJS module only, registered in `AppModule` to reserve the seam.
+**Status: partially implemented (v1 scope).** The lead pipeline, follow-ups,
+and lead-to-member conversion are real. Campaigns and referrals (also
+mentioned in the original description) are deferred -- neither has value
+without a working pipeline to attach to, and building them speculatively
+now would be guessing at a shape before the pipeline itself has been used.
 
-Lead pipeline (New -> Contacted -> Qualified -> Trial -> Won/Lost), follow-ups, campaigns, referrals. See docs/ARCHITECTURE.md#leads-crm.
+## What exists
 
-When this module is built, it will follow the same conventions as the implemented core modules (organizations, branches, users, members, membership-plans, memberships, attendance):
-- Every query/mutation scoped by `organizationId` taken from `@CurrentUser()`, never from client input.
-- Routes protected by `@RequirePermissions('crm.<action>')` against the permission catalog in `src/rbac/permissions.catalog.ts` (already seeded).
-- Mutating endpoints annotated `@Audited(...)` for the audit trail.
-- Cross-module effects via the domain event bus (`src/events/domain-events.ts`) rather than direct service-to-service coupling.
+- `GET/POST /leads`, `GET/PATCH /leads/:id` (`leads.read`/`leads.manage`) --
+  create and manage leads. List is filterable by `status`/`assignedToUserId`.
+- `PATCH /leads/:id/status` (`leads.manage`) -- move a lead through
+  `NEW -> CONTACTED -> QUALIFIED -> TRIAL -> LOST`. `WON` is deliberately
+  excluded here -- it's set only by `/convert`, so "WON" and "has a linked
+  Member" can never drift apart (see the `Lead` model's schema comment).
+- `POST /leads/:id/convert` (`leads.manage`) -- creates a real `Member` from
+  the lead's info via `MembersService.create()` (the same path `POST
+  /members` uses, not duplicated logic), links `Lead.convertedMemberId`,
+  and sets status to `WON`.
+- `POST /leads/:id/follow-ups`, `PATCH /leads/:id/follow-ups/:id/complete`
+  (`leads.manage`) -- scheduled follow-up tasks against a lead. Reachable
+  only nested under their lead (no standalone global follow-up list) -- a
+  follow-up has no meaning detached from the lead it's about.
+
+Every query/mutation is scoped by `organizationId` taken from
+`@CurrentUser()`, same as every other implemented module.
+
+## What's still missing
+
+- No campaigns (bulk outreach, email/SMS sequences).
+- No referral tracking (member refers a friend -> becomes a lead).
+- No automatic lead scoring -- see `docs/ai/architecture.md`'s
+  `LeadScoreSchema`, which will call into this module's data once the `ai`
+  module exists, not the other way around.
+- No lead source analytics/reporting.

@@ -1,11 +1,18 @@
 import { Module } from '@nestjs/common';
+import { MembersModule } from '../members/members.module';
+import { LeadsController } from './leads.controller';
+import { LeadsService } from './leads.service';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * v1 CRM: the lead pipeline (New -> Contacted -> Qualified -> Trial ->
+ * Won/Lost), follow-up tasks, and converting a won lead into a real
+ * Member. Campaigns and referrals (also mentioned in the original module
+ * README) are deferred -- see README.md.
  */
-@Module({})
+@Module({
+  imports: [MembersModule],
+  controllers: [LeadsController],
+  providers: [LeadsService],
+  exports: [LeadsService],
+})
 export class CrmModule {}

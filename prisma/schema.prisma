@@ -71,6 +71,8 @@ model Organization {
   exercises           Exercise[]
   workoutPlans        WorkoutPlan[]
   workoutAssignments  WorkoutAssignment[]
+  leads               Lead[]
+  leadFollowUps       LeadFollowUp[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -110,6 +112,7 @@ model Branch {
   attendances     Attendance[]
   userRoles       UserRole[]
   payments        Payment[]
+  leads           Lead[]
   primaryUsers    User[]           @relation("UserPrimaryBranch")
   primaryMembers  Member[]         @relation("MemberPrimaryBranch")
 
@@ -180,6 +183,8 @@ model User {
   refundsRecorded         Refund[]                 @relation("RefundRecordedBy")
   workoutPlansCreated     WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
   workoutAssignmentsMade  WorkoutAssignment[]       @relation("WorkoutAssignedBy")
+  leadsAssigned           Lead[]                    @relation("LeadAssignedTo")
+  leadFollowUpsCreated    LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -449,6 +454,9 @@ model Member {
   attendances Attendance[]
   payments    Payment[]
   workoutAssignments WorkoutAssignment[]
+  /// Set if this member originated from a converted Lead -- the opposite
+  /// side of Lead.convertedMemberId.
+  convertedFromLead  Lead?
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -748,4 +756,83 @@ model WorkoutAssignment {
   @@index([memberId])
   @@index([workoutPlanId])
   @@map("workout_assignments")
+}
+
+// ----------------------------------------------------------------------------
+// CRM / leads -- v1 scope. The module README also mentions campaigns and
+// referrals; those are deferred (no pipeline-adjacent value without an
+// actual lead pipeline existing first). This models the pipeline itself:
+// New -> Contacted -> Qualified -> Trial -> Won/Lost, follow-up tasks, and
+// converting a won lead into a real Member.
+// ----------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  TRIAL
+  WON
+  LOST
+}
+
+/// A prospect who hasn't (yet) become a Member. `status` moves through the
+/// pipeline via PATCH /leads/:id/status; WON is set only by the /convert
+/// endpoint (never directly), so "WON" and "has a linked Member" can never
+/// drift apart.
+model Lead {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+  source    String?
+  status    LeadStatus @default(NEW)
+  notes     String?
+
+  assignedToUserId String?
+  assignedToUser   User?   @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  /// Set only by POST /leads/:id/convert, at the same time status becomes
+  /// WON -- see the module comment above.
+  convertedMemberId String?   @unique
+  convertedMember   Member?   @relation(fields: [convertedMemberId], references: [id], onDelete: SetNull)
+  convertedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  followUps LeadFollowUp[]
+
+  @@index([organizationId, status])
+  @@index([assignedToUserId])
+  @@map("leads")
+}
+
+/// A scheduled task against a lead ("call back Tuesday", "send pricing").
+/// Reachable only nested under its lead (no standalone global list) -- a
+/// follow-up has no meaning detached from the lead it's about.
+model LeadFollowUp {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  dueAt       DateTime
+  note        String
+  completedAt DateTime?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("LeadFollowUpCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([leadId, dueAt])
+  @@map("lead_follow_ups")
 }
