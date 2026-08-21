@@ -43,13 +43,13 @@ Proposed flow:
 
 ## Background jobs
 
-Both large imports and large exports need an actual job queue, which doesn't exist in this codebase
-yet (no Redis/BullMQ or equivalent is wired up). This is a genuine infrastructure gap, not just
-missing business logic — when the `files`/import-export surface is built, job queue infrastructure
-needs to land first, not be improvised inline (e.g. do not build this as an in-process
-`setTimeout`-based fake queue; it won't survive a deploy/restart mid-job and won't scale past one
-instance).
+Both large imports and large exports need an actual job queue — **this infrastructure now exists**
+(`src/queue/`, BullMQ + Redis, see `docs/ARCHITECTURE.md` §10.5), built as its own phase rather than
+improvised inline (the queue's first real job is a welcome email, not import/export — see
+`src/notifications/README.md`). Building the import/export flow above is now "register a queue +
+processor following the existing pattern," not "stand up job infrastructure from scratch."
 
 ## What's exposed today
-Nothing — no import or export endpoint exists in any module. This document is the shape to build
-against once prioritized, not a description of current behavior.
+Still nothing — no import or export endpoint exists in any module. The queue infrastructure this
+design depends on is built; the import/export feature itself is not. This document remains the
+shape to build against once prioritized.

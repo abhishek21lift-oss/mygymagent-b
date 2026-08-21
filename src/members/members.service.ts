@@ -146,6 +146,8 @@ export class MembersService {
       organizationId,
       branchId: member.primaryBranchId,
       memberId: member.id,
+      email: member.email ?? undefined,
+      firstName: member.firstName,
     };
     this.events.emit(DomainEvent.MemberCreated, payload);
     return member;

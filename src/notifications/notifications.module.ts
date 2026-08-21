@@ -1,11 +1,18 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { MailerService } from '../common/mailer/mailer.service';
+import { QUEUE_NAMES } from '../queue/queue.constants';
+import { MemberCreatedListener } from './member-created.listener';
+import { WelcomeEmailProcessor } from './welcome-email.processor';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * First real capability, not yet the full design in docs/ARCHITECTURE.md's
+ * notification-architecture section -- see README.md for exactly what's
+ * built (one event, one queue, one job type) vs. still a stub
+ * (in-app/SMS/WhatsApp/push channels, templates, delivery tracking).
  */
-@Module({})
+@Module({
+  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS })],
+  providers: [MemberCreatedListener, WelcomeEmailProcessor, MailerService],
+})
 export class NotificationsModule {}

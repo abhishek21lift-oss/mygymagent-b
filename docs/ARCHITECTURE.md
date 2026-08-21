@@ -198,25 +198,56 @@ budget enforcement against the usage log, an approval queue, prompt-injection te
 a live model. See `src/ai/README.md` for the full accounting and `docs/ai/architecture.md` for the
 target design these gaps are measured against.
 
-## 10. Event architecture **[BUILT: bus + 4 events. PLANNED: full catalog]**
+## 10. Event architecture **[BUILT: bus + full catalog emitted, one consumer]**
 
 `@nestjs/event-emitter` (`EventEmitterModule.forRoot()` in `AppModule`) provides a real, in-process
-domain event bus — not a stub. `src/events/domain-events.ts` is the event catalog; today it defines
-and emits `member.created`, `membership.started`, `membership.cancelled`, and
-`attendance.recorded` (see the `EventEmitter2.emit(...)` calls in `MembersService`,
-`MembershipsService`, `AttendanceService`). This lets future modules (Notifications, the AI
-Retention Agent, analytics aggregation) subscribe without the emitting module knowing they exist.
-**[PLANNED]** The rest of the catalog described in the product vision (`PaymentReceived`,
-`WorkoutAssigned`, `LeadConverted`, `InventoryLow`, ...) will be added by the module that produces
-each event, following the same pattern.
+domain event bus — not a stub. `src/events/domain-events.ts` is the event catalog; every event in
+it is actually emitted today: `member.created` (`MembersService`), `membership.started`/
+`membership.cancelled` (`MembershipsService`), `attendance.recorded` (`AttendanceService`),
+`payment.recorded`/`payment.refunded` (`PaymentsService`), `workout.assigned`
+(`WorkoutPlansService`), `lead.converted` (`LeadsService`), `diet.assigned` (`DietPlansService`),
+`inventory.low` (`StockMovementsService`). This lets future modules subscribe without the emitting
+module knowing they exist. **Only one listener exists so far**
+(`MemberCreatedListener`, §11) — the other nine events fire into the void today, which is fine
+(emitting doesn't require a subscriber) but means most of the product-vision use cases this bus is
+*for* (retention nudges, analytics aggregation, low-stock alerts reaching a human) aren't wired up
+yet, just structurally possible.
 
-## 11. Notification architecture **[PLANNED — seam reserved]**
+## 11. Notification architecture **[BUILT: first real capability. PLANNED: the rest]**
 
-`src/notifications/` is an empty module today. `src/common/mailer/mailer.service.ts` is the
-interim stand-in for its email channel: it logs instead of sending, which is what makes the auth
-email flows (verify email, password reset) fully testable right now without a real provider
-wired up. When built, `NotificationsModule` will subscribe to the domain event bus (§10) and fan
-out across in-app/email/SMS/WhatsApp/push channels; `MailerService`'s callers won't need to change.
+`src/notifications/` has its first real capability: `MemberCreatedListener` subscribes to
+`member.created` (§10) and enqueues a `send-welcome-email` job onto the `notifications` BullMQ
+queue (§10.5/`src/queue/`); `WelcomeEmailProcessor` consumes it and calls
+`MailerService.sendWelcomeEmail()` — still a logging stub, same as the rest of `MailerService`
+(real auth emails are stubbed the same way). This is the first thing to ever consume the event bus,
+and the first real BullMQ job in the codebase — see `src/notifications/README.md` for exactly what
+this does and doesn't cover. **[PLANNED]** In-app/SMS/WhatsApp/push channels, templates, delivery
+tracking, and consuming the other nine domain events — this was built as one vertical slice through
+the new queue infrastructure, not a notifications rewrite.
+
+### 10.5 Job queue architecture **[BUILT]**
+
+`src/queue/` — BullMQ + Redis (`@nestjs/bullmq`), registered once globally
+(`QueueModule`) so any module can `BullModule.registerQueue({ name: ... })` without reconnecting to
+Redis itself. This closes the gap `docs/import-export.md` called "a genuine infrastructure gap, not
+just missing business logic" — the queue that import/export, at-scale notifications, and retryable
+background AI work all need now exists, even though none of those features are built on it yet
+except the one welcome-email job (§11).
+
+Deliberate choices, worth knowing before extending this:
+- **Worker runs in-process**, no separate worker deployment — reasonable at current scale (one
+  backend instance), revisit only once job volume/processing time makes that a real cost.
+- **A missing/unreachable Redis never blocks app boot or fails an unrelated request.** The shared
+  connection is configured with unlimited command retries (`maxRetriesPerRequest: null`, required
+  for BullMQ's own blocking operations) — concretely, this means a producer's `queue.add()` call
+  just stays pending until Redis is reachable again rather than erroring (delayed, not dropped,
+  unless the process restarts first) — see the class comment on `MemberCreatedListener`. `GET
+  /ready` races its own Redis ping against a 2s timeout specifically because that unlimited-retry
+  connection would otherwise make the readiness probe itself hang during an outage instead of
+  failing fast, which is the opposite of what a readiness probe is for.
+- **CI now provisions a Redis service container** (`.github/workflows/ci.yml`) alongside the
+  existing Postgres one, since e2e tests exercise the real enqueue → process → complete flow
+  against real Redis, not a mock.
 
 ## 12. File/storage architecture **[PLANNED — seam reserved]**
 
@@ -284,12 +315,13 @@ modules (branches, users, members, membership plans, memberships, attendance) al
   make outbound requests), file-upload validation (once Files module exists), prompt injection
   defense (§9 — designed for, enforced once AI module exists).
 
-## 18. Testing architecture **[BUILT — 80 e2e tests across 13 suites, 6 unit tests]**
+## 18. Testing architecture **[BUILT — 103 e2e tests across 16 suites, 8 unit tests]**
 
 - **Unit**: `src/rbac/permissions.service.spec.ts` — the DENY-wins-over-ALLOW resolution logic,
-  against a mocked Prisma client (no DB needed).
+  against a mocked Prisma client (no DB needed). `src/notifications/welcome-email.processor.spec.ts`
+  — the job processor calls the mailer with the right args and ignores a job it doesn't recognize.
 - **E2E** (`test/*.e2e-spec.ts`, run via `npm run test:e2e` against a dedicated `mygymagent_test`
-  database, migrated and seeded by `test/global-setup.ts`) — 13 suites, headline ones:
+  database + real Redis, migrated/seeded by `test/global-setup.ts`) — 16 suites, headline ones:
   - `app.e2e-spec.ts` — health check.
   - `auth.e2e-spec.ts` — register/login/refresh-rotation/logout/me, wrong-password and
     unknown-email give identical responses, account lockout after repeated failures.
@@ -299,10 +331,16 @@ modules (branches, users, members, membership plans, memberships, attendance) al
     foreign `organizationId` into a request body.
   - `branch-scoping.e2e-spec.ts` / `member-assignment-scoping.e2e-spec.ts` — branch-scoped and
     trainer-assigned-only RBAC, see §6.
+  - `member-360.e2e-spec.ts` / `member-assessments-goals.e2e-spec.ts` — Member 360 sub-resource
+    CRUD plus cross-tenant isolation for all of it (addresses, notes, consents, history,
+    assessments, goals).
   - `rate-limiting.e2e-spec.ts` — asserts real `429`s past the tight per-route throttle limits.
   - `platform.e2e-spec.ts` — cross-tenant platform-admin surface, including audit attribution.
   - `ai.e2e-spec.ts` — the tool executor never leaks cross-org data, rejects malformed/cross-org
     tool arguments, and (as of the AI usage-tracking work) logs an `AiUsageLog` row on failure.
+  - `notifications-queue.e2e-spec.ts` — creating a member with an email actually enqueues and
+    completes a real welcome-email job against real Redis (not a mock), and confirms no job is
+    enqueued for a member with no email on file.
 - **[PLANNED]** Structured-output validation tests, prompt-injection resistance against a *live*
   model (today's AI tests exercise the tool executor directly, not a real model call — no API key
   configured in the test environment), load/performance testing at scale, frontend/backend contract
@@ -326,8 +364,10 @@ CJS-compatible choice appropriate for a production NestJS service. Revisit once 
 
 ## 20. Observability architecture **[BUILT: basics + error tracking. PLANNED: metrics/tracing]**
 
-`GET /health` (public) checks live DB connectivity (`SELECT 1`) and reports status/latency —
-suitable for a container orchestrator's liveness/readiness probe. Every request carries a
+`GET /health` (liveness, no dependency checks) and `GET /ready` (readiness — checks live DB
+connectivity via `SELECT 1` and the job queue's Redis connection via a 2s-timeout-bounded ping,
+§10.5) are both public, suitable for a container orchestrator's liveness/readiness probes. Every
+request carries a
 correlation id (`RequestIdMiddleware`, echoed in the `x-request-id` response header and included in
 every success envelope, error envelope, and audit log row), so a single request can be traced
 across logs, error responses, and the audit trail. NestJS's built-in `Logger` is used for
@@ -355,7 +395,8 @@ src/
   organizations/          org profile + settings
   branches/               branch CRUD
   users/                  staff invite/list/update/deactivate, role assignment
-  members/                gym client CRUD (flat Member model -- no Member 360 sub-entities yet)
+  members/                gym client CRUD + Member 360 (addresses, notes, consents,
+                          status/branch/trainer history, assessments, goals) -- see src/members/README.md
   membership-plans/       plan CRUD
   memberships/            sell/freeze/resume/cancel a member's subscription
   attendance/             check-in/check-out
@@ -366,14 +407,17 @@ src/
   inventory/              products + stock movements
   ai/                     v1 tool-calling chat over OpenRouter, AiUsageLog tracking -- see src/ai/README.md
   platform/               cross-tenant platform-admin surface (org list/status)
-  notifications/ files/ search/ analytics/
-                          reserved module seams -- see each directory's README.md
+  queue/                  BullMQ + Redis, registered globally -- see src/queue/queue.module.ts
+  notifications/          first real capability: queue-backed welcome email -- see README.md
+  files/ search/ analytics/
+                          still reserved module seams -- see each directory's README.md
 prisma/
   schema.prisma           the full data model
   seed.ts                 idempotent: seeds the permission catalog + system roles
 test/
-  *.e2e-spec.ts            13 suites -- auth, tenant isolation, branch scoping, assignment scoping,
-                           rate limiting, platform admin, AI tool executor, and the core domain modules
+  *.e2e-spec.ts            16 suites -- auth, tenant isolation, branch scoping, assignment scoping,
+                           Member 360, assessments/goals, rate limiting, platform admin, AI tool
+                           executor, the notifications queue, and the core domain modules
 ```
 
 See `docs/architecture/discovery-report.md` for the current, dated gap analysis this summary

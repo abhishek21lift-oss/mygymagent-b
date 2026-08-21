@@ -5,6 +5,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { QueueModule } from './queue/queue.module';
 import { AuditModule } from './audit/audit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { AuthModule } from './auth/auth.module';
@@ -30,7 +31,9 @@ import { AiModule } from './ai/ai.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 
-// Deferred domains -- empty module skeletons, see each directory's README.md.
+// NotificationsModule now has a first real capability (queue-backed welcome
+// email, see its README.md); files/search/analytics are still empty
+// module skeletons -- see each directory's README.md.
 import { NotificationsModule } from './notifications/notifications.module';
 import { FilesModule } from './files/files.module';
 import { SearchModule } from './search/search.module';
@@ -44,6 +47,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 
     // Foundation
     PrismaModule,
+    QueueModule,
     AuditModule,
     RbacModule,
     AuthModule,
@@ -67,7 +71,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
     // Platform (cross-tenant) administration -- see docs/security/overview.md
     PlatformModule,
 
-    // Deferred domains (empty skeletons -- see docs/ARCHITECTURE.md)
+    // NotificationsModule has a first real capability now; files/search/
+    // analytics are still empty skeletons -- see docs/ARCHITECTURE.md.
     NotificationsModule,
     FilesModule,
     SearchModule,

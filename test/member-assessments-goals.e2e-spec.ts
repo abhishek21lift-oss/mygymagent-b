@@ -103,7 +103,12 @@ describe('Member Assessments & Goals (e2e)', () => {
       const res = await authed(org.accessToken)(
         request(app.getHttpServer())
           .post(`/members/${memberId}/fitness-tests`)
-          .send({ testName: '1RM Bench Press', value: 80, unit: 'kg', assessmentId }),
+          .send({
+            testName: '1RM Bench Press',
+            value: 80,
+            unit: 'kg',
+            assessmentId,
+          }),
       ).expect(201);
       expect(res.body.data.testName).toBe('1RM Bench Press');
     });
@@ -113,7 +118,10 @@ describe('Member Assessments & Goals (e2e)', () => {
         request(app.getHttpServer())
           .post(`/members/${memberId}/screenings`)
           .send({
-            responses: { hasHeartCondition: false, chestPainDuringActivity: false },
+            responses: {
+              hasHeartCondition: false,
+              chestPainDuringActivity: false,
+            },
             flaggedForMedicalClearance: false,
           }),
       ).expect(201);
@@ -124,7 +132,9 @@ describe('Member Assessments & Goals (e2e)', () => {
       const list = await authed(org.accessToken)(
         request(app.getHttpServer()).get(`/members/${memberId}/assessments`),
       ).expect(200);
-      const found = list.body.data.find((a: { id: string }) => a.id === assessmentId);
+      const found = list.body.data.find(
+        (a: { id: string }) => a.id === assessmentId,
+      );
       expect(found).toBeDefined();
       expect(found.measurements.length).toBeGreaterThan(0);
       expect(found.fitnessResults.length).toBeGreaterThan(0);
@@ -136,15 +146,13 @@ describe('Member Assessments & Goals (e2e)', () => {
 
     it('creates a goal', async () => {
       const res = await authed(org.accessToken)(
-        request(app.getHttpServer())
-          .post(`/members/${memberId}/goals`)
-          .send({
-            title: 'Lose 5kg',
-            category: 'WEIGHT_LOSS',
-            targetValue: 73,
-            targetUnit: 'kg',
-            baselineValue: 78.5,
-          }),
+        request(app.getHttpServer()).post(`/members/${memberId}/goals`).send({
+          title: 'Lose 5kg',
+          category: 'WEIGHT_LOSS',
+          targetValue: 73,
+          targetUnit: 'kg',
+          baselineValue: 78.5,
+        }),
       ).expect(201);
       expect(res.body.data.status).toBe('ACTIVE');
       goalId = res.body.data.id;
@@ -160,7 +168,9 @@ describe('Member Assessments & Goals (e2e)', () => {
 
       const achieved = await authed(org.accessToken)(
         request(app.getHttpServer())
-          .patch(`/members/${memberId}/goals/${goalId}/milestones/${milestone.body.data.id}`)
+          .patch(
+            `/members/${memberId}/goals/${goalId}/milestones/${milestone.body.data.id}`,
+          )
           .send({ achievedAt: new Date().toISOString() }),
       ).expect(200);
       expect(achieved.body.data.achievedAt).not.toBeNull();

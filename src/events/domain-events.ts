@@ -26,6 +26,12 @@ export interface MemberCreatedEvent {
   organizationId: string;
   branchId: string;
   memberId: string;
+  /// Included so a listener (e.g. the welcome-email job) doesn't need its
+  /// own DB round-trip just to get what MembersService.create() already
+  /// had in hand. Undefined when the member has no email/name on file --
+  /// listeners that need one must check, not assume.
+  email?: string;
+  firstName?: string;
 }
 
 export interface MembershipStartedEvent {

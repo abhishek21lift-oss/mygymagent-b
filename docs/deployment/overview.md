@@ -86,10 +86,20 @@ parallel/independent step.
 ## Health checks
 
 - `GET /health` — liveness. No dependency checks. Use for "should this container be restarted."
-- `GET /ready` — readiness (checks DB connectivity, returns `503` if unreachable). Use for "should
-  traffic be routed here." Render, Docker `HEALTHCHECK`, and any future orchestrator should point at
-  `/health` for restart decisions and `/ready` (if the platform distinguishes the two) for traffic
-  gating.
+- `GET /ready` — readiness (checks DB connectivity and the job queue's Redis connection, returns
+  `503` if either is unreachable). Use for "should traffic be routed here." Render, Docker
+  `HEALTHCHECK`, and any future orchestrator should point at `/health` for restart decisions and
+  `/ready` (if the platform distinguishes the two) for traffic gating.
+
+## Redis (job queue)
+
+`src/queue/` (BullMQ) requires `REDIS_URL` — see `docs/ARCHITECTURE.md` §10.5 for what runs on it
+today (one welcome-email job) and the deliberate choices behind it (in-process worker, unlimited
+connection retries). **Production and staging must set a real `REDIS_URL`** pointing at a managed
+Redis instance (a Render Redis add-on, Upstash, etc.) — unset, it defaults to
+`redis://localhost:6379`, which doesn't exist on Render's containers. Unlike the database, a missing
+Redis does not fail the boot or any request — `GET /ready` will report `queue: "down"` and return
+`503`, which is the intended signal to notice and fix it, not a hard outage.
 
 ## Logging
 

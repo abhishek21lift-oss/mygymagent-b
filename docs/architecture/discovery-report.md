@@ -1,11 +1,18 @@
 # Architecture Discovery Report
 
-> **Update:** Phase A (§21) is done as of the same-branch follow-up work: `docs/ARCHITECTURE.md`
-> and the other design-only docs cited in §0 are refreshed to match the code; `AiUsageLog` now
-> tracks every AI request's tokens/cost/latency/status (`src/ai/ai-usage.service.ts`); Sentry error
-> tracking is wired (`src/instrument.ts`, no-op without `SENTRY_DSN`). The rest of this report is
-> left as the original point-in-time audit — re-run the underlying inspection before trusting any
-> other claim below as current.
+> **Update:** Phase A (§21) is done — `docs/ARCHITECTURE.md` and the other design-only docs cited in
+> §0 are refreshed to match the code; `AiUsageLog` now tracks every AI request's
+> tokens/cost/latency/status; Sentry error tracking is wired. Phase B (Member 360) is done —
+> addresses, emergency contacts, notes, consents, status/branch/trainer history, assessments
+> (measurements/fitness tests/screenings), and goals/milestones are all built, backend and frontend,
+> gated by the same scoping as the rest of Member 360 rather than new permission keys (except
+> Documents/progress photos, still blocked on the `files/` seam, and Appointments, a separate
+> domain). Phase D's job-queue item is done — `src/queue/` (BullMQ + Redis) exists, with its first
+> real job (`src/notifications/`, welcome email on member creation) proving the whole
+> enqueue → process → complete path against real Redis, not a mock; CI now provisions Redis
+> alongside Postgres. Phase D's object-storage item (`files/`) is still not done. The rest of this
+> report is left as the original point-in-time audit — re-run the underlying inspection before
+> trusting any other claim below as current.
 
 **Scope:** honest audit of the existing `mygymagent-b` (NestJS/PostgreSQL API) and `mygymagent-f`
 (Next.js frontend) codebases against the full "world-class Gym Operating System" specification, as

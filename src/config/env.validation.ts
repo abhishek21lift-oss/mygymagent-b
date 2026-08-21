@@ -24,6 +24,14 @@ export const envSchema = z.object({
   // failing to boot over a missing optional integration.
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
+
+  // Redis, for the BullMQ job queue (src/queue/). Defaults to a local
+  // instance so dev/test never need to set this explicitly; every
+  // deployment (Render, CI) must set a real REDIS_URL. Connection failures
+  // never block app boot or fail an unrelated request -- a job producer's
+  // enqueue call just stays pending until Redis is reachable again rather
+  // than erroring (see the class comment on MemberCreatedListener for why).
+  REDIS_URL: z.string().default('redis://localhost:6379'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

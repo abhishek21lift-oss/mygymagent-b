@@ -20,4 +20,9 @@ export class MailerService {
   async sendPasswordReset(to: string, token: string): Promise<void> {
     this.logger.log(`[stub email] Password reset for ${to}: token=${token}`);
   }
+
+  // eslint-disable-next-line @typescript-eslint/require-await -- kept async: real implementation will await a provider call.
+  async sendWelcomeEmail(to: string, firstName: string): Promise<void> {
+    this.logger.log(`[stub email] Welcome email for ${to} (${firstName})`);
+  }
 }
