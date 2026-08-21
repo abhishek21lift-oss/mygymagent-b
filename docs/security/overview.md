@@ -6,6 +6,19 @@ cookie. See ADR 0002 for the full rationale. Account lockout after repeated fail
 (`User.failedLoginAttempts`/`lockedUntil`). Login failure messages never reveal whether an email
 exists in the system.
 
+The refresh cookie's `SameSite`/`Secure` attributes switch on `NODE_ENV` (`AuthController.cookieOptions()`):
+`None`+`Secure` in production, `Lax` (no `Secure`) otherwise. This isn't a style choice -- frontend
+(Vercel) and backend (Render) are different registrable domains in production, so the browser
+treats every `fetch(..., {credentials: 'include'})` call to the API (including the silent-refresh-
+on-page-load call every client makes) as cross-site. `SameSite=Lax` cookies are withheld from
+cross-site fetch/XHR entirely (they only ride along on top-level navigation), so a `Lax` refresh
+cookie in this split-domain deployment would never actually reach `/auth/refresh` -- every page
+reload would silently fail to restore the session and bounce the user back to `/login`. `None`
+requires `Secure`, which is why the switch is tied to `NODE_ENV` rather than always-on: local dev
+serves over plain `http://localhost`, where a `Secure` cookie either gets rejected outright or only
+works through browser-specific localhost exceptions, and `Lax` doesn't need it there anyway since
+frontend/backend share the `localhost` site (port isn't part of site identity for this purpose).
+
 ## Authorization (RBAC)
 - Permissions are `resource.action` strings (47 in the catalog, `src/rbac/permissions.catalog.ts`).
 - Roles are either system-seeded (available to every org) or organization-custom

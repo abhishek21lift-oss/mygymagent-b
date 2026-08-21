@@ -39,18 +39,32 @@ export class AuthController {
     };
   }
 
+  /** Frontend (Vercel) and backend (Render) are different registrable
+   * domains, so the refresh cookie is sent on a cross-site fetch, not a
+   * top-level navigation. `SameSite=Lax` cookies are withheld from
+   * cross-site fetch/XHR entirely -- only `SameSite=None` (which browsers
+   * require pairing with `Secure`) is sent there. Locally, frontend and
+   * backend share the "localhost" site (port is not part of site
+   * identity), so `Lax` over plain http works and is used since `None`
+   * requires `Secure`, which plain http can't set reliably outside
+   * Chrome's special-cased localhost exception. */
+  private cookieOptions(expiresAt?: Date) {
+    const isProduction = this.config.get('NODE_ENV') === 'production';
+    return {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? ('none' as const) : ('lax' as const),
+      path: '/auth',
+      ...(expiresAt ? { expires: expiresAt } : {}),
+    };
+  }
+
   private setRefreshCookie(
     res: Response,
     token: string,
     expiresAt: Date,
   ): void {
-    res.cookie(REFRESH_COOKIE, token, {
-      httpOnly: true,
-      secure: this.config.get('NODE_ENV') === 'production',
-      sameSite: 'lax',
-      path: '/auth',
-      expires: expiresAt,
-    });
+    res.cookie(REFRESH_COOKIE, token, this.cookieOptions(expiresAt));
   }
 
   @Public()
@@ -102,7 +116,7 @@ export class AuthController {
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     if (token) await this.authService.logout(token);
-    res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
+    res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
   }
 
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -112,7 +126,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     await this.authService.logoutAll(user.id);
-    res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
+    res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
   }
 
   @Get('me')
