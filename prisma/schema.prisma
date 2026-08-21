@@ -76,6 +76,8 @@ model Organization {
   foodItems           FoodItem[]
   dietPlans           DietPlan[]
   dietAssignments     DietAssignment[]
+  products            Product[]
+  stockMovements      StockMovement[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -190,6 +192,7 @@ model User {
   leadFollowUpsCreated    LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
   dietPlansCreated        DietPlan[]                @relation("DietPlanCreatedBy")
   dietAssignmentsMade     DietAssignment[]          @relation("DietAssignedBy")
+  stockMovementsRecorded  StockMovement[]           @relation("StockMovementRecordedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -934,4 +937,67 @@ model DietAssignment {
   @@index([memberId])
   @@index([dietPlanId])
   @@map("diet_assignments")
+}
+
+/// v1 inventory scope: a flat product catalog with a running
+/// `quantityOnHand` and an append-only StockMovement ledger. No
+/// suppliers/purchase-order workflow yet -- see inventory/README.md.
+model Product {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sku         String
+  name        String
+  description String?
+  category    String?
+
+  unitPrice Decimal  @db.Decimal(10, 2)
+  costPrice Decimal? @db.Decimal(10, 2)
+
+  quantityOnHand Int     @default(0)
+  reorderLevel   Int     @default(0)
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockMovements StockMovement[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@map("products")
+}
+
+enum StockMovementType {
+  RESTOCK
+  SALE
+  ADJUSTMENT
+  DAMAGED
+}
+
+/// Append-only ledger entry. `quantity` is the *signed* delta actually
+/// applied to Product.quantityOnHand at the time this row was written
+/// (positive for RESTOCK/positive ADJUSTMENT, negative for SALE/DAMAGED/
+/// negative ADJUSTMENT) -- so summing this column for a product always
+/// reconstructs its current quantityOnHand.
+model StockMovement {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type     StockMovementType
+  quantity Int
+  note     String?
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("StockMovementRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([productId])
+  @@map("stock_movements")
 }

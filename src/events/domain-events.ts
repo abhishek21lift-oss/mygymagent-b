@@ -19,6 +19,7 @@ export const DomainEvent = {
   WorkoutAssigned: 'workout.assigned',
   LeadConverted: 'lead.converted',
   DietAssigned: 'diet.assigned',
+  InventoryLow: 'inventory.low',
 } as const;
 
 export interface MemberCreatedEvent {
@@ -87,4 +88,13 @@ export interface DietAssignedEvent {
   dietPlanId: string;
   memberId: string;
   assignedByUserId?: string;
+}
+
+export interface InventoryLowEvent {
+  organizationId: string;
+  productId: string;
+  sku: string;
+  name: string;
+  quantityOnHand: number;
+  reorderLevel: number;
 }

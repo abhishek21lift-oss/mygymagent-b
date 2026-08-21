@@ -1,11 +1,17 @@
 import { Module } from '@nestjs/common';
+import { ProductsController } from './products.controller';
+import { ProductsService } from './products.service';
+import { StockMovementsController } from './stock-movements.controller';
+import { StockMovementsService } from './stock-movements.service';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * v1 inventory scope: a flat product catalog plus an append-only stock
+ * movement ledger (restock/sale/adjustment/damaged). No suppliers or
+ * purchase-order workflow yet. See README.md.
  */
-@Module({})
+@Module({
+  controllers: [ProductsController, StockMovementsController],
+  providers: [ProductsService, StockMovementsService],
+  exports: [ProductsService, StockMovementsService],
+})
 export class InventoryModule {}

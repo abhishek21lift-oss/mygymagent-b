@@ -390,6 +390,45 @@ describe('Tenant isolation (e2e)', () => {
     ).expect(404);
   });
 
+  it("Org A cannot read, update, or record stock against Org B's product", async () => {
+    const productB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/products').send({
+        sku: 'ORGB-SKU-1',
+        name: 'Org B Secret Supplement',
+        unitPrice: 29.99,
+      }),
+    ).expect(201);
+
+    // Org A can't read Org B's product by guessing its id.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get(`/products/${productB.body.data.id}`),
+    ).expect(404);
+
+    // Org A can't update Org B's product.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/products/${productB.body.data.id}`)
+        .send({ name: 'Hijacked' }),
+    ).expect(404);
+
+    // Org A can't record a stock movement against Org B's product.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post(`/products/${productB.body.data.id}/stock-movements`)
+        .send({ type: 'RESTOCK', quantity: 100 }),
+    ).expect(404);
+
+    // Org A's own product list never includes Org B's product.
+    const listA = await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get('/products'),
+    ).expect(200);
+    expect(
+      listA.body.data.items.some(
+        (p: { id: string }) => p.id === productB.body.data.id,
+      ),
+    ).toBe(false);
+  });
+
   it('rejects (rather than silently ignoring) an attempt to inject organizationId into the request body', async () => {
     // CreateMemberDto has no organizationId field, and the global
     // ValidationPipe runs with forbidNonWhitelisted: true, so an injected

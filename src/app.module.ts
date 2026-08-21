@@ -28,9 +28,9 @@ import { WorkoutsModule } from './workouts/workouts.module';
 import { CrmModule } from './crm/crm.module';
 import { AiModule } from './ai/ai.module';
 import { NutritionModule } from './nutrition/nutrition.module';
+import { InventoryModule } from './inventory/inventory.module';
 
 // Deferred domains -- empty module skeletons, see each directory's README.md.
-import { InventoryModule } from './inventory/inventory.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FilesModule } from './files/files.module';
 import { SearchModule } from './search/search.module';
@@ -62,12 +62,12 @@ import { AnalyticsModule } from './analytics/analytics.module';
     CrmModule,
     AiModule,
     NutritionModule,
+    InventoryModule,
 
     // Platform (cross-tenant) administration -- see docs/security/overview.md
     PlatformModule,
 
     // Deferred domains (empty skeletons -- see docs/ARCHITECTURE.md)
-    InventoryModule,
     NotificationsModule,
     FilesModule,
     SearchModule,

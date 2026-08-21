@@ -66,6 +66,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'payments.read',
       'payments.create',
       'inventory.read',
+      'inventory.manage',
       'leads.read',
       'leads.manage',
       'reports.view',
