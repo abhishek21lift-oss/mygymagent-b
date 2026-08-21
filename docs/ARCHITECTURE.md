@@ -76,11 +76,16 @@ driver-adapter generator). `prisma/schema.prisma` is organized in sections:
 - **Inventory**: `Product`, `StockMovement`.
 - **AI**: `AiUsageLog` (per-request token/cost/latency tracking; no conversation-persistence table
   yet — see §9).
+- **Member 360**: `MemberAddress`, `MemberEmergencyContact`, `MemberNote`, `MemberConsent`
+  (append-only), `MemberStatusHistory`, `MemberBranchHistory`, `MemberTrainerHistory` (the last
+  three append-only, auto-written by `MembersService.create()`/`update()`) — see
+  `docs/database/data-ownership.md` for the per-table ownership/scope/history answers.
 
-`Member` today is intentionally still the "core gym domain" version from the deep-foundation phase
-— one flat table, no sub-entities for assessments/goals/documents/consents/history. See
-`docs/architecture/discovery-report.md` §6 for what a full Member 360 model needs; it hasn't been
-built yet and is the single largest schema gap in the system.
+`Member` itself is still the flat "current state" row from the deep-foundation phase
+(`addressLine1`/`emergencyContactName`/`notes`/`status`/`primaryBranchId`/`assignedTrainerId` as
+single denormalized fields) — the tables above are the collection/history layer *around* it, not a
+replacement for it. Still not built: Assessments, Goals, Appointments, Documents (the last needs
+the `files/` seam first). See `docs/architecture/discovery-report.md` §6.
 
 Conventions: UUID primary keys; `createdAt`/`updatedAt` on every table; soft delete
 (`deletedAt`) where a record has downstream references that must survive deletion (Organization,

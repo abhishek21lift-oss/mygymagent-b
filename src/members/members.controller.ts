@@ -68,7 +68,12 @@ export class MembersController {
     @Body() dto: CreateMemberDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membersService.create(user.organizationId!, dto, branchScope);
+    return this.membersService.create(
+      user.organizationId!,
+      dto,
+      branchScope,
+      user.id,
+    );
   }
 
   @Patch(':id')
@@ -85,6 +90,55 @@ export class MembersController {
       id,
       dto,
       branchScope,
+      user.id,
+    );
+  }
+
+  @Get(':id/status-history')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getStatusHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.getStatusHistory(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get(':id/branch-history')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getBranchHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.getBranchHistory(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get(':id/trainer-history')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getTrainerHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.getTrainerHistory(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
     );
   }
 

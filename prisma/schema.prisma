@@ -4,16 +4,19 @@
 // Multi-tenancy, RBAC, auth, audit logging, and the core gym domain
 // (organizations, branches, staff, members, membership plans/subscriptions,
 // attendance) plus billing (payments/refunds), workouts, nutrition,
-// inventory, CRM/leads, and AI usage tracking are modeled and built.
+// inventory, CRM/leads, AI usage tracking, and the Member 360 collection/
+// history layer (addresses, emergency contacts, notes, consents, status/
+// branch/trainer history) are modeled and built.
 //
 // Still reserved seams, not modeled here yet (see
 // docs/architecture/discovery-report.md for the current gap list):
 // notifications, files/object storage, search, analytics, platform SaaS
 // billing (as opposed to the gym-side Payment/Refund tables below), and the
-// Member 360 sub-entities (Assessments, Goals, Appointments, documents,
-// consents, status/branch history). New tables all hang off
-// Organization / Branch / Member / User the same way the tables below do,
-// keeping tenant isolation uniform across the system.
+// remaining Member 360 domains -- Assessments, Goals, Appointments,
+// Documents (the last needs the files/ seam first, for actual file
+// storage). New tables all hang off Organization / Branch / Member / User
+// the same way the tables below do, keeping tenant isolation uniform
+// across the system.
 // ============================================================================
 
 generator client {
@@ -60,28 +63,35 @@ model Organization {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  branches        Branch[]
-  users           User[]
-  members         Member[]
-  roles           Role[]
-  membershipPlans MembershipPlan[]
-  memberships     Membership[]
-  attendances     Attendance[]
-  auditLogs       AuditLog[]
-  userRoles       UserRole[]
-  payments        Payment[]
-  refunds         Refund[]
-  exercises           Exercise[]
-  workoutPlans        WorkoutPlan[]
-  workoutAssignments  WorkoutAssignment[]
-  leads               Lead[]
-  leadFollowUps       LeadFollowUp[]
-  foodItems           FoodItem[]
-  dietPlans           DietPlan[]
-  dietAssignments     DietAssignment[]
-  products            Product[]
-  stockMovements      StockMovement[]
-  aiUsageLogs         AiUsageLog[]
+  branches                Branch[]
+  users                   User[]
+  members                 Member[]
+  roles                   Role[]
+  membershipPlans         MembershipPlan[]
+  memberships             Membership[]
+  attendances             Attendance[]
+  auditLogs               AuditLog[]
+  userRoles               UserRole[]
+  payments                Payment[]
+  refunds                 Refund[]
+  exercises               Exercise[]
+  workoutPlans            WorkoutPlan[]
+  workoutAssignments      WorkoutAssignment[]
+  leads                   Lead[]
+  leadFollowUps           LeadFollowUp[]
+  foodItems               FoodItem[]
+  dietPlans               DietPlan[]
+  dietAssignments         DietAssignment[]
+  products                Product[]
+  stockMovements          StockMovement[]
+  aiUsageLogs             AiUsageLog[]
+  memberAddresses         MemberAddress[]
+  memberEmergencyContacts MemberEmergencyContact[]
+  memberNotes             MemberNote[]
+  memberConsents          MemberConsent[]
+  memberStatusHistory     MemberStatusHistory[]
+  memberBranchHistory     MemberBranchHistory[]
+  memberTrainerHistory    MemberTrainerHistory[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -115,15 +125,17 @@ model Branch {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  staffProfiles   StaffProfile[]
-  membershipPlans MembershipPlan[]
-  memberships     Membership[]
-  attendances     Attendance[]
-  userRoles       UserRole[]
-  payments        Payment[]
-  leads           Lead[]
-  primaryUsers    User[]           @relation("UserPrimaryBranch")
-  primaryMembers  Member[]         @relation("MemberPrimaryBranch")
+  staffProfiles           StaffProfile[]
+  membershipPlans         MembershipPlan[]
+  memberships             Membership[]
+  attendances             Attendance[]
+  userRoles               UserRole[]
+  payments                Payment[]
+  leads                   Lead[]
+  primaryUsers            User[]                @relation("UserPrimaryBranch")
+  primaryMembers          Member[]              @relation("MemberPrimaryBranch")
+  memberBranchHistoryTo   MemberBranchHistory[] @relation("MemberBranchHistoryTo")
+  memberBranchHistoryFrom MemberBranchHistory[] @relation("MemberBranchHistoryFrom")
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -177,27 +189,34 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  staffProfile            StaffProfile?
-  member                  Member?                  @relation("MemberPortalUser")
-  userRoles               UserRole[]
-  permissionOverrides     UserPermissionOverride[]
-  refreshTokens           RefreshToken[]
-  passwordResetTokens     PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
-  auditLogsAsActor        AuditLog[]               @relation("AuditActor")
-  assignedMembers         Member[]                 @relation("MemberAssignedTrainer")
-  recordedAttendances     Attendance[]             @relation("AttendanceRecordedBy")
-  staffAttendances        Attendance[]             @relation("AttendanceStaffUser")
-  paymentsRecorded        Payment[]                @relation("PaymentRecordedBy")
-  refundsRecorded         Refund[]                 @relation("RefundRecordedBy")
-  workoutPlansCreated     WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
-  workoutAssignmentsMade  WorkoutAssignment[]       @relation("WorkoutAssignedBy")
-  leadsAssigned           Lead[]                    @relation("LeadAssignedTo")
-  leadFollowUpsCreated    LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
-  dietPlansCreated        DietPlan[]                @relation("DietPlanCreatedBy")
-  dietAssignmentsMade     DietAssignment[]          @relation("DietAssignedBy")
-  stockMovementsRecorded  StockMovement[]           @relation("StockMovementRecordedBy")
-  aiUsageLogs             AiUsageLog[]              @relation("AiUsageActor")
+  staffProfile             StaffProfile?
+  member                   Member?                  @relation("MemberPortalUser")
+  userRoles                UserRole[]
+  permissionOverrides      UserPermissionOverride[]
+  refreshTokens            RefreshToken[]
+  passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  auditLogsAsActor         AuditLog[]               @relation("AuditActor")
+  assignedMembers          Member[]                 @relation("MemberAssignedTrainer")
+  recordedAttendances      Attendance[]             @relation("AttendanceRecordedBy")
+  staffAttendances         Attendance[]             @relation("AttendanceStaffUser")
+  paymentsRecorded         Payment[]                @relation("PaymentRecordedBy")
+  refundsRecorded          Refund[]                 @relation("RefundRecordedBy")
+  workoutPlansCreated      WorkoutPlan[]            @relation("WorkoutPlanCreatedBy")
+  workoutAssignmentsMade   WorkoutAssignment[]      @relation("WorkoutAssignedBy")
+  leadsAssigned            Lead[]                   @relation("LeadAssignedTo")
+  leadFollowUpsCreated     LeadFollowUp[]           @relation("LeadFollowUpCreatedBy")
+  dietPlansCreated         DietPlan[]               @relation("DietPlanCreatedBy")
+  dietAssignmentsMade      DietAssignment[]         @relation("DietAssignedBy")
+  stockMovementsRecorded   StockMovement[]          @relation("StockMovementRecordedBy")
+  aiUsageLogs              AiUsageLog[]             @relation("AiUsageActor")
+  memberNotesAuthored      MemberNote[]             @relation("MemberNoteAuthor")
+  memberConsentsRecorded   MemberConsent[]          @relation("MemberConsentRecordedBy")
+  memberStatusChangesMade  MemberStatusHistory[]    @relation("MemberStatusChangedBy")
+  memberBranchChangesMade  MemberBranchHistory[]    @relation("MemberBranchChangedBy")
+  memberTrainerChangesMade MemberTrainerHistory[]   @relation("MemberTrainerChangedBy")
+  memberTrainerHistoryFrom MemberTrainerHistory[]   @relation("MemberTrainerHistoryFrom")
+  memberTrainerHistoryTo   MemberTrainerHistory[]   @relation("MemberTrainerHistoryTo")
 
   @@index([organizationId])
   @@map("users")
@@ -463,19 +482,221 @@ model Member {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  memberships Membership[]
-  attendances Attendance[]
-  payments    Payment[]
+  memberships        Membership[]
+  attendances        Attendance[]
+  payments           Payment[]
   workoutAssignments WorkoutAssignment[]
   dietAssignments    DietAssignment[]
   /// Set if this member originated from a converted Lead -- the opposite
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
 
+  addresses         MemberAddress[]
+  emergencyContacts MemberEmergencyContact[]
+  memberNotes       MemberNote[]
+  consents          MemberConsent[]
+  statusHistory     MemberStatusHistory[]
+  branchHistory     MemberBranchHistory[]
+  trainerHistory    MemberTrainerHistory[]
+
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
   @@index([assignedTrainerId])
   @@map("members")
+}
+
+// ----------------------------------------------------------------------------
+// Member 360 -- sub-entities that preserve history the flat Member fields
+// above cannot (addressLine1/emergencyContactName/notes/status/
+// primaryBranchId/assignedTrainerId are still the "current value" fields;
+// these tables are the collection/history layer around them). See
+// docs/architecture/discovery-report.md §6 for why this exists.
+// ----------------------------------------------------------------------------
+
+enum MemberAddressType {
+  HOME
+  WORK
+  BILLING
+  OTHER
+}
+
+/// A member can have more than one address (billing vs. home, etc.) --
+/// unlike Member.addressLine1 etc., which remain a single denormalized
+/// "current primary" snapshot for quick display. Ordinary address-book
+/// data, not financial/compliance history, so rows can be deleted outright
+/// (no soft-delete/immutability requirement here, unlike MemberConsent).
+model MemberAddress {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type      MemberAddressType @default(HOME)
+  isPrimary Boolean           @default(false)
+
+  addressLine1 String
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, memberId])
+  @@map("member_addresses")
+}
+
+/// Same rationale as MemberAddress -- Member.emergencyContactName/Phone
+/// stay as the single "current primary" snapshot; this is the collection.
+model MemberEmergencyContact {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  name         String
+  phone        String
+  relationship String?
+  isPrimary    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, memberId])
+  @@map("member_emergency_contacts")
+}
+
+/// Replaces Member.notes (a single overwritable field -- a second note
+/// used to destroy the first) with an authored, timestamped collection.
+/// Member.notes is left in place as a legacy field, not backfilled or
+/// removed here -- see the migration note in members.service.ts.
+model MemberNote {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  authorUserId String?
+  authorUser   User?   @relation("MemberNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  body   String
+  pinned Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, memberId, createdAt])
+  @@map("member_notes")
+}
+
+enum MemberConsentType {
+  WAIVER
+  MARKETING
+  PHOTO_RELEASE
+  DATA_PROCESSING
+  OTHER
+}
+
+/// Append-only, like Payment/Membership -- revoking a consent inserts a
+/// new row with granted=false rather than mutating the original grant, so
+/// "what did this member consent to, and when" is always reconstructable
+/// from history, never a single mutable boolean.
+model MemberConsent {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type    MemberConsentType
+  granted Boolean
+  note    String?
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("MemberConsentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, type])
+  @@map("member_consents")
+}
+
+/// Append-only. One row per Member.status transition, written by
+/// MembersService whenever status actually changes -- never edited in
+/// place, so "when did this member become INACTIVE, and who changed it"
+/// survives the flat Member.status field being overwritten.
+model MemberStatusHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  fromStatus MemberStatus?
+  toStatus   MemberStatus
+
+  changedByUserId String?
+  changedByUser   User?   @relation("MemberStatusChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  reason          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, createdAt])
+  @@map("member_status_history")
+}
+
+/// Append-only. Same pattern as MemberStatusHistory, for
+/// Member.primaryBranchId transfers.
+model MemberBranchHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  fromBranchId String?
+  fromBranch   Branch? @relation("MemberBranchHistoryFrom", fields: [fromBranchId], references: [id], onDelete: SetNull)
+  toBranchId   String
+  toBranch     Branch  @relation("MemberBranchHistoryTo", fields: [toBranchId], references: [id])
+
+  changedByUserId String?
+  changedByUser   User?   @relation("MemberBranchChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  reason          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, createdAt])
+  @@map("member_branch_history")
+}
+
+/// Append-only. Same pattern again, for Member.assignedTrainerId changes
+/// -- closes the "changing a trainer must not destroy history" gap called
+/// out in docs/architecture/discovery-report.md §6.
+model MemberTrainerHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  fromTrainerId String?
+  fromTrainer   User?   @relation("MemberTrainerHistoryFrom", fields: [fromTrainerId], references: [id], onDelete: SetNull)
+  toTrainerId   String?
+  toTrainer     User?   @relation("MemberTrainerHistoryTo", fields: [toTrainerId], references: [id], onDelete: SetNull)
+
+  changedByUserId String?
+  changedByUser   User?   @relation("MemberTrainerChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  reason          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, createdAt])
+  @@map("member_trainer_history")
 }
 
 model MembershipPlan {
@@ -629,8 +850,8 @@ model Payment {
   member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
   /// Nullable: a payment can be a one-off (PT session, product) not tied to
   /// a membership purchase/renewal.
-  membershipId String?
-  membership   Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  membershipId   String?
+  membership     Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
 
   amount   Decimal       @db.Decimal(10, 2)
   currency String        @default("USD")
@@ -724,7 +945,7 @@ model WorkoutPlan {
 
   name        String
   description String?
-  exercises   Json   @default("[]")
+  exercises   Json    @default("[]")
 
   createdByUserId String?
   createdByUser   User?   @relation("WorkoutPlanCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -1045,7 +1266,7 @@ model AiUsageLog {
   /// USD, when the provider reports generation cost; null if unknown --
   /// never guessed/estimated from a static per-model table, to avoid a
   /// silently-wrong number entering plan-limit enforcement.
-  costUsd Decimal? @db.Decimal(10, 6)
+  costUsd          Decimal? @db.Decimal(10, 6)
 
   latencyMs    Int
   status       AiUsageStatus

@@ -91,6 +91,7 @@ export class MembersService {
     organizationId: string,
     dto: CreateMemberDto,
     branchScope: string | null = null,
+    createdByUserId: string | null = null,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
@@ -98,13 +99,48 @@ export class MembersService {
       );
     }
     const memberCode = await this.generateMemberCode(organizationId);
-    const member = await this.prisma.member.create({
-      data: {
-        ...dto,
-        organizationId,
-        memberCode,
-        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
-      },
+    const member = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.member.create({
+        data: {
+          ...dto,
+          organizationId,
+          memberCode,
+          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+        },
+      });
+      // Seed history from day one, not just from the first *change* --
+      // otherwise a member's original status/branch/trainer is invisible
+      // in history (see docs/architecture/discovery-report.md §6).
+      await tx.memberStatusHistory.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          fromStatus: null,
+          toStatus: created.status,
+          changedByUserId: createdByUserId,
+        },
+      });
+      await tx.memberBranchHistory.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          fromBranchId: null,
+          toBranchId: created.primaryBranchId,
+          changedByUserId: createdByUserId,
+        },
+      });
+      if (created.assignedTrainerId) {
+        await tx.memberTrainerHistory.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            fromTrainerId: null,
+            toTrainerId: created.assignedTrainerId,
+            changedByUserId: createdByUserId,
+          },
+        });
+      }
+      return created;
     });
     const payload: MemberCreatedEvent = {
       organizationId,
@@ -120,8 +156,9 @@ export class MembersService {
     id: string,
     dto: UpdateMemberDto,
     branchScope: string | null = null,
+    changedByUserId: string | null = null,
   ) {
-    await this.getOne(organizationId, id, branchScope);
+    const before = await this.getOne(organizationId, id, branchScope);
     if (
       branchScope &&
       dto.primaryBranchId !== undefined &&
@@ -131,11 +168,111 @@ export class MembersService {
         'Cannot move a member outside your assigned branch',
       );
     }
-    return this.prisma.member.update({
-      where: { id },
-      data: {
-        ...dto,
-        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.member.update({
+        where: { id },
+        data: {
+          ...dto,
+          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+        },
+      });
+      if (dto.status !== undefined && dto.status !== before.status) {
+        await tx.memberStatusHistory.create({
+          data: {
+            organizationId,
+            memberId: id,
+            fromStatus: before.status,
+            toStatus: updated.status,
+            changedByUserId,
+          },
+        });
+      }
+      if (
+        dto.primaryBranchId !== undefined &&
+        dto.primaryBranchId !== before.primaryBranchId
+      ) {
+        await tx.memberBranchHistory.create({
+          data: {
+            organizationId,
+            memberId: id,
+            fromBranchId: before.primaryBranchId,
+            toBranchId: updated.primaryBranchId,
+            changedByUserId,
+          },
+        });
+      }
+      if (
+        dto.assignedTrainerId !== undefined &&
+        dto.assignedTrainerId !== before.assignedTrainerId
+      ) {
+        await tx.memberTrainerHistory.create({
+          data: {
+            organizationId,
+            memberId: id,
+            fromTrainerId: before.assignedTrainerId,
+            toTrainerId: updated.assignedTrainerId,
+            changedByUserId,
+          },
+        });
+      }
+      return updated;
+    });
+  }
+
+  async getStatusHistory(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope, assignmentScope);
+    return this.prisma.memberStatusHistory.findMany({
+      where: { organizationId, memberId: id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        changedByUser: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+  }
+
+  async getBranchHistory(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope, assignmentScope);
+    return this.prisma.memberBranchHistory.findMany({
+      where: { organizationId, memberId: id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        fromBranch: { select: { id: true, name: true } },
+        toBranch: { select: { id: true, name: true } },
+        changedByUser: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+  }
+
+  async getTrainerHistory(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope, assignmentScope);
+    return this.prisma.memberTrainerHistory.findMany({
+      where: { organizationId, memberId: id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        fromTrainer: { select: { id: true, firstName: true, lastName: true } },
+        toTrainer: { select: { id: true, firstName: true, lastName: true } },
+        changedByUser: {
+          select: { id: true, firstName: true, lastName: true },
+        },
       },
     });
   }

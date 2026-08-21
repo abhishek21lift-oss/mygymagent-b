@@ -157,3 +157,13 @@ erDiagram
   not a DB constraint — Postgres doesn't have a clean native way to express "exactly one of these two
   nullable FKs is set" without a `CHECK` constraint referencing both columns; worth adding as an
   explicit `CHECK` if this table ever gets a second write path that could violate it accidentally.
+- **`MemberStatusHistory`/`MemberBranchHistory`/`MemberTrainerHistory`** follow the same
+  snapshot-not-live-reference principle as `Membership.price` above, applied to `Member`'s own
+  mutable fields: every `status`/`primaryBranchId`/`assignedTrainerId` change gets an append-only
+  row (written inside the same transaction as the `Member` update, seeded on creation too so the
+  original value isn't invisible), rather than the flat `Member` row being the only record of
+  "what it is now" with no trail of "what it was."
+
+**Diagram note**: the mermaid diagram above predates `billing`/`workouts`/`nutrition`/`inventory`/
+`crm`/`ai`/Member 360 — it still only draws the deep-foundation-phase tables. Not redrawn here;
+`prisma/schema.prisma` is the authoritative source for the full current model.
