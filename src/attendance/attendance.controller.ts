@@ -2,10 +2,10 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AttendanceService } from './attendance.service';
 import { CheckInDto } from './dto/check-in.dto';
+import { ListAttendanceQueryDto } from './dto/list-attendance-query.dto';
 
 @Controller('attendance')
 export class AttendanceController {
@@ -15,13 +15,11 @@ export class AttendanceController {
   @RequirePermissions('attendance.read')
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PaginationQueryDto,
-    @Query('branchId') branchId?: string,
-    @Query('memberId') memberId?: string,
+    @Query() query: ListAttendanceQueryDto,
   ) {
     return this.attendanceService.list(user.organizationId!, query, {
-      branchId,
-      memberId,
+      branchId: query.branchId,
+      memberId: query.memberId,
     });
   }
 

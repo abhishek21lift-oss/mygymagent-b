@@ -1,11 +1,25 @@
 import { Module } from '@nestjs/common';
+import { ExercisesController } from './exercises.controller';
+import { ExercisesService } from './exercises.service';
+import { WorkoutAssignmentsController } from './workout-assignments.controller';
+import { WorkoutAssignmentsService } from './workout-assignments.service';
+import { WorkoutPlansController } from './workout-plans.controller';
+import { WorkoutPlansService } from './workout-plans.service';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * v1 workout/PT engine: exercise library, named workout plans (ordered
+ * exercises with sets/reps/rest), and assigning a plan to a member with
+ * status tracking. See README.md for the scope decision (a full
+ * Program -> Phase -> Week -> Day -> Workout -> Exercise -> Set hierarchy
+ * was deliberately deferred as over-engineering for a first pass).
  */
-@Module({})
+@Module({
+  controllers: [
+    ExercisesController,
+    WorkoutPlansController,
+    WorkoutAssignmentsController,
+  ],
+  providers: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
+  exports: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
+})
 export class WorkoutsModule {}

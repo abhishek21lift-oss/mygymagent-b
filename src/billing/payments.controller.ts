@@ -2,9 +2,9 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { ListPaymentsQueryDto } from './dto/list-payments-query.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { PaymentsService } from './payments.service';
 
@@ -16,15 +16,13 @@ export class PaymentsController {
   @RequirePermissions('payments.read')
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PaginationQueryDto,
-    @Query('memberId') memberId?: string,
-    @Query('membershipId') membershipId?: string,
+    @Query() query: ListPaymentsQueryDto,
   ) {
     return this.paymentsService.list(
       user.organizationId!,
       query,
-      memberId,
-      membershipId,
+      query.memberId,
+      query.membershipId,
     );
   }
 

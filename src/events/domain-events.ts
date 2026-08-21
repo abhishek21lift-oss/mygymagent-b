@@ -6,9 +6,8 @@
  * docs/ARCHITECTURE.md#event-architecture.
  *
  * Only events actually emitted today are listed with a payload type; the
- * rest of the catalog described in the product blueprint (WorkoutAssigned,
- * LeadConverted, InventoryLow, ...) will be added by the module that
- * produces them.
+ * rest of the catalog described in the product blueprint (LeadConverted,
+ * InventoryLow, ...) will be added by the module that produces them.
  */
 export const DomainEvent = {
   MemberCreated: 'member.created',
@@ -17,6 +16,7 @@ export const DomainEvent = {
   AttendanceRecorded: 'attendance.recorded',
   PaymentRecorded: 'payment.recorded',
   PaymentRefunded: 'payment.refunded',
+  WorkoutAssigned: 'workout.assigned',
 } as const;
 
 export interface MemberCreatedEvent {
@@ -63,4 +63,12 @@ export interface PaymentRefundedEvent {
   refundId: string;
   memberId: string;
   amount: string;
+}
+
+export interface WorkoutAssignedEvent {
+  organizationId: string;
+  workoutAssignmentId: string;
+  workoutPlanId: string;
+  memberId: string;
+  assignedByUserId?: string;
 }

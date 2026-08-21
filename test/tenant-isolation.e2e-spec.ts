@@ -231,6 +231,68 @@ describe('Tenant isolation (e2e)', () => {
     ).not.toContain(paymentB.body.data.id);
   });
 
+  it("Org A cannot see, assign, or build a plan against Org B's exercises/members", async () => {
+    const exerciseB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/exercises').send({
+        name: 'Org B Secret Squat',
+      }),
+    ).expect(201);
+
+    // Org A can't build a plan referencing Org B's exercise library entry.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post('/workout-plans')
+        .send({
+          name: 'Cross-tenant plan',
+          exercises: [
+            {
+              exerciseId: exerciseB.body.data.id,
+              order: 1,
+              sets: 3,
+              reps: '10',
+            },
+          ],
+        }),
+    ).expect(400);
+
+    const planB = await authed(orgB.accessToken)(
+      request(app.getHttpServer())
+        .post('/workout-plans')
+        .send({
+          name: 'Org B Plan',
+          exercises: [
+            {
+              exerciseId: exerciseB.body.data.id,
+              order: 1,
+              sets: 3,
+              reps: '10',
+            },
+          ],
+        }),
+    ).expect(201);
+
+    // Org A can't read Org B's plan by guessing its id.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get(`/workout-plans/${planB.body.data.id}`),
+    ).expect(404);
+
+    const memberB = await authed(orgB.accessToken)(
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: orgB.branchId,
+        firstName: 'Workout',
+        lastName: 'TargetB',
+      }),
+    ).expect(201);
+
+    // Org A can't assign Org B's plan to Org B's member, nor its own plan
+    // (if it had one) to Org B's member.
+    await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post(`/workout-plans/${planB.body.data.id}/assign`)
+        .send({ memberId: memberB.body.data.id }),
+    ).expect(404);
+  });
+
   it('rejects (rather than silently ignoring) an attempt to inject organizationId into the request body', async () => {
     // CreateMemberDto has no organizationId field, and the global
     // ValidationPipe runs with forbidNonWhitelisted: true, so an injected

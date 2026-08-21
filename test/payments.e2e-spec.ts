@@ -72,6 +72,17 @@ describe('Payments (e2e)', () => {
     expect(res.body.data.membershipId).toBeNull();
   });
 
+  it('filters the list by memberId without rejecting the extra query param', async () => {
+    const res = await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/payments').query({ memberId }),
+    ).expect(200);
+    expect(
+      res.body.data.items.every(
+        (p: { memberId: string }) => p.memberId === memberId,
+      ),
+    ).toBe(true);
+  });
+
   it('rejects a payment for a membership that belongs to a different member', async () => {
     const otherMember = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/members').send({

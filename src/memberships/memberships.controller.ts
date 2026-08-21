@@ -2,11 +2,11 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CancelMembershipDto } from './dto/cancel-membership.dto';
 import { CreateMembershipDto } from './dto/create-membership.dto';
 import { FreezeMembershipDto } from './dto/freeze-membership.dto';
+import { ListMembershipsQueryDto } from './dto/list-memberships-query.dto';
 import { MembershipsService } from './memberships.service';
 
 @Controller('memberships')
@@ -17,10 +17,13 @@ export class MembershipsController {
   @RequirePermissions('memberships.read')
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PaginationQueryDto,
-    @Query('memberId') memberId?: string,
+    @Query() query: ListMembershipsQueryDto,
   ) {
-    return this.membershipsService.list(user.organizationId!, query, memberId);
+    return this.membershipsService.list(
+      user.organizationId!,
+      query,
+      query.memberId,
+    );
   }
 
   @Get(':id')
