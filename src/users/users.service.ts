@@ -27,10 +27,15 @@ export class UsersService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(organizationId: string, query: PaginationQueryDto) {
+  async list(
+    organizationId: string,
+    query: PaginationQueryDto,
+    branchScope: string | null = null,
+  ) {
     const where = {
       organizationId,
       deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
       ...(query.search
         ? {
             OR: [
@@ -65,16 +70,43 @@ export class UsersService {
     return paginate(items.map(sanitize), total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const user = await this.prisma.user.findFirst({
-      where: { id, organizationId, deletedAt: null },
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
       include: { staffProfile: true, userRoles: { include: { role: true } } },
     });
     if (!user) throw new NotFoundException('User not found');
     return sanitize(user);
   }
 
-  async invite(organizationId: string, dto: CreateUserDto) {
+  async invite(
+    organizationId: string,
+    dto: CreateUserDto,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && dto.primaryBranchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot invite a staff member outside your assigned branch',
+      );
+    }
+    // A branch-scoped inviter can't hand out an org-wide grant, or a grant
+    // scoped to a branch other than their own -- either would let them
+    // escalate someone past their own access level.
+    if (branchScope && (dto.roleBranchId ?? null) !== branchScope) {
+      throw new BadRequestException(
+        'Cannot grant a role outside your assigned branch',
+      );
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -137,8 +169,22 @@ export class UsersService {
     return this.getOne(organizationId, user.id);
   }
 
-  async update(organizationId: string, id: string, dto: UpdateUserDto) {
-    await this.getOne(organizationId, id);
+  async update(
+    organizationId: string,
+    id: string,
+    dto: UpdateUserDto,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope);
+    if (
+      branchScope &&
+      dto.primaryBranchId !== undefined &&
+      dto.primaryBranchId !== branchScope
+    ) {
+      throw new BadRequestException(
+        'Cannot move a staff member outside your assigned branch',
+      );
+    }
     const { jobTitle, isTrainer, specializations, bio, ...userFields } = dto;
 
     await this.prisma.$transaction([
@@ -151,16 +197,33 @@ export class UsersService {
     return this.getOne(organizationId, id);
   }
 
-  async deactivate(organizationId: string, id: string) {
-    await this.getOne(organizationId, id);
+  async deactivate(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, id, branchScope);
     return this.prisma.user.update({
       where: { id },
       data: { status: 'DISABLED', deletedAt: new Date() },
     });
   }
 
-  async assignRole(organizationId: string, userId: string, dto: AssignRoleDto) {
-    await this.getOne(organizationId, userId);
+  async assignRole(
+    organizationId: string,
+    userId: string,
+    dto: AssignRoleDto,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, userId, branchScope);
+    // Same escalation guard as invite(): a branch-scoped grantor can only
+    // hand out grants scoped to their own branch, never org-wide or to a
+    // different branch.
+    if (branchScope && (dto.branchId ?? null) !== branchScope) {
+      throw new BadRequestException(
+        'Cannot grant a role outside your assigned branch',
+      );
+    }
     const role = await this.resolveRole(organizationId, dto.roleKey);
     if (!role) throw new BadRequestException(`Unknown role: ${dto.roleKey}`);
 
@@ -189,11 +252,22 @@ export class UsersService {
     return userRole;
   }
 
-  async revokeRole(organizationId: string, userId: string, userRoleId: string) {
+  async revokeRole(
+    organizationId: string,
+    userId: string,
+    userRoleId: string,
+    branchScope: string | null = null,
+  ) {
+    await this.getOne(organizationId, userId, branchScope);
     const userRole = await this.prisma.userRole.findFirst({
       where: { id: userRoleId, userId, organizationId },
     });
     if (!userRole) throw new NotFoundException('Role assignment not found');
+    // A branch-scoped revoker can only touch grants scoped to their own
+    // branch -- not an org-wide grant or one for a different branch.
+    if (branchScope && userRole.branchId !== branchScope) {
+      throw new NotFoundException('Role assignment not found');
+    }
     await this.prisma.userRole.delete({ where: { id: userRoleId } });
     await this.audit.record({
       organizationId,

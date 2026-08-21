@@ -87,6 +87,35 @@ describe('Branch scoping (e2e)', () => {
       data: { status: 'ACTIVE' },
     });
     managerToken = tokens.signAccessToken(managerId);
+
+    // No HTTP endpoint creates custom org roles yet, so this fixture goes
+    // straight through Prisma: a role granting users.create/manage_roles,
+    // held by the same manager, scoped to Branch A -- to test that a
+    // branch-scoped grantor can't use those permissions to invite staff
+    // into, or hand out role grants for, a branch they don't manage.
+    const perms = await prisma.permission.findMany({
+      where: {
+        key: { in: ['users.read', 'users.create', 'users.manage_roles'] },
+      },
+    });
+    const staffAdminRole = await prisma.role.create({
+      data: {
+        organizationId: owner.organizationId,
+        key: 'BRANCH_STAFF_ADMIN_TEST',
+        name: 'Branch Staff Admin (test fixture)',
+        rolePermissions: {
+          create: perms.map((p) => ({ permissionId: p.id })),
+        },
+      },
+    });
+    await prisma.userRole.create({
+      data: {
+        userId: managerId,
+        roleId: staffAdminRole.id,
+        organizationId: owner.organizationId,
+        branchId: branchA,
+      },
+    });
   });
 
   afterAll(async () => {
@@ -246,6 +275,84 @@ describe('Branch scoping (e2e)', () => {
     expect(
       list.body.data.items.some(
         (l: { id: string }) => l.id === leadB.body.data.id,
+      ),
+    ).toBe(false);
+  });
+
+  it('blocks a branch-scoped staff admin from inviting a user into another branch', async () => {
+    await asManager(
+      request(app.getHttpServer())
+        .post('/users')
+        .send({
+          email: `blocked-invite-${Date.now()}@example.com`,
+          firstName: 'Blocked',
+          lastName: 'Invite',
+          primaryBranchId: branchB,
+          roleKey: 'TRAINER',
+        }),
+    ).expect(400);
+  });
+
+  it('blocks a branch-scoped staff admin from granting an org-wide or other-branch role', async () => {
+    const invited = await asManager(
+      request(app.getHttpServer())
+        .post('/users')
+        .send({
+          email: `escalation-target-${Date.now()}@example.com`,
+          firstName: 'Escalation',
+          lastName: 'Target',
+          primaryBranchId: branchA,
+          roleKey: 'TRAINER',
+          roleBranchId: branchA,
+        }),
+    ).expect(201);
+
+    // Org-wide grant (no branchId) is an escalation past the grantor's own scope.
+    await asManager(
+      request(app.getHttpServer())
+        .post(`/users/${invited.body.data.id}/roles`)
+        .send({ roleKey: 'HEAD_TRAINER' }),
+    ).expect(400);
+
+    // A grant scoped to a branch the grantor doesn't manage, same story.
+    await asManager(
+      request(app.getHttpServer())
+        .post(`/users/${invited.body.data.id}/roles`)
+        .send({ roleKey: 'HEAD_TRAINER', branchId: branchB }),
+    ).expect(400);
+
+    // Scoped to their own branch is fine.
+    await asManager(
+      request(app.getHttpServer())
+        .post(`/users/${invited.body.data.id}/roles`)
+        .send({ roleKey: 'HEAD_TRAINER', branchId: branchA }),
+    ).expect(201);
+  });
+
+  it("blocks a branch-scoped staff admin from reading or managing another branch's staff", async () => {
+    const staffB = await asOwner(
+      request(app.getHttpServer())
+        .post('/users')
+        .send({
+          email: `staff-b-${Date.now()}@example.com`,
+          firstName: 'Staff',
+          lastName: 'BranchB',
+          primaryBranchId: branchB,
+          roleKey: 'TRAINER',
+          roleBranchId: branchB,
+        }),
+    ).expect(201);
+
+    await asManager(
+      request(app.getHttpServer()).get(`/users/${staffB.body.data.id}`),
+    ).expect(404);
+
+    const list = await asManager(
+      request(app.getHttpServer()).get('/users'),
+    ).expect(200);
+    expect(
+      list.body.data.items.some(
+        (u: { id: string }) => u.id === staffB.body.data.id,
       ),
     ).toBe(false);
   });

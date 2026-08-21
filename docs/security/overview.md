@@ -31,9 +31,12 @@ exists in the system.
   the matching `x-branch-id` header, and it also resolves *how* the permission was granted --
   org-wide or branch-only -- exposing that as `request.branchScope` (see the guard's class comment).
   Every service method that touches a branch-scoped resource (Members, Attendance, Memberships,
-  Payments, Leads) folds that into its `where` clause and into any client-supplied `branchId` on
-  create/update, the same way `organizationId` is already mandatory everywhere. Users/staff
-  management is a deliberate exception -- not yet branch-enforced, see the test matrix below.
+  Payments, Leads, Users/staff) folds that into its `where` clause and into any client-supplied
+  `branchId` on create/update, the same way `organizationId` is already mandatory everywhere. Users
+  gets one extra rule on top: a branch-scoped grantor (someone whose own `users.create`/
+  `manage_roles` grant is itself branch-scoped) can only invite staff into, or hand out role grants
+  scoped to, their own branch -- never org-wide or another branch -- so branch scoping can't be used
+  to escalate past itself.
 - Per-user `ALLOW`/`DENY` overrides layer on top of role-derived permissions; **DENY always wins**,
   so an admin can carve out an exception without redesigning the role graph.
 - Enforced by `PermissionsGuard` + `@RequirePermission()`, backed by
@@ -76,7 +79,7 @@ only. See `src/auth/auth.controller.ts` for the authoritative numbers.
 | Refresh token rotation + reuse-after-rotation detection | ✅ `test/auth.e2e-spec.ts` |
 | Account lockout after repeated failed logins | ✅ `test/auth.e2e-spec.ts` |
 | Trainer → unauthorized member (a trainer reading a member not assigned to them) | ⚠️ Not yet a dedicated test — the same `organizationId`-scoping mechanism applies, but assignment-level scoping (trainer can only see *their* assigned members within their own org) isn't separately verified |
-| Branch user → another branch (within the same org) | ✅ `test/branch-scoping.e2e-spec.ts` — a manager whose only grant is scoped to Branch A is denied outright without the `x-branch-id` header, and with it still can't create/read/update/list/pay/check-in against Branch B's data, across Members, Payments, Attendance, and Leads. Users/staff management is **not** covered — see the RBAC section above |
+| Branch user → another branch (within the same org) | ✅ `test/branch-scoping.e2e-spec.ts` — a manager whose only grant is scoped to Branch A is denied outright without the `x-branch-id` header, and with it still can't create/read/update/list/pay/check-in against Branch B's data, across Members, Payments, Attendance, Leads, and Users/staff (including that a branch-scoped grantor can't hand out an org-wide or other-branch role) |
 | AI agent → unauthorized data | ✅ `test/ai.e2e-spec.ts` — the tool executor is exercised directly (no live model needed): `read_member` never returns another org's member or raw PII fields, and `create_workout_draft`/`create_diet_draft` reject a cross-org exercise/food-item reference. See `docs/ai/architecture.md` for the tool-scoping model |
 | Malicious upload / unauthorized file access | N/A — `files` module not built |
 | Prompt injection | ⚠️ Not yet a dedicated test — the tool allowlist + per-tool argument validation (`class-validator`) structurally bound what a model can do regardless of what it's told (see `test/ai.e2e-spec.ts`'s tool-executor tests), but no test drives a crafted prompt through a live model end-to-end to confirm that holds in practice; that requires a real `OPENROUTER_API_KEY`, which isn't configured for this test environment |
