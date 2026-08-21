@@ -78,14 +78,16 @@ driver-adapter generator). `prisma/schema.prisma` is organized in sections:
   yet — see §9).
 - **Member 360**: `MemberAddress`, `MemberEmergencyContact`, `MemberNote`, `MemberConsent`
   (append-only), `MemberStatusHistory`, `MemberBranchHistory`, `MemberTrainerHistory` (the last
-  three append-only, auto-written by `MembersService.create()`/`update()`) — see
-  `docs/database/data-ownership.md` for the per-table ownership/scope/history answers.
+  three append-only, auto-written by `MembersService.create()`/`update()`), `MemberAssessment` (+
+  `MemberMeasurement`, `MemberFitnessTestResult`, `MemberScreening`), `MemberGoal` (+
+  `MemberGoalMilestone`) — see `docs/database/data-ownership.md` for the per-table
+  ownership/scope/history answers and `src/members/README.md` for the API shape.
 
 `Member` itself is still the flat "current state" row from the deep-foundation phase
 (`addressLine1`/`emergencyContactName`/`notes`/`status`/`primaryBranchId`/`assignedTrainerId` as
 single denormalized fields) — the tables above are the collection/history layer *around* it, not a
-replacement for it. Still not built: Assessments, Goals, Appointments, Documents (the last needs
-the `files/` seam first). See `docs/architecture/discovery-report.md` §6.
+replacement for it. Still not built: Appointments, Documents/progress photos (the last two need the
+`files/` seam first). See `docs/architecture/discovery-report.md` §6.
 
 Conventions: UUID primary keys; `createdAt`/`updatedAt` on every table; soft delete
 (`deletedAt`) where a record has downstream references that must survive deletion (Organization,

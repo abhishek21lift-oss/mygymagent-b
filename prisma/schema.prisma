@@ -4,19 +4,19 @@
 // Multi-tenancy, RBAC, auth, audit logging, and the core gym domain
 // (organizations, branches, staff, members, membership plans/subscriptions,
 // attendance) plus billing (payments/refunds), workouts, nutrition,
-// inventory, CRM/leads, AI usage tracking, and the Member 360 collection/
-// history layer (addresses, emergency contacts, notes, consents, status/
-// branch/trainer history) are modeled and built.
+// inventory, CRM/leads, AI usage tracking, and Member 360 (addresses,
+// emergency contacts, notes, consents, status/branch/trainer history,
+// assessments/measurements/fitness tests/screenings, goals/milestones)
+// are modeled and built.
 //
 // Still reserved seams, not modeled here yet (see
 // docs/architecture/discovery-report.md for the current gap list):
 // notifications, files/object storage, search, analytics, platform SaaS
-// billing (as opposed to the gym-side Payment/Refund tables below), and the
-// remaining Member 360 domains -- Assessments, Goals, Appointments,
-// Documents (the last needs the files/ seam first, for actual file
-// storage). New tables all hang off Organization / Branch / Member / User
-// the same way the tables below do, keeping tenant isolation uniform
-// across the system.
+// billing (as opposed to the gym-side Payment/Refund tables below),
+// Appointments, and Documents/progress photos (the last two need the
+// files/ seam first, for actual file storage). New tables all hang off
+// Organization / Branch / Member / User the same way the tables below do,
+// keeping tenant isolation uniform across the system.
 // ============================================================================
 
 generator client {
@@ -92,6 +92,12 @@ model Organization {
   memberStatusHistory     MemberStatusHistory[]
   memberBranchHistory     MemberBranchHistory[]
   memberTrainerHistory    MemberTrainerHistory[]
+  memberAssessments       MemberAssessment[]
+  memberMeasurements      MemberMeasurement[]
+  memberFitnessResults    MemberFitnessTestResult[]
+  memberScreenings        MemberScreening[]
+  memberGoals             MemberGoal[]
+  memberGoalMilestones    MemberGoalMilestone[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -190,33 +196,38 @@ model User {
   deletedAt DateTime?
 
   staffProfile             StaffProfile?
-  member                   Member?                  @relation("MemberPortalUser")
+  member                   Member?                   @relation("MemberPortalUser")
   userRoles                UserRole[]
   permissionOverrides      UserPermissionOverride[]
   refreshTokens            RefreshToken[]
   passwordResetTokens      PasswordResetToken[]
   emailVerificationTokens  EmailVerificationToken[]
-  auditLogsAsActor         AuditLog[]               @relation("AuditActor")
-  assignedMembers          Member[]                 @relation("MemberAssignedTrainer")
-  recordedAttendances      Attendance[]             @relation("AttendanceRecordedBy")
-  staffAttendances         Attendance[]             @relation("AttendanceStaffUser")
-  paymentsRecorded         Payment[]                @relation("PaymentRecordedBy")
-  refundsRecorded          Refund[]                 @relation("RefundRecordedBy")
-  workoutPlansCreated      WorkoutPlan[]            @relation("WorkoutPlanCreatedBy")
-  workoutAssignmentsMade   WorkoutAssignment[]      @relation("WorkoutAssignedBy")
-  leadsAssigned            Lead[]                   @relation("LeadAssignedTo")
-  leadFollowUpsCreated     LeadFollowUp[]           @relation("LeadFollowUpCreatedBy")
-  dietPlansCreated         DietPlan[]               @relation("DietPlanCreatedBy")
-  dietAssignmentsMade      DietAssignment[]         @relation("DietAssignedBy")
-  stockMovementsRecorded   StockMovement[]          @relation("StockMovementRecordedBy")
-  aiUsageLogs              AiUsageLog[]             @relation("AiUsageActor")
-  memberNotesAuthored      MemberNote[]             @relation("MemberNoteAuthor")
-  memberConsentsRecorded   MemberConsent[]          @relation("MemberConsentRecordedBy")
-  memberStatusChangesMade  MemberStatusHistory[]    @relation("MemberStatusChangedBy")
-  memberBranchChangesMade  MemberBranchHistory[]    @relation("MemberBranchChangedBy")
-  memberTrainerChangesMade MemberTrainerHistory[]   @relation("MemberTrainerChangedBy")
-  memberTrainerHistoryFrom MemberTrainerHistory[]   @relation("MemberTrainerHistoryFrom")
-  memberTrainerHistoryTo   MemberTrainerHistory[]   @relation("MemberTrainerHistoryTo")
+  auditLogsAsActor         AuditLog[]                @relation("AuditActor")
+  assignedMembers          Member[]                  @relation("MemberAssignedTrainer")
+  recordedAttendances      Attendance[]              @relation("AttendanceRecordedBy")
+  staffAttendances         Attendance[]              @relation("AttendanceStaffUser")
+  paymentsRecorded         Payment[]                 @relation("PaymentRecordedBy")
+  refundsRecorded          Refund[]                  @relation("RefundRecordedBy")
+  workoutPlansCreated      WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
+  workoutAssignmentsMade   WorkoutAssignment[]       @relation("WorkoutAssignedBy")
+  leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
+  leadFollowUpsCreated     LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
+  dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
+  dietAssignmentsMade      DietAssignment[]          @relation("DietAssignedBy")
+  stockMovementsRecorded   StockMovement[]           @relation("StockMovementRecordedBy")
+  aiUsageLogs              AiUsageLog[]              @relation("AiUsageActor")
+  memberNotesAuthored      MemberNote[]              @relation("MemberNoteAuthor")
+  memberConsentsRecorded   MemberConsent[]           @relation("MemberConsentRecordedBy")
+  memberStatusChangesMade  MemberStatusHistory[]     @relation("MemberStatusChangedBy")
+  memberBranchChangesMade  MemberBranchHistory[]     @relation("MemberBranchChangedBy")
+  memberTrainerChangesMade MemberTrainerHistory[]    @relation("MemberTrainerChangedBy")
+  memberTrainerHistoryFrom MemberTrainerHistory[]    @relation("MemberTrainerHistoryFrom")
+  memberTrainerHistoryTo   MemberTrainerHistory[]    @relation("MemberTrainerHistoryTo")
+  assessmentsConducted     MemberAssessment[]        @relation("AssessmentConductedBy")
+  measurementsRecorded     MemberMeasurement[]       @relation("MeasurementRecordedBy")
+  fitnessTestsRecorded     MemberFitnessTestResult[] @relation("FitnessTestRecordedBy")
+  screeningsRecorded       MemberScreening[]         @relation("ScreeningRecordedBy")
+  goalsCreated             MemberGoal[]              @relation("GoalCreatedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -498,6 +509,11 @@ model Member {
   statusHistory     MemberStatusHistory[]
   branchHistory     MemberBranchHistory[]
   trainerHistory    MemberTrainerHistory[]
+  assessments       MemberAssessment[]
+  measurements      MemberMeasurement[]
+  fitnessResults    MemberFitnessTestResult[]
+  screenings        MemberScreening[]
+  goals             MemberGoal[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -1279,4 +1295,220 @@ model AiUsageLog {
   @@index([organizationId, createdAt])
   @@index([userId])
   @@map("ai_usage_logs")
+}
+
+// ----------------------------------------------------------------------------
+// Member 360 -- Assessments and Goals. Gated by the same members.read/
+// members.read_assigned/members.update permissions as the rest of Member
+// 360 (not their own assessments.*/goals.* keys), so a TRAINER restricted
+// to members.read_assigned can't see another trainer's client's
+// assessments/goals by going around that restriction through a broader
+// permission -- see MemberAssessmentsService/MemberGoalsService, which
+// both re-run MembersService.getOne() the same way member-details.service
+// does. Progress photos are deliberately NOT modeled here -- they need the
+// files/ object-storage seam first, same reasoning as Documents (see
+// docs/architecture/discovery-report.md §6).
+// ----------------------------------------------------------------------------
+
+enum MemberAssessmentType {
+  INITIAL
+  PROGRESS
+  PAR_Q
+  FITNESS_TEST
+  CUSTOM
+}
+
+/// The parent record for one assessment session -- a screening, a set of
+/// measurements, a battery of fitness tests, or a mix, all conducted at
+/// the same time by the same staff member. Measurements/fitness-test
+/// results/screenings can optionally reference one (assessmentId), or
+/// stand alone (e.g. a quick weekly weigh-in isn't a full assessment).
+model MemberAssessment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type  MemberAssessmentType
+  notes String?
+
+  conductedByUserId String?
+  conductedByUser   User?    @relation("AssessmentConductedBy", fields: [conductedByUserId], references: [id], onDelete: SetNull)
+  conductedAt       DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  measurements   MemberMeasurement[]
+  fitnessResults MemberFitnessTestResult[]
+  screening      MemberScreening?
+
+  @@index([organizationId, memberId, conductedAt])
+  @@map("member_assessments")
+}
+
+/// Body measurements / composition at a point in time. Historical by
+/// design -- every entry is a new row, never an update to a previous one,
+/// so a member's measurement trend over time is just this table ordered
+/// by recordedAt, not reconstructed from anywhere else.
+model MemberMeasurement {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assessmentId   String?
+  assessment     MemberAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  recordedAt DateTime @default(now())
+
+  weightKg               Decimal? @db.Decimal(6, 2)
+  heightCm               Decimal? @db.Decimal(6, 2)
+  bodyFatPercent         Decimal? @db.Decimal(5, 2)
+  muscleMassKg           Decimal? @db.Decimal(6, 2)
+  waistCm                Decimal? @db.Decimal(6, 2)
+  hipCm                  Decimal? @db.Decimal(6, 2)
+  chestCm                Decimal? @db.Decimal(6, 2)
+  restingHeartRate       Int?
+  bloodPressureSystolic  Int?
+  bloodPressureDiastolic Int?
+  notes                  String?
+
+  recordedByUserId String?
+  recordedByUser   User?   @relation("MeasurementRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, recordedAt])
+  @@map("member_measurements")
+}
+
+/// A single fitness-test result (e.g. "1RM Bench Press", "VO2 Max
+/// Estimate", "Plank Hold"). `testName` is free text rather than an enum
+/// -- the set of tests a gym runs is inherently open-ended/custom, per the
+/// master spec's "custom assessments" requirement -- so trend-over-time
+/// queries group by (memberId, testName), not by a fixed catalog id.
+model MemberFitnessTestResult {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assessmentId   String?
+  assessment     MemberAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  testName String
+  value    Decimal @db.Decimal(10, 2)
+  unit     String
+  notes    String?
+
+  recordedAt       DateTime @default(now())
+  recordedByUserId String?
+  recordedByUser   User?    @relation("FitnessTestRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, testName, recordedAt])
+  @@map("member_fitness_test_results")
+}
+
+/// PAR-Q (Physical Activity Readiness Questionnaire) or an equivalent
+/// health screening. `responses` is a small fixed-shape JSON object
+/// (question key -> boolean) rather than its own table -- PAR-Q's
+/// question set is standardized and doesn't need per-question rows.
+/// `assessmentId` is unique: a screening belongs to at most one assessment
+/// session (the 1:1 side of MemberAssessment.screening).
+model MemberScreening {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assessmentId   String?           @unique
+  assessment     MemberAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  responses                  Json
+  flaggedForMedicalClearance Boolean @default(false)
+  notes                      String?
+
+  completedAt      DateTime @default(now())
+  recordedByUserId String?
+  recordedByUser   User?    @relation("ScreeningRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, memberId, completedAt])
+  @@map("member_screenings")
+}
+
+enum MemberGoalCategory {
+  WEIGHT_LOSS
+  MUSCLE_GAIN
+  STRENGTH
+  ENDURANCE
+  GENERAL_FITNESS
+  OTHER
+}
+
+enum MemberGoalStatus {
+  ACTIVE
+  ACHIEVED
+  ABANDONED
+  PAUSED
+}
+
+model MemberGoal {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  category    MemberGoalCategory @default(GENERAL_FITNESS)
+  status      MemberGoalStatus   @default(ACTIVE)
+
+  targetValue   Decimal? @db.Decimal(10, 2)
+  targetUnit    String?
+  baselineValue Decimal? @db.Decimal(10, 2)
+
+  startDate  DateTime  @default(now())
+  targetDate DateTime?
+  achievedAt DateTime?
+
+  createdByUserId String?
+  createdByUser   User?   @relation("GoalCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  milestones MemberGoalMilestone[]
+
+  @@index([organizationId, memberId, status])
+  @@map("member_goals")
+}
+
+/// Progress checkpoints toward a goal -- this table *is* the goal's
+/// history/progress trail, so MemberGoal itself doesn't need a separate
+/// history table the way status/branch/trainer do (see the model comment
+/// on MemberStatusHistory above for that pattern).
+model MemberGoalMilestone {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goalId         String
+  goal           MemberGoal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  title      String
+  targetDate DateTime?
+  achievedAt DateTime?
+  value      Decimal?  @db.Decimal(10, 2)
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, goalId])
+  @@map("member_goal_milestones")
 }

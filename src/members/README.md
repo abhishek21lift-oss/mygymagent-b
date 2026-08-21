@@ -20,10 +20,28 @@ Gym client CRUD plus the Member 360 collection/history layer.
   `create()`/`update()` whenever `status`/`primaryBranchId`/`assignedTrainerId` actually changes
   (and seeded on creation, so the *original* value is in history too, not just later changes) —
   there is no direct write endpoint for these three tables.
+- `MemberAssessmentsController`/`MemberAssessmentsService` — nested under
+  `/members/:memberId/...`:
+  - `assessments` — the parent record for an assessment session (`type`: `INITIAL`/`PROGRESS`/
+    `PAR_Q`/`FITNESS_TEST`/`CUSTOM`, `conductedByUserId`, `conductedAt`).
+  - `measurements` — body measurements/composition at a point in time, every entry a new row
+    (never an update), optionally linked to an `assessmentId` (rejected with `404` if the id
+    belongs to a different member — see `assertAssessmentBelongsToMember`).
+  - `fitness-tests` — free-text `testName` (e.g. "1RM Bench Press") + `value`/`unit`, same
+    optional-assessment-link pattern. Free text, not an enum, since the set of tests a gym runs is
+    inherently open-ended.
+  - `screenings` — PAR-Q-style health screening; `responses` is a plain JSON object
+    (question-key → boolean) rather than its own table.
+- `MemberGoalsController`/`MemberGoalsService` — `/members/:memberId/goals` (+ nested
+  `/goals/:goalId/milestones`). A goal's `status` (`ACTIVE`/`ACHIEVED`/`ABANDONED`/`PAUSED`) is
+  mutable via `PATCH`; milestones are the goal's own progress trail, so (unlike
+  status/branch/trainer above) there's no separate `MemberGoalHistory` table — the milestone list
+  already is the history.
 
 Every sub-resource method re-runs `MembersService.getOne()` (tenant + branch + assignment scoping)
 before touching its own table, rather than trusting a bare `memberId` — see
-`test/member-360.e2e-spec.ts`'s cross-tenant isolation test for the regression check.
+`test/member-360.e2e-spec.ts` and `test/member-assessments-goals.e2e-spec.ts`'s cross-tenant
+isolation tests for the regression check.
 
 ## Deliberate scope limits (read before extending this module)
 
@@ -34,10 +52,11 @@ before touching its own table, rather than trusting a bare `memberId` — see
   `members.read`/`members.read_assigned`/`members.update` as the parent `Member` — the master
   spec's "reception sees basic info, trainer sees training info" sensitivity split (§7) isn't
   applied within Member 360 sub-resources yet.
-- **Documents are not built.** They need the `files/` object-storage seam first (still a stub) —
-  see `docs/architecture/discovery-report.md`'s roadmap.
-- **Assessments, Goals, Appointments are not built.** Separate future domains, not sub-resources of
-  this module's current scope.
+- **Documents and progress photos are not built.** They need the `files/` object-storage seam
+  first (still a stub) — see `docs/architecture/discovery-report.md`'s roadmap. This is why
+  `MemberAssessment` has no photo attachment field even though the master spec calls for progress
+  photos alongside assessments.
+- **Appointments are not built.** A separate future domain, not a sub-resource of this module.
 - **No unified activity timeline.** Aggregating `MemberStatusHistory`/`MemberBranchHistory`/
-  `MemberTrainerHistory`/`MemberNote`/`Membership`/`Attendance`/... into one feed is real future
-  work, not attempted here.
+  `MemberTrainerHistory`/`MemberNote`/`MemberGoal`/`Membership`/`Attendance`/... into one feed is
+  real future work, not attempted here.
