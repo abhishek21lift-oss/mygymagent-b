@@ -1,11 +1,22 @@
 import { Module } from '@nestjs/common';
+import { AttendanceModule } from '../attendance/attendance.module';
+import { CrmModule } from '../crm/crm.module';
+import { MembersModule } from '../members/members.module';
+import { WorkoutsModule } from '../workouts/workouts.module';
+import { AiController } from './ai.controller';
+import { AiService } from './ai.service';
+import { OpenRouterProvider } from './providers/openrouter.provider';
+import { ToolExecutorService } from './tools/tool-executor.service';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * v1 AI: a single tool-calling chat endpoint over OpenRouter, restricted
+ * to the explicit tool allowlist in tools/tool-definitions.ts. See
+ * README.md for what's built vs. still-designed-only from
+ * docs/ai/architecture.md.
  */
-@Module({})
+@Module({
+  imports: [MembersModule, AttendanceModule, WorkoutsModule, CrmModule],
+  controllers: [AiController],
+  providers: [AiService, OpenRouterProvider, ToolExecutorService],
+})
 export class AiModule {}

@@ -18,6 +18,12 @@ export const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+
+  // AI (OpenRouter) -- optional. The /ai/chat endpoint returns a clear
+  // 503 if invoked without OPENROUTER_API_KEY set, rather than the app
+  // failing to boot over a missing optional integration.
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

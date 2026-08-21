@@ -84,7 +84,10 @@ describe('CRM / leads (e2e)', () => {
     const followUp = await authed(org.accessToken)(
       request(app.getHttpServer())
         .post(`/leads/${lead.body.data.id}/follow-ups`)
-        .send({ dueAt: new Date(Date.now() + 86400000).toISOString(), note: 'Call back' }),
+        .send({
+          dueAt: new Date(Date.now() + 86400000).toISOString(),
+          note: 'Call back',
+        }),
     ).expect(201);
     expect(followUp.body.data.completedAt).toBeNull();
 
@@ -94,8 +97,9 @@ describe('CRM / leads (e2e)', () => {
     expect(detail.body.data.followUps).toHaveLength(1);
 
     const completed = await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .patch(`/leads/${lead.body.data.id}/follow-ups/${followUp.body.data.id}/complete`),
+      request(app.getHttpServer()).patch(
+        `/leads/${lead.body.data.id}/follow-ups/${followUp.body.data.id}/complete`,
+      ),
     ).expect(200);
     expect(completed.body.data.completedAt).not.toBeNull();
   });
@@ -123,7 +127,9 @@ describe('CRM / leads (e2e)', () => {
 
     // The new member is real and independently readable.
     await authed(org.accessToken)(
-      request(app.getHttpServer()).get(`/members/${converted.body.data.member.id}`),
+      request(app.getHttpServer()).get(
+        `/members/${converted.body.data.member.id}`,
+      ),
     ).expect(200);
 
     // Converting again is rejected.
