@@ -18,9 +18,9 @@ production.
 
 - **Backend** (`mygymagent-b`): deployed to Render as a Node web service. Build command
   `npm install --include=dev && npm run build`, start command `npm start`
-  (`node dist/src/main`) — `--include=dev` is required because `@nestjs/cli` and the TypeScript
-  toolchain live in `devDependencies`, and Render's `npm install` skips those when `NODE_ENV=production`
-  is set (it is, for the running service).
+  (`prisma migrate deploy && node dist/src/main`) — `--include=dev` is required because `@nestjs/cli`
+  and the TypeScript toolchain live in `devDependencies`, and Render's `npm install` skips those when
+  `NODE_ENV=production` is set (it is, for the running service).
 - **Frontend** (`mygymagent-f`): deployed to Vercel, which builds and serves the Next.js app
   natively — the `Dockerfile` in this repo exists for a Docker-based host as an alternative, not
   because Vercel uses it.
@@ -56,9 +56,20 @@ parallel/independent step.
   rule in `docs/database/`: **no manual schema edits on staging/production**, ever.
 - Development: `npm run prisma:migrate` (`prisma migrate dev`) — generates and applies a migration,
   interactive-safe for a local throwaway database.
-- Staging/production: `npm run prisma:migrate:deploy` (`prisma migrate deploy`) — applies pending
-  migrations non-interactively, never generates new ones. This is the only command that should ever
-  touch a shared database's schema.
+- **Staging/production applies automatically on every boot.** `npm start` runs `prisma migrate
+  deploy && node dist/src/main` (same for the Docker image's `CMD`) — pending migrations are applied
+  non-interactively *before* the process starts accepting traffic, not as a manual step a human has
+  to remember to run after merging a schema change. `prisma migrate deploy` never generates new
+  migrations and is safe to run on every boot: it's a no-op when nothing is pending, and it takes an
+  advisory lock so concurrent instances starting at once don't race. This is why `prisma` (the CLI,
+  not just `@prisma/client`) lives in `dependencies`, not `devDependencies` — it has to be present at
+  runtime now. `npm run prisma:migrate:deploy` still exists for running it by hand (e.g. to check
+  what a migration will do before deploying the code that needs it).
+- **Trade-off, deliberately accepted:** if a migration fails against the live database (a real SQL
+  error, not just "nothing pending"), the `&&` means the app process never starts and the deploy
+  fails loudly instead of serving traffic against a schema the code doesn't match. That's the
+  correct failure mode for this app's size — investigate and fix the migration, then redeploy —
+  rather than adding retry/skip logic that could silently leave schema and code out of sync.
 - **Rollback strategy**: Prisma doesn't auto-generate down-migrations. A destructive or
   wrong migration is rolled back by writing and applying a new forward migration that reverses it
   (see the `drop_stray_member_branch_id` migration in this repo's own history for a real example —

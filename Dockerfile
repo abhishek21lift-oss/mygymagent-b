@@ -35,4 +35,7 @@ USER app
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||4000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-CMD ["node", "dist/src/main"]
+# Applies any pending migration before serving traffic -- see "Database
+# migrations" in docs/deployment/overview.md for why this runs on every
+# boot rather than as a separate manual step.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
