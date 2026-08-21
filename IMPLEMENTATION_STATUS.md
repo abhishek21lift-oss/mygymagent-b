@@ -35,9 +35,9 @@ corrected security test matrix rather than implied fixed.
 |---|---|---|
 | Communication — EMAIL | ✅ | Real SMTP delivery (`src/communications/`), templates (org-override + system-default), per-org branding, MARKETING-consent gating, `MessageLog` delivery/failure audit trail. User's explicit choice: build email now (no new paid signup — any SMTP relay/mailbox works), defer WhatsApp/SMS/push. |
 | Communication — WhatsApp/SMS/Push | ⬜ | Typed provider interfaces exist (`src/communications/interfaces/`) with an `UnimplementedChannelProvider` that throws clearly rather than faking delivery — no real provider wired in, per the user's explicit deferral. Needs real credentials (Twilio/WhatsApp Business API/push provider) to implement. |
-| Scheduler + Jobs infrastructure | ⬜ | |
-| Event Engine (tenant-aware domain events) | ⬜ | 10 events already defined in `src/events/domain-events.ts`; 9 have no listener |
-| Automation Engine (Trigger → Conditions → Action → Approval → Execute → Audit) | ⬜ | |
+| Scheduler + Jobs infrastructure | ✅ | `src/automation/automation-scheduler.service.ts` — BullMQ `upsertJobScheduler` (idempotent daily repeatable jobs), reusing `QueueModule`'s existing retries/backoff/failure-tracking rather than a second scheduling abstraction |
+| Event Engine (tenant-aware domain events) | 🚧 | `inventory.low` now has a real listener (`src/automation/inventory-low.listener.ts`); `membership.started`/`cancelled`, `payment.recorded`/`refunded`, `lead.converted`, etc. still unconsumed — the automations built don't need them (they're poll-based scans, not event-reactive) |
+| Automation Engine (Trigger → Conditions → Action → Approval-if-required → Execute → Audit) | ✅ (5 of 6) | `src/automation/` — membership renewal, payment overdue, inactive-member recovery, lead follow-up, low-stock alert. PT expiry explicitly **not built**: no PT session/package data model exists to compute an expiry from — see `src/automation/README.md`. No approval step yet: every automation here is a notification send, so "Approval-if-required" is honestly "not required" at this risk tier — see that README for when that changes. |
 | Revenue & Finance intelligence layer | ⬜ | |
 
 **Communication (EMAIL) verification (2026-08-21):** typecheck clean, lint clean, 11/11 unit tests
@@ -50,6 +50,13 @@ artifacts): `SMTP_SECURE` used `z.coerce.boolean()`, which coerces the literal s
 before BullMQ's worker had a chance to finish an in-flight job, permanently hanging `app.close()`
 whenever a job was still active at shutdown (previously masked by the old stub mailer completing
 too fast to ever hit the race). See `ARCHITECTURE_DECISIONS.md` entries AI-6 through AI-8.
+
+**Scheduler + Automation Engine verification (2026-08-21):** typecheck clean, lint clean, 11/11
+unit tests passing, 20/20 e2e suites passing (122/122 tests, up from 115 — 7 new, in
+`test/automation.e2e-spec.ts`), all against real Postgres/Redis/SMTP. Covers each scanner's real
+trigger condition, its cooldown suppressing a repeat run, the payment-overdue balance computed
+from real Payment/Refund rows, the MARKETING-consent-gated SKIPPED path, and the real-time
+inventory-low event → queue → email path end to end.
 
 ## P2 — Intelligence
 

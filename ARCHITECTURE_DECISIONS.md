@@ -217,3 +217,67 @@ an in-flight job's completion report whenever a job happened to be mid-processin
 Also bumped `test/jest-e2e.json`'s `testTimeout` from Jest's 5000ms default to 15000ms: real,
 sequential Postgres+Redis+SMTP+Nest-bootstrap work across 19 e2e suites occasionally needs more
 than 5s for a single `beforeAll`/`afterAll`, independent of the hang this entry fixes.
+
+---
+
+## AI-9: Scheduler built on BullMQ's own `upsertJobScheduler`, not a second abstraction
+
+**Context:** The master prompt's P1 scope calls for "Scheduler + Jobs infrastructure" as its own
+item, separate from "Automation Engine." BullMQ (already the app's job-queue library, via
+`QueueModule`) has had a first-class repeatable-job primitive since v5 --
+`Queue.upsertJobScheduler(id, {pattern}, {name, data})` -- that gives idempotent registration (safe
+to call on every app boot), and every job it produces inherits the queue's `defaultJobOptions`
+(retries, exponential backoff, `removeOnFail`), which is exactly "retries/backoff, failure
+tracking" from the master prompt's own description of what the Scheduler needs.
+
+**Decision:** `AutomationSchedulerService` (an `OnApplicationBootstrap` provider) calls
+`upsertJobScheduler` once per daily scan on every boot. No new scheduling library, no cron
+abstraction layered on top of BullMQ's own.
+
+**Alternatives considered:** `@nestjs/schedule` (node-cron under the hood) -- rejected because it
+runs in-process with no persistence or distribution story; a job it "misses" during a restart is
+just gone, whereas BullMQ's repeatable jobs are durable in Redis and BullMQ itself already owns
+this app's only other async-job infrastructure. Introducing a second async-work primitive next to
+BullMQ, for no capability BullMQ doesn't already have, would be exactly the kind of unnecessary
+abstraction this project's engineering discipline avoids.
+
+**Consequences:** Any future scheduled/recurring job (P2/P3) should register through this same
+pattern (`upsertJobScheduler` on the `automation` queue, or a queue registered the same way), not a
+new scheduler. A per-organization schedule (different orgs, different timezones) isn't supported
+yet -- `AutomationSchedulerService` registers one fixed UTC time for everyone -- and would need a
+config field this schema doesn't have today plus per-org scheduler registration, not a redesign.
+
+---
+
+## AI-10: Automation Engine's five P1 automations are notification-only; PT expiry is explicitly not built
+
+**Context:** The master prompt names six starting automations for P1: membership renewals, payment
+reminders, inactive-member recovery, PT expiry, lead follow-ups, low-stock alerts. Its own explicit
+rules ("Do NOT fake features, AI, analytics, automation or integrations") and the audit's finding
+that no PT session/package data model exists in this schema meant PT expiry could not be built
+honestly -- there's no field anywhere recording when a member's PT allotment "expires."
+
+**Decision:** Built the five automations the data model actually supports
+(`src/automation/scanners/` + `inventory-low.listener.ts`), each following Trigger -> Conditions ->
+Action -> Audit against real Membership/Payment/Refund/Member/Attendance/LeadFollowUp/Product data
+-- no fabricated fields, no invoice model invented for "payment overdue" (see that scanner's
+comment for how outstanding balance is computed from real Payment/Refund rows instead). Left PT
+expiry unbuilt, documented in `src/automation/README.md` and `IMPLEMENTATION_STATUS.md` as blocked
+on a data-model decision (a minimal PT-session/package model would need to be designed first --
+not specified by the master prompt, so not guessed at) rather than silently dropped or faked
+against a field that doesn't exist.
+
+**Decision:** No approval step ("Approval-if-required" from the master prompt's shape) for any of
+these five. Every action here is sending a notification -- the same risk tier as the existing
+password-reset/welcome emails, which have never required approval. A real approval workflow
+(Action Center, human-in-the-loop review) is explicitly P3 scope in the master prompt itself,
+introduced once the Automation Engine does something riskier than a notification send (e.g.
+auto-applying a discount, cancelling a membership) -- building that machinery now, with nothing
+that actually needs it, would be exactly the "flashy AI UI before the operational foundation"
+the master prompt says not to build first.
+
+**Consequences:** `AutomationRun`'s `status` enum (`SENT`/`SKIPPED`/`FAILED`) has no `PENDING_APPROVAL`
+value yet -- adding one, plus the workflow around it, is real P3 work, not a trivial follow-up.
+Every automation added between now and P3 should keep to the same notification-only risk tier this
+decision assumes; the first automation that needs to *change* data (not just notify about it)
+is the trigger to build the approval step for real, not before.

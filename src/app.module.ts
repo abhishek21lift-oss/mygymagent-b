@@ -38,6 +38,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { AutomationModule } from './automation/automation.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     NotificationsModule,
     SearchModule,
     AnalyticsModule,
+    AutomationModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

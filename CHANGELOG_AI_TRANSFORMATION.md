@@ -217,3 +217,88 @@ npm run test:e2e                     # 115/115 e2e tests passing across 19 suite
 
 All e2e tests ran against real Postgres, real Redis, real s3rver, and real SMTP (the local capture
 server above) — not mocks.
+
+## 2026-08-21 — P1: Scheduler + Jobs infrastructure, Event Engine, Automation Engine
+
+**Source:** Master prompt's P1 items, in the order it lists them.
+
+### Scheduler + Jobs infrastructure
+
+`AutomationSchedulerService` (`src/automation/automation-scheduler.service.ts`) registers 4 daily
+BullMQ repeatable jobs via `Queue.upsertJobScheduler` on every app boot — idempotent, no duplicate
+schedules across restarts. No new scheduling library: BullMQ (already this app's only job-queue
+infrastructure, via `QueueModule`) already provides the cron primitive, plus retries/backoff and
+failure tracking for free through `QueueModule`'s existing `defaultJobOptions`. See
+`ARCHITECTURE_DECISIONS.md` AI-9.
+
+### Event Engine
+
+`inventory.low` (emitted by `StockMovementsService` since the P0 concurrency fix, with no listener
+until now) has a real listener: `src/automation/inventory-low.listener.ts`. Also fixed a real
+noise bug while wiring it up — the event previously fired on *every* movement that left stock
+at-or-below `reorderLevel`, not just the crossing edge, which would have spammed one alert per
+sale once a listener existed; `StockMovementsService.record()` now only emits when the movement
+actually crosses from above the threshold to at-or-below it.
+
+The other 9 events in the catalog remain unconsumed — the automations built this phase are
+poll-based scans against real entity state (a membership's `endDate`, a follow-up's `dueAt`), not
+reactions to `membership.started`/`payment.recorded`/etc., so they didn't need new listeners for
+those. Tracked as still-open in `IMPLEMENTATION_STATUS.md`.
+
+### Automation Engine
+
+Five of the master prompt's six named starting automations, each Trigger -> Conditions -> Action
+-> Audit against real data (`src/automation/`, full detail in that module's README):
+
+1. **Membership renewal reminder** — ACTIVE membership expiring within 7 days, 3-day cooldown.
+2. **Payment overdue reminder** — outstanding balance computed from real Payment/Refund rows
+   (`membership.price - (payments - refunds)`), not a fabricated invoice/due-date system this
+   schema has no model for. 5-day cooldown.
+3. **Inactive-member recovery** — ACTIVE member with no Attendance in 30+ days. MARKETING category,
+   so gated by the member's own consent (verified end to end: a member without a MARKETING grant
+   gets `SKIPPED`, recorded as such, never a real send). 14-day cooldown.
+4. **Lead follow-up reminder** — overdue, incomplete `LeadFollowUp` on an assigned lead, sent to
+   the assignee. 1-day cooldown (deliberately short — an overdue follow-up staying overdue is
+   itself worth a daily nudge).
+5. **Low-stock alert** — real-time via the `inventory.low` listener above, sent to every
+   `inventory.manage` holder in the org.
+
+**PT expiry — explicitly not built.** No PT session/package data model exists in this schema (the
+2026-08-21 audit's own finding); there's no field to compute an expiry from. Building it means
+designing a minimal PT-session model first, which the master prompt doesn't specify — flagged as
+blocked in `IMPLEMENTATION_STATUS.md` and `src/automation/README.md` rather than approximated
+against data that doesn't exist, per the master prompt's own "do not fake features" rule.
+
+**No approval step.** Every automation above is a notification send — the same risk tier as the
+existing password-reset email, which has never needed approval. "Approval-if-required" is honestly
+"not required" at this tier; the real approval workflow is P3 scope, introduced once an automation
+needs to change data, not just notify about it. See `ARCHITECTURE_DECISIONS.md` AI-10 for the full
+reasoning on both of the above.
+
+**Audit trail + idempotency:** every attempt — sent, skipped, or failed — writes an `AutomationRun`
+row (new model: `organizationId`, `key`, `subjectId`, `status`, `detail`, migration
+`20260821234548_add_automation_runs`). `AutomationRunService.attempt()` checks for a recent row
+before trying again, which is what makes each automation's cooldown work without a fragile
+DB-level uniqueness scheme.
+
+- Changed: `src/automation/**` (new), `src/events/domain-events.ts` (no changes — catalog
+  already had `InventoryLow`), `src/inventory/stock-movements.service.ts` (crossing-edge fix),
+  `src/queue/queue.constants.ts` (new queue + job names), `src/app.module.ts`,
+  `prisma/schema.prisma` + 1 migration.
+- Tested: `test/automation.e2e-spec.ts` (new, 7 tests) — each scanner's real trigger condition
+  against real Postgres data, cooldown suppressing a repeat run within the window, the
+  payment-overdue balance computed from real Payment/Refund rows, both the SENT and
+  SKIPPED-for-no-consent paths for inactive-member recovery, and the real-time
+  inventory-low → queue → email path via the same `waitForJobCount`/`smtp-capture-server`
+  infrastructure the Communication phase built.
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 122/122 e2e tests passing across 20 suites (was 115/19; +7)
+```
+
+All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks.

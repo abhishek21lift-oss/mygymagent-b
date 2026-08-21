@@ -110,7 +110,19 @@ export class StockMovementsService {
       },
     );
 
-    if (updatedProduct.quantityOnHand <= updatedProduct.reorderLevel) {
+    // Only the crossing edge (was above the threshold, now at-or-below
+    // it), not every movement that leaves stock at-or-below reorderLevel
+    // -- otherwise every subsequent SALE while stock stays low would
+    // re-emit and spam a listener with one alert per sale. `product` is
+    // the pre-transaction read (a stale read here just means an alert
+    // might fire once extra or once late under a rare race, which is
+    // fine for a notification -- the atomic guard above is what protects
+    // the actual quantityOnHand invariant, not this comparison).
+    const wasAboveThreshold =
+      product.quantityOnHand > updatedProduct.reorderLevel;
+    const isAtOrBelowNow =
+      updatedProduct.quantityOnHand <= updatedProduct.reorderLevel;
+    if (wasAboveThreshold && isAtOrBelowNow) {
       const payload: InventoryLowEvent = {
         organizationId,
         productId: updatedProduct.id,

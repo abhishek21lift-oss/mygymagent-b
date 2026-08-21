@@ -112,6 +112,7 @@ model Organization {
   memberDocuments         MemberDocument[]
   messageTemplates        MessageTemplate[]
   messageLogs             MessageLog[]
+  automationRuns          AutomationRun[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -1685,4 +1686,50 @@ model MessageLog {
   @@index([organizationId, createdAt])
   @@index([memberId])
   @@map("message_logs")
+}
+
+/// -- src/automation/ -----------------------------------------------------
+/// Trigger -> Conditions -> Action -> Audit, per automation type. P1 scope
+/// is notification-only (no money movement, no destructive action), so
+/// there's no approval step yet -- see src/automation/README.md for why
+/// "Approval-if-required" trivially resolves to "not required" for every
+/// key below, and what would change that.
+enum AutomationKey {
+  MEMBERSHIP_RENEWAL_REMINDER
+  PAYMENT_OVERDUE_REMINDER
+  MEMBER_INACTIVE_RECOVERY
+  LEAD_FOLLOWUP_REMINDER
+  LOW_STOCK_ALERT
+}
+
+enum AutomationRunStatus {
+  SENT
+  SKIPPED
+  FAILED
+}
+
+/// One row per automation firing against one subject entity (a membership,
+/// payment, member, lead follow-up, or product) -- the audit trail the
+/// master prompt requires, and the idempotency/cooldown check
+/// AutomationRunService.shouldRun() queries before firing again for the
+/// same (key, subjectId) pair.
+model AutomationRun {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key       AutomationKey
+  /// The membershipId / paymentId / memberId / leadFollowUpId / productId
+  /// this run is about -- no FK, since the key determines which table it
+  /// points at (a polymorphic reference, same tradeoff as AuditLog.resourceId).
+  subjectId String
+  status    AutomationRunStatus
+  /// Why SKIPPED, or the FAILED error message, or scan-time context
+  /// (e.g. {"daysUntilExpiry": 5}) -- free-form, audit/debugging only.
+  detail    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, key, subjectId, createdAt])
+  @@map("automation_runs")
 }
