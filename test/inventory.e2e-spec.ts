@@ -178,6 +178,39 @@ describe('Inventory (e2e)', () => {
     expect(after.body.data.quantityOnHand).toBe(7);
   });
 
+  it('never oversells under concurrent SALE requests against the last unit (regression for the read-then-write race)', async () => {
+    // Before the fix, StockMovementsService.record() read
+    // quantityOnHand, computed newQuantity, and only *then* opened a
+    // transaction to write it -- two concurrent SALEs against 1 unit
+    // on hand could both read 1, both pass the `>= 0` check, and both
+    // decrement, driving stock to -1. The fix moves the guard into the
+    // update's own WHERE clause so it's evaluated atomically by
+    // Postgres, not by application code racing a stale read.
+    const product = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/products').send({
+        sku: 'RACE-1',
+        name: 'Last Unit Standing',
+        unitPrice: 10,
+        quantityOnHand: 1,
+      }),
+    ).expect(201);
+
+    const attempt = () =>
+      request(app.getHttpServer())
+        .post(`/products/${product.body.data.id}/stock-movements`)
+        .set('Authorization', `Bearer ${org.accessToken}`)
+        .send({ type: 'SALE', quantity: 1 });
+
+    const [first, second] = await Promise.all([attempt(), attempt()]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 400]);
+
+    const after = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/products/${product.body.data.id}`),
+    ).expect(200);
+    expect(after.body.data.quantityOnHand).toBe(0);
+  });
+
   it('rejects a stock movement referencing a product that does not exist', async () => {
     await authed(org.accessToken)(
       request(app.getHttpServer())

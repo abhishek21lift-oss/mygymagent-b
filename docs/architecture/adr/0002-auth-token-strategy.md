@@ -21,8 +21,14 @@ Option 3. The access token is a signed JWT (15 min default), verified against th
 request via `JwtStrategy` (`src/auth/strategies/jwt.strategy.ts`) — not purely stateless, but cheap
 (single indexed lookup) and lets us reject a token immediately if the user is deactivated mid-session.
 The refresh token is an opaque random value, stored **sha256-hashed** (never plaintext) in
-`RefreshToken`, delivered as an `httpOnly`, `path: '/auth'` cookie, and **rotated** on every use — a
-reused old refresh token is treated as a compromise signal (see `AuthService`/`TokensService`).
+`RefreshToken`, delivered as an `httpOnly`, `path: '/auth'` cookie, and **rotated** on every use.
+
+**Correction (2026-08-21 audit):** this ADR originally stated that a reused old refresh token is
+"treated as a compromise signal." That is not what the code does, and the claim is removed above
+rather than left standing. A rotated-out token is simply invalid and 401s like any other bad
+token — nothing revokes the rest of that token's family or flags the account, and `RefreshToken`
+has no family/lineage column to build that with. Real reuse detection (revoke the whole family,
+audit a compromise event) is a real gap, tracked as follow-up work, not yet implemented.
 
 ## Trade-offs
 - Two token types instead of one — more moving parts than "just use JWTs everywhere," but the
@@ -33,7 +39,8 @@ reused old refresh token is treated as a compromise signal (see `AuthService`/`T
   lookup, not a session-store round trip, and it buys immediate deactivation.
 
 ## Consequences
-Refresh-token rotation, revocation-on-reuse, and expiry are covered by
-`test/auth.e2e-spec.ts`. The cookie is scoped to the backend's own origin, which is why the
+Refresh-token rotation and expiry are covered by `test/auth.e2e-spec.ts` (see the correction
+above re: reuse detection, which is not implemented and therefore not tested). The cookie is
+scoped to the backend's own origin, which is why the
 frontend does client-side auth gating rather than an edge-level cookie check across origins — see
 `mygymagent-f/README.md`'s "Auth architecture" section.

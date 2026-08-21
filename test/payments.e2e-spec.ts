@@ -162,6 +162,51 @@ describe('Payments (e2e)', () => {
     ).expect(400);
   });
 
+  it('never over-refunds under concurrent full-refund requests against the same payment (regression for the read-then-write race)', async () => {
+    // Before the fix, refund() read the existing Refund rows and computed
+    // the remaining balance *outside* any transaction -- two concurrent
+    // refund requests against the same payment could both read "nothing
+    // refunded yet", both pass the remaining-balance check, and both
+    // commit, refunding more than the original payment. The fix locks the
+    // payment row (`SELECT ... FOR UPDATE`) for the duration of the
+    // transaction so the second request's read can't happen until the
+    // first has committed its refund.
+    const payment = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/payments').send({
+        memberId,
+        amount: 100,
+      }),
+    ).expect(201);
+    const paymentId = payment.body.data.id;
+
+    const attempt = () =>
+      request(app.getHttpServer())
+        .post(`/payments/${paymentId}/refund`)
+        .set('Authorization', `Bearer ${org.accessToken}`)
+        .send({});
+
+    const [first, second] = await Promise.all([attempt(), attempt()]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 400]);
+
+    const refunds = await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/payments').query({ memberId }),
+    ).expect(200);
+    const refunded = refunds.body.data.items.find(
+      (p: { id: string }) => p.id === paymentId,
+    );
+    expect(refunded.status).toBe('REFUNDED');
+
+    const finalPayment = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/payments/${paymentId}`),
+    ).expect(200);
+    const totalRefunded = finalPayment.body.data.refunds.reduce(
+      (sum: number, r: { amount: string }) => sum + Number(r.amount),
+      0,
+    );
+    expect(totalRefunded).toBe(100);
+  });
+
   it('rejects recording a payment for a member that does not exist', async () => {
     await authed(org.accessToken)(
       request(app.getHttpServer()).post('/payments').send({

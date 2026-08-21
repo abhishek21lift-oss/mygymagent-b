@@ -3,6 +3,7 @@ import { AttendanceModule } from '../attendance/attendance.module';
 import { CrmModule } from '../crm/crm.module';
 import { MembersModule } from '../members/members.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
+import { RbacModule } from '../rbac/rbac.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { AiUsageService } from './ai-usage.service';
 import { AiController } from './ai.controller';
@@ -23,6 +24,7 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     WorkoutsModule,
     CrmModule,
     NutritionModule,
+    RbacModule,
   ],
   controllers: [AiController],
   providers: [

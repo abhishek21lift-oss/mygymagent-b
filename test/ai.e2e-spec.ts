@@ -247,4 +247,106 @@ describe('AI (e2e)', () => {
       ),
     ).toBe(true);
   });
+
+  /**
+   * Regression for the AI tool executor's RBAC bypass (audit finding
+   * F-01): a TRAINER holds `members.read_assigned`, not the broader
+   * `members.read` -- see member-assignment-scoping.e2e-spec.ts for the
+   * same invariant proven over REST. Before the fix, `read_member` called
+   * `MembersService.getOne(organizationId, memberId)` with no
+   * branch/assignment scope at all, so a trainer could use the assistant
+   * to look up any member in the org. These tests exercise the tool
+   * executor directly with a real trainer's userId, exactly like the
+   * cross-tenant tests above do for organizationId.
+   */
+  describe('tool executor enforces role/assignment scope, not just organizationId', () => {
+    let trainerId: string;
+    let assignedMemberId: string;
+    let unassignedMemberId: string;
+
+    beforeAll(async () => {
+      const branches = await authed(orgA.accessToken)(
+        request(app.getHttpServer()).get('/branches'),
+      ).expect(200);
+      const branchId = branches.body.data.items[0].id;
+
+      const trainerEmail = `ai-scope-trainer-${Date.now()}@example.com`;
+      const invited = await authed(orgA.accessToken)(
+        request(app.getHttpServer()).post('/users').send({
+          email: trainerEmail,
+          firstName: 'AI',
+          lastName: 'Trainer',
+          primaryBranchId: branchId,
+          roleKey: 'TRAINER',
+        }),
+      ).expect(201);
+      trainerId = invited.body.data.id;
+      await prisma.user.update({
+        where: { id: trainerId },
+        data: { status: 'ACTIVE' },
+      });
+
+      const assigned = await authed(orgA.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: branchId,
+          firstName: 'Assigned',
+          lastName: 'ToAiTrainer',
+          assignedTrainerId: trainerId,
+        }),
+      ).expect(201);
+      assignedMemberId = assigned.body.data.id;
+
+      const unassigned = await authed(orgA.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: branchId,
+          firstName: 'Not',
+          lastName: 'AiTrainersClient',
+        }),
+      ).expect(201);
+      unassignedMemberId = unassigned.body.data.id;
+    });
+
+    it('read_member lets a trainer look up their own assigned member', async () => {
+      const result = (await toolExecutor.execute(
+        'read_member',
+        { memberId: assignedMemberId },
+        { organizationId: orgA.organizationId, userId: trainerId },
+      )) as Record<string, unknown>;
+      expect(result.firstName).toBe('Assigned');
+    });
+
+    it('read_member no longer lets a trainer look up a member not assigned to them', async () => {
+      await expect(
+        toolExecutor.execute(
+          'read_member',
+          { memberId: unassignedMemberId },
+          { organizationId: orgA.organizationId, userId: trainerId },
+        ),
+      ).rejects.toThrow('Member not found');
+    });
+
+    it('create_followup rejects a caller who holds ai.generate but not leads.manage', async () => {
+      // TRAINER holds ai.generate (roles.catalog.ts) but not leads.manage --
+      // before the fix, no tool checked any permission beyond ai.generate
+      // at all, so this call would have succeeded.
+      const lead = await authed(orgA.accessToken)(
+        request(app.getHttpServer()).post('/leads').send({
+          firstName: 'Should',
+          lastName: 'BeUnreachable',
+        }),
+      ).expect(201);
+
+      await expect(
+        toolExecutor.execute(
+          'create_followup',
+          {
+            leadId: lead.body.data.id,
+            note: 'a trainer should not be able to create this',
+            dueAt: new Date(Date.now() + 86400000).toISOString(),
+          },
+          { organizationId: orgA.organizationId, userId: trainerId },
+        ),
+      ).rejects.toThrow(/Missing permission/);
+    });
+  });
 });

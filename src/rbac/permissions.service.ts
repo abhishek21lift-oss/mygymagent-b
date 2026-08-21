@@ -28,7 +28,7 @@ export class PermissionsService {
   ): Promise<boolean> {
     if (!organizationId) return false;
 
-    const [roleGrant, override] = await Promise.all([
+    const [roleGrant, overrides] = await Promise.all([
       this.prisma.userRole.findFirst({
         where: {
           userId,
@@ -40,20 +40,28 @@ export class PermissionsService {
         },
         select: { id: true },
       }),
-      this.prisma.userPermissionOverride.findFirst({
+      this.prisma.userPermissionOverride.findMany({
         where: {
           userId,
           organizationId,
           permission: { key: permissionKey },
           OR: [{ branchId: null }, ...(branchId ? [{ branchId }] : [])],
         },
-        orderBy: { branchId: 'desc' }, // branch-specific override takes precedence over org-wide
         select: { effect: true },
       }),
     ]);
 
-    if (override?.effect === 'DENY') return false;
-    if (override?.effect === 'ALLOW') return true;
+    // DENY always wins, full stop -- regardless of whether it's the
+    // branch-specific or the org-wide row. A single `findFirst` ordered by
+    // branchId used to pick one row and trust its effect; in PostgreSQL
+    // `ORDER BY branchId DESC` is NULLS FIRST, so that silently returned
+    // the org-wide row before a branch-specific one, inverting this
+    // invariant whenever a user held both an org-wide ALLOW and a
+    // branch-specific DENY for the same key. Fetching every matching row
+    // and checking for DENY explicitly closes that gap and matches
+    // getEffectivePermissions()'s DENY-after-ALLOW resolution below.
+    if (overrides.some((o) => o.effect === 'DENY')) return false;
+    if (overrides.some((o) => o.effect === 'ALLOW')) return true;
     return roleGrant !== null;
   }
 
@@ -88,8 +96,15 @@ export class PermissionsService {
         granted.add(rolePermission.permission.key);
       }
     }
+    // Two passes, not one: applying ALLOW/DENY in whatever order Prisma
+    // returns the rows would make the result depend on that order whenever
+    // a user holds both for the same key. DENY always wins (matching
+    // hasPermission() above), so every ALLOW is added first and every DENY
+    // is then removed, regardless of row order.
     for (const override of overrides) {
       if (override.effect === 'ALLOW') granted.add(override.permission.key);
+    }
+    for (const override of overrides) {
       if (override.effect === 'DENY') granted.delete(override.permission.key);
     }
     return [...granted].sort();

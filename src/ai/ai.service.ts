@@ -76,6 +76,7 @@ export class AiService {
     organizationId: string,
     userId: string,
     dto: ChatDto,
+    requestedBranchId?: string,
   ): Promise<ChatResult> {
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -137,6 +138,7 @@ export class AiService {
               {
                 organizationId,
                 userId,
+                requestedBranchId,
               },
             );
             resultContent = JSON.stringify(result);

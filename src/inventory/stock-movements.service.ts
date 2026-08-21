@@ -59,32 +59,56 @@ export class StockMovementsService {
     dto: CreateStockMovementDto,
     recordedByUserId: string,
   ) {
-    // Also confirms the product belongs to this org (404 otherwise).
+    // Also confirms the product belongs to this org (404 otherwise). Only
+    // used for the error message below and to fail fast on an unknown
+    // product -- the actual stock guard is the conditional update inside
+    // the transaction, not this read, so a stale read here can't cause an
+    // incorrect decision.
     const product = await this.products.getOne(organizationId, productId);
     const delta = resolveDelta(dto.type, dto.quantity);
-    const newQuantity = product.quantityOnHand + delta;
-    if (newQuantity < 0) {
-      throw new BadRequestException(
-        `Insufficient stock: only ${product.quantityOnHand} unit(s) of "${product.name}" on hand`,
-      );
-    }
 
-    const [movement, updatedProduct] = await this.prisma.$transaction([
-      this.prisma.stockMovement.create({
-        data: {
-          organizationId,
-          productId,
-          type: dto.type,
-          quantity: delta,
-          note: dto.note,
-          recordedByUserId,
-        },
-      }),
-      this.prisma.product.update({
-        where: { id: productId },
-        data: { quantityOnHand: { increment: delta } },
-      }),
-    ]);
+    const { movement, updatedProduct } = await this.prisma.$transaction(
+      async (tx) => {
+        const movement = await tx.stockMovement.create({
+          data: {
+            organizationId,
+            productId,
+            type: dto.type,
+            quantity: delta,
+            note: dto.note,
+            recordedByUserId,
+          },
+        });
+
+        // Atomic guard against overselling: the WHERE clause itself
+        // requires enough stock to survive the decrement, so two
+        // concurrent SALEs against the last unit can no longer both pass a
+        // stale `quantityOnHand` read and both apply -- Postgres
+        // serializes the two UPDATEs on the same row, and the second
+        // one's WHERE simply matches zero rows once the first has
+        // committed. `count === 0` means this guard rejected the
+        // movement (the product's existence was already confirmed above),
+        // which aborts the whole transaction, including the movement
+        // insert above.
+        const updateResult = await tx.product.updateMany({
+          where: {
+            id: productId,
+            ...(delta < 0 ? { quantityOnHand: { gte: -delta } } : {}),
+          },
+          data: { quantityOnHand: { increment: delta } },
+        });
+        if (updateResult.count === 0) {
+          throw new BadRequestException(
+            `Insufficient stock: only ${product.quantityOnHand} unit(s) of "${product.name}" on hand`,
+          );
+        }
+
+        const updatedProduct = await tx.product.findUniqueOrThrow({
+          where: { id: productId },
+        });
+        return { movement, updatedProduct };
+      },
+    );
 
     if (updatedProduct.quantityOnHand <= updatedProduct.reorderLevel) {
       const payload: InventoryLowEvent = {

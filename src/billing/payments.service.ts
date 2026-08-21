@@ -149,30 +149,50 @@ export class PaymentsService {
       throw new BadRequestException('Payment is already fully refunded');
     }
 
-    const alreadyRefunded = payment.refunds.reduce(
-      (sum, r) => sum.plus(r.amount),
-      new Prisma.Decimal(0),
-    );
-    const remaining = new Prisma.Decimal(payment.amount).minus(alreadyRefunded);
-    const refundAmount = dto.amount
-      ? new Prisma.Decimal(dto.amount)
-      : remaining;
+    const refund = await this.prisma.$transaction(async (tx) => {
+      // Row-lock the payment for the rest of this transaction so a second,
+      // concurrent refund() call against the *same* payment blocks here
+      // instead of racing it: without this, two simultaneous requests can
+      // both read the same "already refunded" total computed outside a
+      // transaction, both pass the remaining-balance check below, and both
+      // commit -- over-refunding the payment past its original amount.
+      // This is a deliberate, narrow exception to the codebase's
+      // no-raw-SQL convention (see docs/security/overview.md) -- Prisma's
+      // query builder has no equivalent of `SELECT ... FOR UPDATE`, which
+      // is the standard tool for exactly this problem.
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
 
-    if (refundAmount.lte(0)) {
-      throw new BadRequestException('Refund amount must be greater than zero');
-    }
-    if (refundAmount.gt(remaining)) {
-      throw new BadRequestException(
-        `Refund amount exceeds the remaining refundable balance of ${remaining.toString()}`,
+      const refunds = await tx.refund.findMany({
+        where: { paymentId: payment.id },
+        select: { amount: true },
+      });
+      const alreadyRefunded = refunds.reduce(
+        (sum, r) => sum.plus(r.amount),
+        new Prisma.Decimal(0),
       );
-    }
+      const remaining = new Prisma.Decimal(payment.amount).minus(
+        alreadyRefunded,
+      );
+      const refundAmount = dto.amount
+        ? new Prisma.Decimal(dto.amount)
+        : remaining;
 
-    const newStatus = refundAmount.equals(remaining)
-      ? 'REFUNDED'
-      : 'PARTIALLY_REFUNDED';
+      if (refundAmount.lte(0)) {
+        throw new BadRequestException(
+          'Refund amount must be greater than zero',
+        );
+      }
+      if (refundAmount.gt(remaining)) {
+        throw new BadRequestException(
+          `Refund amount exceeds the remaining refundable balance of ${remaining.toString()}`,
+        );
+      }
 
-    const [refund] = await this.prisma.$transaction([
-      this.prisma.refund.create({
+      const newStatus = refundAmount.equals(remaining)
+        ? 'REFUNDED'
+        : 'PARTIALLY_REFUNDED';
+
+      const created = await tx.refund.create({
         data: {
           organizationId,
           paymentId: payment.id,
@@ -180,12 +200,13 @@ export class PaymentsService {
           reason: dto.reason,
           recordedByUserId,
         },
-      }),
-      this.prisma.payment.update({
+      });
+      await tx.payment.update({
         where: { id: payment.id },
         data: { status: newStatus },
-      }),
-    ]);
+      });
+      return created;
+    });
 
     const payload: PaymentRefundedEvent = {
       organizationId,
