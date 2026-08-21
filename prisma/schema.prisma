@@ -4,10 +4,14 @@
 // Multi-tenancy, RBAC, auth, audit logging, and the core gym domain
 // (organizations, branches, staff, members, membership plans/subscriptions,
 // attendance) plus billing (payments/refunds), workouts, nutrition,
-// inventory, CRM/leads, AI usage tracking, a BullMQ job queue, and Member
+// inventory, CRM/leads, AI usage tracking, a BullMQ job queue, Member
 // 360 (addresses, emergency contacts, notes, consents, status/branch/
 // trainer history, assessments/measurements/fitness tests/screenings,
-// goals/milestones, documents/progress photos) are modeled and built.
+// goals/milestones, documents/progress photos), and a real communications
+// layer (templates, per-org branding, delivery logging, consent
+// enforcement -- EMAIL is provider-backed today; WHATSAPP/SMS/PUSH are
+// typed but unimplemented, see src/communications/README.md) are modeled
+// and built.
 //
 // Still reserved seams, not modeled here yet (see
 // docs/architecture/discovery-report.md for the current gap list):
@@ -57,6 +61,14 @@ model Organization {
 
   settings Json @default("{}")
 
+  /// Tenant email branding, used by the communications layer
+  /// (src/communications/) when rendering a template for this org -- falls
+  /// back to the platform default sender identity when unset. Nullable
+  /// rather than folded into `settings` so it's a typed, queryable column
+  /// like the rest of this schema, not an unmanaged JSON blob.
+  emailFromName String?
+  emailReplyTo  String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -98,6 +110,8 @@ model Organization {
   memberGoalMilestones    MemberGoalMilestone[]
   files                   File[]
   memberDocuments         MemberDocument[]
+  messageTemplates        MessageTemplate[]
+  messageLogs             MessageLog[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -516,6 +530,7 @@ model Member {
   screenings        MemberScreening[]
   goals             MemberGoal[]
   documents         MemberDocument[]
+  messageLogs       MessageLog[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -1586,4 +1601,88 @@ model MemberDocument {
 
   @@index([organizationId, memberId, category])
   @@map("member_documents")
+}
+
+/// -- src/communications/ -----------------------------------------------
+/// Real, provider-backed channels are added here as they're built (EMAIL
+/// today via SMTP); the other three exist as typed values so a template
+/// or log row can reference them, but MessageTemplate/MessageLog rows for
+/// them are only ever written once a real provider exists for that
+/// channel -- see src/communications/README.md.
+enum CommunicationChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+  PUSH
+}
+
+/// TRANSACTIONAL: operational/security messages about the recipient's own
+/// account or purchase (welcome, password reset, membership renewal
+/// reminder) -- never gated by consent, the same way this industry
+/// generally treats "your receipt" differently from "our newsletter".
+/// MARKETING: anything promotional -- gated by the member's latest
+/// MemberConsent(type: MARKETING) before a send is even attempted.
+enum MessageCategory {
+  TRANSACTIONAL
+  MARKETING
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+  /// A MARKETING-category send whose recipient's latest MARKETING consent
+  /// is `granted: false` -- never attempted, not a delivery failure.
+  SKIPPED_NO_CONSENT
+}
+
+/// One row per (organization, key, channel) message template. A null
+/// organizationId is the system default template CommunicationsService
+/// falls back to when an org hasn't customized that key -- see
+/// MessageTemplateService.resolve().
+model MessageTemplate {
+  id             String                @id @default(uuid())
+  organizationId String?
+  organization   Organization?         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  key            String
+  channel        CommunicationChannel
+  subject        String?
+  body           String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, key, channel])
+  @@index([key, channel])
+  @@map("message_templates")
+}
+
+/// The delivery-status/audit record for every message
+/// CommunicationsService.send() attempts -- see that service's class
+/// comment. Immutable except for the status/attempts/errorMessage/sentAt
+/// fields, which the sending job updates as it progresses.
+model MessageLog {
+  id             String               @id @default(uuid())
+  /// Nullable, SetNull, mirroring AuditLog -- a platform admin
+  /// (`User.organizationId: null`) can also trigger a send (e.g. their own
+  /// password reset), and that message log entry should survive an
+  /// organization being deleted the same way an audit entry does.
+  organizationId String?
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  channel        CommunicationChannel
+  category       MessageCategory
+  templateKey    String
+  recipient      String
+  memberId       String?
+  member         Member?              @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  status         MessageStatus        @default(PENDING)
+  attempts       Int                  @default(0)
+  errorMessage   String?
+  sentAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([memberId])
+  @@map("message_logs")
 }

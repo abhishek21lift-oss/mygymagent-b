@@ -11,7 +11,7 @@ import {
   skipTake,
 } from '../common/dto/pagination-query.dto';
 import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
-import { MailerService } from '../common/mailer/mailer.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AssignRoleDto } from './dto/assign-role.dto';
 import type { CreateUserDto } from './dto/create-user.dto';
@@ -23,7 +23,7 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mailer: MailerService,
+    private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
   ) {}
 
@@ -164,7 +164,9 @@ export class UsersService {
         expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       },
     });
-    await this.mailer.sendPasswordReset(user.email, inviteToken);
+    await this.communications
+      .sendStaffInvite(organizationId, user.email, user.firstName, inviteToken)
+      .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
 
     return this.getOne(organizationId, user.id);
   }

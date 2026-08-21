@@ -19,6 +19,12 @@ export const envSchema = z.object({
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
+  // Base URL of the frontend app, for building links inside outbound
+  // messages (e.g. the password-reset email's reset link). Distinct from
+  // CORS_ORIGIN because that field can be a comma-separated allowlist;
+  // this is always exactly one URL.
+  FRONTEND_URL: z.string().default('http://localhost:3000'),
+
   // AI (OpenRouter) -- optional. The /ai/chat endpoint returns a clear
   // 503 if invoked without OPENROUTER_API_KEY set, rather than the app
   // failing to boot over a missing optional integration.
@@ -44,6 +50,25 @@ export const envSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
+
+  // Email (src/communications/), via SMTP -- optional, same
+  // check-together-at-call-time pattern as S3_*. Unset means
+  // CommunicationsService logs instead of sending (see
+  // SmtpEmailProvider), same degraded behavior the old MailerService
+  // stub always had, but now visible in MessageLog rather than silent.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  // Not z.coerce.boolean(): that's `Boolean(value)` under the hood, which
+  // is true for ANY non-empty string -- including the literal text
+  // "false". An explicit string match is the only way an env var of
+  // "false" actually produces `false`.
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_FROM_ADDRESS: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

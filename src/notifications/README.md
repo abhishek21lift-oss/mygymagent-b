@@ -12,16 +12,19 @@
   failures (e.g. Redis unreachable) are caught and logged, never thrown --
   this must never turn into a 500 on `POST /members`.
 - `WelcomeEmailProcessor` consumes that job and calls
-  `MailerService.sendWelcomeEmail()` -- currently a logging stub, same as
-  the rest of `MailerService` (real auth emails are stubbed the same way).
+  `CommunicationsService.sendWelcomeEmail()` (`src/communications/`) --
+  real SMTP delivery via `SmtpEmailProvider` when `SMTP_HOST`/
+  `SMTP_FROM_ADDRESS` are configured, template-driven and logged to
+  `MessageLog`. See `src/communications/README.md` for what's real there.
 - Runs in-process (no separate worker deployment) -- see `src/queue/
   queue.module.ts`'s class comment for why that's fine at current scale.
 
 ## What's still a stub
 
-- **No in-app/SMS/WhatsApp/push channels.** Email only, and only the one
-  message type.
-- **No templates.** The message content is hard-coded in `MailerService`.
+- **No in-app/WhatsApp/SMS/push channels.** Email only (via
+  `CommunicationsService`), and only the one message type routed through
+  this queue -- WhatsApp/SMS/push have typed provider interfaces
+  (`src/communications/interfaces/`) but no implementation wired in yet.
 - **No delivery tracking, retry-visibility, or unsubscribe handling.**
   BullMQ retries a failed job 3x with backoff (queue-level default,
   `src/queue/queue.module.ts`), but nothing surfaces "this welcome email

@@ -33,11 +33,23 @@ corrected security test matrix rather than implied fixed.
 
 | Area | Status | Note |
 |---|---|---|
-| Communication (real provider abstraction: email/WhatsApp/SMS/push, templates, retries, delivery status, consent, audit) | ⬜ | Requires provider credentials (SendGrid/Twilio/WhatsApp Business API or equivalent) — see `ARCHITECTURE_DECISIONS.md` for the stop-and-ask on this |
+| Communication — EMAIL | ✅ | Real SMTP delivery (`src/communications/`), templates (org-override + system-default), per-org branding, MARKETING-consent gating, `MessageLog` delivery/failure audit trail. User's explicit choice: build email now (no new paid signup — any SMTP relay/mailbox works), defer WhatsApp/SMS/push. |
+| Communication — WhatsApp/SMS/Push | ⬜ | Typed provider interfaces exist (`src/communications/interfaces/`) with an `UnimplementedChannelProvider` that throws clearly rather than faking delivery — no real provider wired in, per the user's explicit deferral. Needs real credentials (Twilio/WhatsApp Business API/push provider) to implement. |
 | Scheduler + Jobs infrastructure | ⬜ | |
 | Event Engine (tenant-aware domain events) | ⬜ | 10 events already defined in `src/events/domain-events.ts`; 9 have no listener |
 | Automation Engine (Trigger → Conditions → Action → Approval → Execute → Audit) | ⬜ | |
 | Revenue & Finance intelligence layer | ⬜ | |
+
+**Communication (EMAIL) verification (2026-08-21):** typecheck clean, lint clean, 11/11 unit tests
+passing, 19/19 e2e suites passing (115/115 tests, up from 113 — 2 new: password-reset end-to-end
+via a real local SMTP server, and the existing welcome-email queue test now exercising real SMTP
+delivery instead of a stub). All against real Postgres/Redis/s3rver/SMTP, not mocks — see
+`test/utils/smtp-capture-server.ts`. Also fixed two real bugs this uncovered (not test-only
+artifacts): `SMTP_SECURE` used `z.coerce.boolean()`, which coerces the literal string `"false"` to
+`true`; and a shutdown-ordering race where the shared Redis connection and Prisma both disconnected
+before BullMQ's worker had a chance to finish an in-flight job, permanently hanging `app.close()`
+whenever a job was still active at shutdown (previously masked by the old stub mailer completing
+too fast to ever hit the race). See `ARCHITECTURE_DECISIONS.md` entries AI-6 through AI-8.
 
 ## P2 — Intelligence
 

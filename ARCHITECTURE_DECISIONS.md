@@ -135,3 +135,85 @@ to reconcile later.
 **Consequences:** Same as AI-4's — this is the pattern for any future "decrement a counter,
 never below zero, under concurrency" problem in this codebase (e.g. a future PT session-balance
 consumption).
+
+---
+
+## AI-6: Email only for P1 Communication; WhatsApp/SMS/push get typed interfaces, not implementations
+
+**Context:** The master prompt's P1 Communication item calls for "a real provider abstraction —
+email/WhatsApp/SMS/push." Every real WhatsApp/SMS/push provider (Twilio, WhatsApp Business API,
+a push provider) needs a paid account and real credentials this environment doesn't have — one of
+the master prompt's own explicit stop conditions ("unavailable credentials, paid services").
+
+**Decision:** Asked the user via `AskUserQuestion`. They chose: build a real SMTP-based email
+provider now (works with any mailbox/relay they already have — no new paid signup required) and
+leave WhatsApp/SMS/push as designed-but-unwired: a typed `MessageProvider` interface
+(`src/communications/interfaces/message-provider.interface.ts`) with an `UnimplementedChannelProvider`
+that throws `ChannelNotConfiguredError` clearly on every call, bound in
+`communications.module.ts`. `CommunicationsService.send()` is channel-agnostic — swapping in a
+real WhatsApp/SMS/push provider later is a new class implementing `MessageProvider` plus a DI
+binding change, not a rewrite.
+
+**Consequences:** Every WhatsApp/SMS/push-shaped automation (P1's Automation Engine, later phases)
+must call through `CommunicationsService` the same as email does, so it inherits real delivery the
+moment a provider is wired in, rather than needing its own retrofit. Explicitly not faked: no
+provider "pretends" to send and silently drops the message — every attempt on an unwired channel
+throws and gets recorded as `FAILED` in `MessageLog`, visible rather than silent.
+
+---
+
+## AI-7: `SMTP_SECURE` validated as an explicit string match, not `z.coerce.boolean()`
+
+**Context:** Found while building the password-reset e2e test against a real local SMTP server:
+`SMTP_SECURE="false"` in `.env.test` was making `SmtpEmailProvider` attempt an implicit-TLS
+connection anyway, failing with a TLS handshake error against the plaintext test server. Root
+cause: `z.coerce.boolean()` is `Boolean(value)` under the hood, which is `true` for *any*
+non-empty string — including the literal text `"false"`. This is a real production bug, not a
+test-only issue: any deployment setting `SMTP_SECURE=false` in its environment would silently get
+`true`.
+
+**Decision:** Replaced `z.coerce.boolean().default(false)` with an explicit
+`z.string().default('false').transform((v) => v === 'true')` in `src/config/env.validation.ts`.
+Only the literal string `"true"` produces `true`; everything else (including unset, `"false"`, or
+a typo) produces `false` — matching what a human reading `SMTP_SECURE=false` in an env file
+actually expects.
+
+**Consequences:** No other env var in this schema used `z.coerce.boolean()` (checked), so this
+was the only instance of the bug. Any future boolean env var should use this string-match pattern,
+not `z.coerce.boolean()`.
+
+---
+
+## AI-8: `QueueConnection`'s Redis-quit moved from `OnModuleDestroy` to `OnApplicationShutdown`
+
+**Context:** Found via the same password-reset/welcome-email e2e work: `test/crm.e2e-spec.ts`
+(and, intermittently, any spec that creates a member with an email and doesn't explicitly wait for
+the resulting welcome-email job) started hanging forever on `app.close()` in `afterAll` — not
+slow, a genuine permanent hang, confirmed by instrumenting every shutdown hook. The trace showed
+`QueueConnection.onModuleDestroy()` (which quits the shared ioredis connection every BullMQ
+queue/worker uses) and `PrismaService.onModuleDestroy()` both completing *before* the
+welcome-email job — still actively processing — had finished. NestJS runs `onModuleDestroy` hooks
+across the *entire app* to completion before starting the `onApplicationShutdown` phase, and
+`@nestjs/bullmq`'s worker-closing logic (which waits for an active job to finish) is itself an
+`onApplicationShutdown` hook, not `onModuleDestroy` — so `QueueConnection`, declared as
+`OnModuleDestroy`, was always racing ahead of it. Once the shared Redis connection was quit mid-job,
+the BullMQ worker could no longer report the job's completion back to Redis, so `worker.close()`
+(and therefore `app.close()`) never resolved. This was a **latent, real production bug** — it
+never surfaced before because the old stub `MailerService` resolved so fast (no real I/O) that a
+welcome-email job was essentially always fully complete before any conceivable `app.close()`/
+shutdown could race it. Real SMTP I/O (even to localhost) added just enough event-loop ticks to
+open the window routinely.
+
+**Decision:** Changed `QueueConnection` in `src/queue/queue.module.ts` from
+`implements OnModuleDestroy` to `implements OnApplicationShutdown`, keeping it in the same
+shutdown phase as `@nestjs/bullmq`'s worker-close hook. `BullModule.forRootAsync`'s
+`inject: [QueueConnection]` gives NestJS the dependency edge it needs to destroy the queue/workers
+before `QueueConnection` itself, in that shared phase — the same guarantee NestJS already gave for
+`onModuleDestroy` ordering, now applying to the phase that actually matters here.
+
+**Consequences:** This is a real production shutdown-safety fix, not merely an e2e-test fix — a
+production deploy's graceful shutdown (SIGTERM → `app.close()`) had the identical risk of dropping
+an in-flight job's completion report whenever a job happened to be mid-processing at shutdown time.
+Also bumped `test/jest-e2e.json`'s `testTimeout` from Jest's 5000ms default to 15000ms: real,
+sequential Postgres+Redis+SMTP+Nest-bootstrap work across 19 e2e suites occasionally needs more
+than 5s for a single `beforeAll`/`afterAll`, independent of the hang this entry fixes.

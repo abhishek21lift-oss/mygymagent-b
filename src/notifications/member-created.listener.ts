@@ -40,6 +40,7 @@ export class MemberCreatedListener {
     if (!event.email) return;
     try {
       await this.queue.add(JOB_NAMES.SEND_WELCOME_EMAIL, {
+        organizationId: event.organizationId,
         memberId: event.memberId,
         email: event.email,
         firstName: event.firstName,

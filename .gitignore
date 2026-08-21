@@ -12,6 +12,7 @@ dist
 
 # Test/coverage
 coverage
+test/.runtime
 
 # Logs
 *.log

@@ -1,4 +1,9 @@
-import { Injectable, Module, OnModuleDestroy, Global } from '@nestjs/common';
+import {
+  Injectable,
+  Module,
+  OnApplicationShutdown,
+  Global,
+} from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
@@ -7,14 +12,26 @@ import IORedis from 'ioredis';
  * Owns the single IORedis connection every BullMQ queue/worker in the app
  * shares. BullMQ deliberately never closes a connection it didn't create
  * itself (the assumption being the caller might share it elsewhere,
- * exactly as we do here) -- so without a provider whose onModuleDestroy
- * explicitly quits it, `app.close()` leaves the Redis connection open
- * forever. That's exactly what caused the e2e suite to hang after a
- * fully green run before this existed (Jest: "did not exit one second
- * after the test run has completed").
+ * exactly as we do here) -- so without a provider that explicitly quits
+ * it, `app.close()` leaves the Redis connection open forever.
+ *
+ * Deliberately `OnApplicationShutdown`, not `OnModuleDestroy`: NestJS
+ * runs every provider's `onModuleDestroy` hook to completion (across the
+ * whole app) *before* starting the `onApplicationShutdown` phase, and
+ * `@nestjs/bullmq`'s worker-closing hook (which waits for any
+ * currently-active job to finish) is itself an `onApplicationShutdown`
+ * hook, not `onModuleDestroy`. Quitting this connection from
+ * `onModuleDestroy` would race ahead of that -- killing the shared Redis
+ * connection while a worker still has an active job in flight, which
+ * then can never report completion back to Redis, so the worker's
+ * (and therefore `app.close()`'s) close-and-wait hangs forever. Staying
+ * in the same `onApplicationShutdown` phase, and relying on
+ * `BullModule.forRootAsync`'s `inject: [QueueConnection]` below (NestJS
+ * destroys a dependency after its dependents, in both phases), is what
+ * actually guarantees workers finish first.
  */
 @Injectable()
-export class QueueConnection implements OnModuleDestroy {
+export class QueueConnection implements OnApplicationShutdown {
   readonly client: IORedis;
 
   constructor(config: ConfigService) {
@@ -28,7 +45,7 @@ export class QueueConnection implements OnModuleDestroy {
     );
   }
 
-  async onModuleDestroy(): Promise<void> {
+  async onApplicationShutdown(): Promise<void> {
     await this.client.quit();
   }
 }

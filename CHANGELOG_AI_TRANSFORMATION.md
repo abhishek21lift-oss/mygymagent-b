@@ -124,3 +124,96 @@ npm run test:e2e                     # 113/113 e2e tests passing across 18 suite
 
 All e2e tests ran against real Postgres, real Redis, and real s3rver — not mocks, matching this
 project's existing testing discipline (`docs/testing/strategy.md`).
+
+## 2026-08-21 — P1: Communication (email)
+
+**Source:** Master prompt's P1 Communication item. User's explicit choice (asked via
+`AskUserQuestion` since real WhatsApp/SMS/push providers need paid credentials this environment
+doesn't have, one of the master prompt's own stop conditions): build a real SMTP-based email
+provider now, defer WhatsApp/SMS/push as designed-but-unwired.
+
+### Built
+
+A new `src/communications/` module replaces the old `src/common/mailer/` logging stub everywhere
+it was used (auth email verification, password reset, staff invites, welcome emails):
+
+- **`CommunicationsService`** — the single place that turns "send this kind of message to this
+  person" into an outbound attempt: template resolution (org override, falling back to system
+  default), per-org branding (`Organization.emailFromName`/`emailReplyTo`), MARKETING-category
+  consent gating (checks `MemberConsent`, records `SKIPPED_NO_CONSENT` rather than sending),
+  delivery logging (`MessageLog`: PENDING → SENT/FAILED/SKIPPED_NO_CONSENT, with `attempts` and
+  `errorMessage`), then provider dispatch.
+- **`SmtpEmailProvider`** — real SMTP delivery via `nodemailer`, config-gated on
+  `SMTP_HOST`/`SMTP_FROM_ADDRESS` (same optional-integration pattern as `FileStorageService`'s S3
+  config): unset means every send throws `ChannelNotConfiguredError`, recorded as `FAILED`, rather
+  than the app failing to boot.
+- **`MessageTemplateService`** — resolves a template by (org override → system default) and does
+  `{{variable}}` substitution. 9 system-default templates seeded by `prisma/seed.ts` from
+  `default-templates.catalog.ts` (welcome, email verification, password reset, staff invite,
+  membership renewal reminder, payment overdue reminder, inactive-member recovery, lead follow-up
+  reminder, low-stock alert — the last 5 are ready for the Automation Engine, not yet called by
+  anything).
+- **WhatsApp/SMS/Push** — typed `MessageProvider` interface, bound to an
+  `UnimplementedChannelProvider` that throws clearly rather than faking delivery. Swapping in a
+  real provider later is a new class + one DI binding change.
+- Schema: `MessageTemplate` (per-org override or system default, unique on
+  `organizationId+key+channel`), `MessageLog` (nullable `organizationId` — mirrors `AuditLog`,
+  since a platform admin with `User.organizationId: null` can trigger a send, e.g. their own
+  password reset), `Organization.emailFromName`/`emailReplyTo`, `CommunicationChannel`/
+  `MessageCategory`/`MessageStatus` enums. Two migrations (the second corrects `MessageLog`'s
+  `organizationId` to nullable after the first was already applied).
+- Callers migrated off the old stub: `AuthService.register()`/`forgotPassword()`,
+  `UsersService.invite()` (now `sendStaffInvite` instead of misusing `sendPasswordReset`),
+  `WelcomeEmailProcessor` (now takes `organizationId` in its job payload, threaded from
+  `MemberCreatedListener`). `src/common/mailer/` deleted — nothing references it.
+
+### Tested
+
+- `test/auth-password-reset.e2e-spec.ts` (new) — proves password reset is genuinely
+  production-functional, per the master prompt's explicit requirement: registers a real account,
+  requests a reset, receives a real email over real SMTP (`test/utils/smtp-capture-server.ts`, a
+  local `smtp-server`-based capture server standing in for a mail relay the same way `s3rver`
+  stands in for S3 — started/stopped by `test/global-setup.ts`/`global-teardown.ts`, sharing Jest's
+  long-lived orchestrator process rather than a subprocess), extracts the real token from the real
+  email body, redeems it, and confirms login works with the new password and fails with the old
+  one. A second test confirms an unknown email sends nothing and doesn't error.
+- `test/notifications-queue.e2e-spec.ts` — unchanged test, now exercising real SMTP delivery
+  instead of a stub.
+- `src/notifications/welcome-email.processor.spec.ts` — updated to mock `CommunicationsService`.
+
+### Two real bugs found and fixed along the way (not test-only artifacts)
+
+1. **`SMTP_SECURE` env var coercion bug** — `z.coerce.boolean()` is `Boolean(value)`, which is
+   `true` for any non-empty string, including the literal text `"false"`. Any deployment setting
+   `SMTP_SECURE=false` got `true` silently. Fixed with an explicit string-match transform.
+   (`ARCHITECTURE_DECISIONS.md` AI-7.)
+2. **Shutdown-ordering race hanging `app.close()`** — `QueueConnection` (shared Redis connection
+   for BullMQ) quit its connection in `onModuleDestroy`, a shutdown phase that completes *before*
+   `@nestjs/bullmq`'s worker-closing `onApplicationShutdown` hook even starts. If a job (e.g. the
+   welcome-email job) was still active when shutdown began, its Redis connection died mid-flight
+   and the worker could never report completion — `worker.close()`, and therefore `app.close()`,
+   hung forever. Real production risk (a SIGTERM during an in-flight job), not an e2e-only issue —
+   just never triggered before because the old stub mailer was fast enough to never lose the race.
+   Fixed by moving `QueueConnection` to `OnApplicationShutdown`, the same phase, relying on
+   `BullModule.forRootAsync`'s `inject: [QueueConnection]` dependency edge for correct ordering
+   within that phase. (`ARCHITECTURE_DECISIONS.md` AI-8.)
+
+- Changed: `src/communications/**` (new), `src/auth/auth.service.ts`, `src/auth/auth.module.ts`,
+  `src/users/users.service.ts`, `src/users/users.module.ts`, `src/notifications/*`,
+  `src/queue/queue.module.ts`, `src/config/env.validation.ts`, `prisma/schema.prisma` +
+  2 migrations, `prisma/seed.ts`, `.env.test`, `test/global-setup.ts` (+ new
+  `test/global-teardown.ts`), `test/jest-e2e.json` (`testTimeout: 15000`), `package.json`
+  (`nodemailer`, `@types/nodemailer`, `smtp-server`, `@types/smtp-server`). Deleted:
+  `src/common/mailer/`.
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 115/115 e2e tests passing across 19 suites (was 113/18; +2)
+```
+
+All e2e tests ran against real Postgres, real Redis, real s3rver, and real SMTP (the local capture
+server above) — not mocks.

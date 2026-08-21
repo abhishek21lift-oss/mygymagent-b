@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { DEFAULT_TEMPLATES_CATALOG } from '../src/communications/default-templates.catalog';
 import { PERMISSIONS_CATALOG } from '../src/rbac/permissions.catalog';
 import { ROLES_CATALOG } from '../src/rbac/roles.catalog';
 
@@ -60,6 +61,33 @@ async function main() {
       await prisma.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })),
         skipDuplicates: true,
+      });
+    }
+  }
+
+  console.log(
+    `Seeding ${DEFAULT_TEMPLATES_CATALOG.length} default message templates...`,
+  );
+  for (const tpl of DEFAULT_TEMPLATES_CATALOG) {
+    // Same findFirst-then-create/update shortcut as system roles above --
+    // the compound unique index rejects an explicit null organizationId.
+    const existing = await prisma.messageTemplate.findFirst({
+      where: { organizationId: null, key: tpl.key, channel: tpl.channel },
+    });
+    if (existing) {
+      await prisma.messageTemplate.update({
+        where: { id: existing.id },
+        data: { subject: tpl.subject, body: tpl.body },
+      });
+    } else {
+      await prisma.messageTemplate.create({
+        data: {
+          organizationId: null,
+          key: tpl.key,
+          channel: tpl.channel,
+          subject: tpl.subject,
+          body: tpl.body,
+        },
       });
     }
   }

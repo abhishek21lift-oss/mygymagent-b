@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuditService } from '../audit/audit.service';
-import { MailerService } from '../common/mailer/mailer.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { slugifyWithSuffix } from '../common/utils/slugify';
 import { PermissionsService } from '../rbac/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -56,7 +56,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokensService,
-    private readonly mailer: MailerService,
+    private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
   ) {}
@@ -121,10 +121,14 @@ export class AuthService {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
       },
     });
-    await this.mailer.sendEmailVerification(
-      result.user.email,
-      verificationToken,
-    );
+    await this.communications
+      .sendEmailVerification(
+        result.organization.id,
+        result.user.email,
+        result.user.firstName,
+        verificationToken,
+      )
+      .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
 
     await this.audit.record({
       organizationId: result.organization.id,
@@ -281,7 +285,9 @@ export class AuthService {
         expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
       },
     });
-    await this.mailer.sendPasswordReset(user.email, token);
+    await this.communications
+      .sendPasswordReset(user.organizationId, user.email, token)
+      .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {

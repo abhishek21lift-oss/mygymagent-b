@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { MailerService } from '../common/mailer/mailer.service';
+import { CommunicationsModule } from '../communications/communications.module';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { MemberCreatedListener } from './member-created.listener';
 import { WelcomeEmailProcessor } from './welcome-email.processor';
@@ -12,7 +12,10 @@ import { WelcomeEmailProcessor } from './welcome-email.processor';
  * (in-app/SMS/WhatsApp/push channels, templates, delivery tracking).
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS })],
-  providers: [MemberCreatedListener, WelcomeEmailProcessor, MailerService],
+  imports: [
+    BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS }),
+    CommunicationsModule,
+  ],
+  providers: [MemberCreatedListener, WelcomeEmailProcessor],
 })
 export class NotificationsModule {}
