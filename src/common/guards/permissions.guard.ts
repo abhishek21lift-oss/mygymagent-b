@@ -8,7 +8,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PermissionsService } from '../../rbac/permissions.service';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import {
+  PERMISSIONS_ANY_KEY,
+  PERMISSIONS_KEY,
+} from '../decorators/permissions.decorator';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -18,6 +21,12 @@ declare module 'express-serve-static-core' {
      * `@CurrentBranchScope()`, never from the raw `x-branch-id` header --
      * that header is an unverified client claim. */
     branchScope?: string | null;
+    /** Set by PermissionsGuard only for a route using @RequireAnyPermission():
+     * whichever one of the listed keys actually satisfied the check. Lets a
+     * handler tell apart two permissions that grant the same route but imply
+     * different result scoping (see that decorator's comment). Undefined for
+     * a route using the plain (AND-only) @RequirePermissions(). */
+    grantedViaPermission?: string;
   }
 }
 
@@ -38,9 +47,16 @@ declare module 'express-serve-static-core' {
  * was granted -- org-wide, or only for the requested branch -- and exposes
  * that as `request.branchScope` (null = unrestricted) for service methods
  * to fold into their `where` clause the same way `organizationId` already
- * is. Every route in this codebase requires exactly one permission key
- * today, so the scope of the last (only) key checked is what's exposed;
- * see the loop below if that ever stops being true.
+ * is. Every route using the plain (AND-only) @RequirePermissions() in this
+ * codebase requires exactly one permission key today, so the scope of the
+ * last (only) key checked is what's exposed; see the loop below if that
+ * ever stops being true.
+ *
+ * @RequireAnyPermission() is the OR counterpart, for a route reachable
+ * through two permissions that imply different result scoping (e.g. a
+ * trainer's own assigned clients vs. everyone). Whichever key actually
+ * matched is exposed as `request.grantedViaPermission` so the handler can
+ * tell the two apart -- see that decorator's comment.
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -54,7 +70,13 @@ export class PermissionsGuard implements CanActivate {
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required || required.length === 0) return true;
+    const requiredAny = this.reflector.getAllAndOverride<string[]>(
+      PERMISSIONS_ANY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    const hasAnd = Boolean(required && required.length > 0);
+    const hasOr = Boolean(requiredAny && requiredAny.length > 0);
+    if (!hasAnd && !hasOr) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user;
@@ -66,28 +88,59 @@ export class PermissionsGuard implements CanActivate {
       : branchIdHeader;
 
     let branchScope: string | null = null;
-    for (const key of required) {
-      const allowed = await this.permissionsService.hasPermission(
-        user.id,
-        user.organizationId,
-        key,
-        branchId,
-      );
-      if (!allowed) {
-        throw new ForbiddenException(`Missing permission: ${key}`);
-      }
+    if (hasAnd && required) {
+      for (const key of required) {
+        const allowed = await this.permissionsService.hasPermission(
+          user.id,
+          user.organizationId,
+          key,
+          branchId,
+        );
+        if (!allowed) {
+          throw new ForbiddenException(`Missing permission: ${key}`);
+        }
 
-      // Re-check without a branch context: if that alone still grants the
-      // permission, the caller holds it org-wide and no restriction
-      // applies. Otherwise the branch header above is the only reason
-      // access was allowed, so scope the caller to exactly that branch.
-      const orgWide = await this.permissionsService.hasPermission(
-        user.id,
-        user.organizationId,
-        key,
-      );
-      branchScope = orgWide ? null : (branchId ?? branchScope);
+        // Re-check without a branch context: if that alone still grants the
+        // permission, the caller holds it org-wide and no restriction
+        // applies. Otherwise the branch header above is the only reason
+        // access was allowed, so scope the caller to exactly that branch.
+        const orgWide = await this.permissionsService.hasPermission(
+          user.id,
+          user.organizationId,
+          key,
+        );
+        branchScope = orgWide ? null : (branchId ?? branchScope);
+      }
     }
+
+    if (hasOr && requiredAny) {
+      let matchedKey: string | undefined;
+      for (const key of requiredAny) {
+        const allowed = await this.permissionsService.hasPermission(
+          user.id,
+          user.organizationId,
+          key,
+          branchId,
+        );
+        if (allowed) {
+          matchedKey = key;
+          const orgWide = await this.permissionsService.hasPermission(
+            user.id,
+            user.organizationId,
+            key,
+          );
+          branchScope = orgWide ? null : (branchId ?? branchScope);
+          break;
+        }
+      }
+      if (!matchedKey) {
+        throw new ForbiddenException(
+          `Missing permission: one of ${requiredAny.join(', ')}`,
+        );
+      }
+      request.grantedViaPermission = matchedKey;
+    }
+
     request.branchScope = branchScope;
     return true;
   }

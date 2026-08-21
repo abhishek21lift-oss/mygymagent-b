@@ -7,7 +7,7 @@ cookie. See ADR 0002 for the full rationale. Account lockout after repeated fail
 exists in the system.
 
 ## Authorization (RBAC)
-- Permissions are `resource.action` strings (46 in the catalog, `src/rbac/permissions.catalog.ts`).
+- Permissions are `resource.action` strings (47 in the catalog, `src/rbac/permissions.catalog.ts`).
 - Roles are either system-seeded (available to every org) or organization-custom
   (`Role.organizationId` set). 14 system roles ship today (`src/rbac/roles.catalog.ts`), including
   `PLATFORM_OWNER`/`PLATFORM_ADMIN`.
@@ -41,6 +41,16 @@ exists in the system.
   so an admin can carve out an exception without redesigning the role graph.
 - Enforced by `PermissionsGuard` + `@RequirePermission()`, backed by
   `PermissionsService.hasPermission()`.
+- **Assignment-level scoping** for Members: `@RequireAnyPermission('members.read',
+  'members.read_assigned')` (the OR counterpart to `@RequirePermissions()`, same file) lets a route
+  be reachable through either the broad `members.read` or the narrower `members.read_assigned`, and
+  records which one actually matched as `request.grantedViaPermission`. The TRAINER role holds only
+  the narrower key, so `MembersService` filters to `assignedTrainerId === caller.id` whenever that's
+  how access was granted (`@CurrentAssignmentScope()`), the same pattern `branchScope` uses for
+  branches. NUTRITIONIST is deliberately **not** on `members.read_assigned` -- its "assigned clients"
+  relationship is `DietAssignment.assignedByUserId`, not `Member.assignedTrainerId`, and scoping it
+  correctly needs a join this mechanism doesn't do; see the comment on that role in
+  `roles.catalog.ts`.
 
 ## Tenant isolation
 See ADR 0001. `organizationId` comes only from the verified JWT, never from client input; every
@@ -78,7 +88,7 @@ only. See `src/auth/auth.controller.ts` for the authoritative numbers.
 | Expired/garbage session → API | ✅ `test/auth.e2e-spec.ts` |
 | Refresh token rotation + reuse-after-rotation detection | ✅ `test/auth.e2e-spec.ts` |
 | Account lockout after repeated failed logins | ✅ `test/auth.e2e-spec.ts` |
-| Trainer → unauthorized member (a trainer reading a member not assigned to them) | ⚠️ Not yet a dedicated test — the same `organizationId`-scoping mechanism applies, but assignment-level scoping (trainer can only see *their* assigned members within their own org) isn't separately verified |
+| Trainer → unauthorized member (a trainer reading a member not assigned to them) | ✅ `test/member-assignment-scoping.e2e-spec.ts` — a TRAINER's member list/detail endpoints only return members where `assignedTrainerId` is their own id; a broad `members.read` holder (e.g. the org owner) is unaffected. NUTRITIONIST is a documented exception, not covered — see the RBAC section above |
 | Branch user → another branch (within the same org) | ✅ `test/branch-scoping.e2e-spec.ts` — a manager whose only grant is scoped to Branch A is denied outright without the `x-branch-id` header, and with it still can't create/read/update/list/pay/check-in against Branch B's data, across Members, Payments, Attendance, Leads, and Users/staff (including that a branch-scoped grantor can't hand out an org-wide or other-branch role) |
 | AI agent → unauthorized data | ✅ `test/ai.e2e-spec.ts` — the tool executor is exercised directly (no live model needed): `read_member` never returns another org's member or raw PII fields, and `create_workout_draft`/`create_diet_draft` reject a cross-org exercise/food-item reference. See `docs/ai/architecture.md` for the tool-scoping model |
 | Malicious upload / unauthorized file access | N/A — `files` module not built |

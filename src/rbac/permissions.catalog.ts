@@ -63,6 +63,8 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   // Core gym domain ------------------------------------------------------------
   ...resource('members', {
     read: 'View member profiles',
+    read_assigned:
+      'View only members assigned to you (e.g. a trainer’s own clients)',
     create: 'Create a member',
     update: 'Update a member profile',
     delete: 'Delete (deactivate) a member',

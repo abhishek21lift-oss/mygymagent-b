@@ -9,10 +9,14 @@ import {
   Query,
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { RequestedBranchId } from '../common/decorators/branch-id.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -24,28 +28,36 @@ export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 
   @Get()
-  @RequirePermissions('members.read')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: PaginationQueryDto,
     @RequestedBranchId() requestedBranchId: string | undefined,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.list(
       user.organizationId!,
       query,
       branchScope ?? requestedBranchId,
+      assignmentScope,
     );
   }
 
   @Get(':id')
-  @RequirePermissions('members.read')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
   getOne(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.membersService.getOne(user.organizationId!, id, branchScope);
+    return this.membersService.getOne(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Post()

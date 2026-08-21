@@ -98,7 +98,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Trainer',
     description: 'Manages assigned clients: training, progress and attendance.',
     permissions: perms(
-      'members.read',
+      'members.read_assigned',
       'memberships.read',
       'attendance.read',
       'attendance.create',
@@ -111,6 +111,13 @@ export const ROLES_CATALOG: RoleDefinition[] = [
   {
     key: 'NUTRITIONIST',
     name: 'Nutritionist',
+    // Kept on the broad `members.read`, not `members.read_assigned`: "assigned"
+    // for a nutritionist means "has an active DietAssignment I created" (see
+    // DietAssignment.assignedByUserId), a different relationship than
+    // Member.assignedTrainerId -- the field `members.read_assigned` filters
+    // by. Scoping this role correctly needs a join against DietAssignment,
+    // not a reuse of the trainer-assignment field; left as a documented gap
+    // (see docs/security/overview.md) rather than silently mis-scoping it.
     description: 'Manages nutrition and diet plans for assigned clients.',
     permissions: perms(
       'members.read',

@@ -26,11 +26,13 @@ export class MembersService {
     organizationId: string,
     query: PaginationQueryDto,
     branchId?: string,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       organizationId,
       deletedAt: null,
       ...(branchId ? { primaryBranchId: branchId } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       ...(query.search
         ? {
             OR: [
@@ -59,6 +61,7 @@ export class MembersService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const member = await this.prisma.member.findFirst({
       where: {
@@ -66,6 +69,7 @@ export class MembersService {
         organizationId,
         deletedAt: null,
         ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       },
       include: {
         primaryBranch: { select: { id: true, name: true } },
