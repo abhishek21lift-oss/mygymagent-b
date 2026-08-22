@@ -6,6 +6,7 @@ import {
 import { AiActionsService } from '../../ai-actions/ai-actions.service';
 import { AssignPlanPayloadDto } from '../../ai-actions/dto/assign-plan-payload.dto';
 import { FinanceService } from '../../analytics/finance.service';
+import { DailyBriefingService } from '../../briefing/daily-briefing.service';
 import { InventoryIntelligenceService } from '../../analytics/inventory-intelligence.service';
 import { MemberIntelligenceService } from '../../analytics/member-intelligence.service';
 import { SalesIntelligenceService } from '../../analytics/sales-intelligence.service';
@@ -78,6 +79,7 @@ export class ToolExecutorService {
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly aiActionsService: AiActionsService,
+    private readonly dailyBriefingService: DailyBriefingService,
   ) {}
 
   /**
@@ -148,6 +150,8 @@ export class ToolExecutorService {
         return this.getTrainerWorkload(rawArgs, context);
       case 'get_inventory_forecast':
         return this.getInventoryForecast(rawArgs, context);
+      case 'get_daily_briefing':
+        return this.getDailyBriefing(rawArgs, context);
       case 'propose_assign_workout_plan':
         return this.proposeAssignWorkoutPlan(rawArgs, context);
       case 'propose_assign_diet_plan':
@@ -404,6 +408,23 @@ export class ToolExecutorService {
       'reports.view',
     ]);
     return this.inventoryIntelligence.getStockForecast(organizationId);
+  }
+
+  private async getDailyBriefing(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.dailyBriefingService.getDailyBriefing(
+      organizationId,
+      branchScope,
+    );
   }
 
   private async proposeAssignWorkoutPlan(

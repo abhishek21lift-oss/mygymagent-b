@@ -40,6 +40,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
+import { BriefingModule } from './briefing/briefing.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { AutomationModule } from './automation/automation.module';
     SearchModule,
     AnalyticsModule,
     AutomationModule,
+    BriefingModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

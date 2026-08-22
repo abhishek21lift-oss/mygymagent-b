@@ -26,10 +26,12 @@ below for why, and what would need to change to add one.
   intelligence tools (`get_revenue_summary`, `get_at_risk_members`,
   `get_sales_funnel`, `get_trainer_workload`, `get_inventory_forecast` --
   each mirrors a real `GET /analytics/*` endpoint, see
-  `src/analytics/README.md`) plus 2 P3 propose-only tools
-  (`propose_assign_workout_plan`, `propose_assign_diet_plan` -- see
-  `src/ai-actions/README.md`). No `execute_sql`-shaped tool exists or
-  ever should -- see `docs/ai/architecture.md`'s "§56" section.
+  `src/analytics/README.md`) plus 3 P3 tools: `get_daily_briefing` (the
+  same 5 reports aggregated into one call, see `src/briefing/README.md`)
+  and 2 propose-only tools (`propose_assign_workout_plan`,
+  `propose_assign_diet_plan` -- see `src/ai-actions/README.md`). No
+  `execute_sql`-shaped tool exists or ever should -- see
+  `docs/ai/architecture.md`'s "§56" section.
 - **No special-cased data path**: every tool executor
   (`tools/tool-executor.service.ts`) calls the exact same
   organizationId-scoped domain service the REST API uses
@@ -99,8 +101,8 @@ below for why, and what would need to change to add one.
   model to treat tool-result content as data, not instructions (the
   standard mitigation), but nothing automated verifies this holds --
   see `docs/security/overview.md`'s test matrix, still marked N/A for AI.
-- **No multi-agent Supervisor.** There is exactly one tool-calling loop, now with 13 tools across
-  reads, drafts, intelligence, and propose-only writes -- not a Supervisor that routes a request to
+- **No multi-agent Supervisor.** There is exactly one tool-calling loop, now with 14 tools across
+  reads, drafts, intelligence, aggregation, and propose-only writes -- not a Supervisor that routes a request to
   a "reporting agent" vs. a "member-management agent" per `docs/ai/architecture.md`'s diagram. See
   `ARCHITECTURE_DECISIONS.md` AI-13 and AI-17: nothing built so far has actually needed request
   routing between specialist toolsets, and building that dispatch layer with nothing that requires

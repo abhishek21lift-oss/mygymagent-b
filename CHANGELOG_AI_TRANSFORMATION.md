@@ -508,3 +508,47 @@ All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks
 
 Remaining P3 work: the Owner Daily Briefing (aggregating P1/P2 intelligence into a real, computed
 report).
+
+## 2026-08-22 — P3: Owner Daily Briefing, completing P3
+
+### Built: the Owner Daily Briefing (`src/briefing/`)
+
+`GET /briefing/daily` (`reports.view`) and a matching `get_daily_briefing` AI tool (empty args,
+`resolveAccess()`-gated on `reports.view`) aggregate today's check-in count, this month's revenue
+and outstanding balances, the at-risk-member watch list, this month's sales funnel, low-stock
+products, trainer workload, and the number of AI proposals awaiting approval into one real,
+computed report. Pure aggregation over `Promise.all`-parallelized calls to the five existing
+`src/analytics/` services plus `AiActionsService.countPending()` -- no new computation, no new
+data model. Every existing `notComputable` disclosure (`RevenueSummary`'s six gaps,
+`TrainerIntelligence`'s three PT-specific gaps) is passed through verbatim, not summarized away.
+See `ARCHITECTURE_DECISIONS.md` AI-18.
+
+- Changed: `src/ai/tools/tool-definitions.ts` (+`get_daily_briefing`),
+  `src/ai/tools/tool-executor.service.ts`, `src/ai/ai.module.ts`, `src/ai-actions/ai-actions.service.ts`
+  (+`countPending()`), `src/app.module.ts`. No schema changes.
+- New: `src/briefing/` (service, controller, module, README).
+- Tested: `test/daily-briefing.e2e-spec.ts` (new, 2 tests) -- the aggregation reaching real seeded
+  data (a check-in, a low-stock product, a pending AI proposal created via the Action Center) and
+  the `reports.view` permission gate on the AI tool (a TRAINER, who holds `ai.generate` but not
+  `reports.view`, is rejected).
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 153/153 e2e tests passing across 25 suites (was 151/24; +2)
+```
+
+All e2e tests ran against real Postgres, real Redis, and real SMTP -- not mocks.
+
+**P3 ("Gym Brain") is now complete**, within what the master prompt's own rules allow honestly
+building. Built: the Action Center (approval workflow), AI memory, and the Owner Daily Briefing --
+all real, tested, documented, and committed. Deliberately not built, both as documented scope
+decisions rather than oversights (`ARCHITECTURE_DECISIONS.md` AI-17): a multi-agent AI Supervisor
+(nothing built across P0-P3 has ever needed routing between specialist toolsets) and the "global AI
+command interface" (frontend-only scope; this session has worked exclusively in `mygymagent-b`,
+and the backend already exposes everything a frontend surface would need).
+
+This completes the master prompt's full P0 -> P3 sequence.

@@ -483,8 +483,8 @@ why, not silently dropping them.
 
 **Decision:**
 1. **No multi-agent Supervisor.** As already reasoned in AI-13 for P2's tool additions: there is
-   still exactly one tool-calling loop, now with 13 tools (6 v1 + 5 P2 intelligence + 2 P3
-   propose-only). Nothing built across P0-P3 has ever needed *routing* between distinct specialist
+   still exactly one tool-calling loop, now with 14 tools (6 v1 + 5 P2 intelligence + 3 P3: 1
+   aggregation, 2 propose-only). Nothing built across P0-P3 has ever needed *routing* between distinct specialist
    toolsets -- one model with a well-scoped, permission-gated tool list has handled every case. A
    Supervisor that dispatches between "agents" with nothing requiring the dispatch would be
    unverifiable scaffolding, which is exactly the "flashy AI UI before the operational foundation"
@@ -508,3 +508,43 @@ finance-specific agent with tools too specialized to belong in the general chat'
 is the trigger to build a real Supervisor -- not before. The global command interface is frontend
 work with no backend dependency remaining; it can be picked up independently, in `mygymagent-f`,
 whenever frontend work on this project resumes.
+
+---
+
+## AI-18: The Owner Daily Briefing is a read-only aggregation service, not a new intelligence source
+
+**Context:** P3's last buildable item is the "owner Daily Briefing." P1/P2 already built five
+separate real intelligence computations (`FinanceService`, `MemberIntelligenceService`,
+`SalesIntelligenceService`, `TrainerIntelligenceService`, `InventoryIntelligenceService`), each
+behind its own `GET /analytics/*` endpoint and `get_*` AI tool. The question was whether "Daily
+Briefing" means a sixth, independent computation, or something else.
+
+**Decision:** Built `src/briefing/DailyBriefingService.getDailyBriefing()` as pure aggregation:
+it calls the five existing services (in parallel, via `Promise.all`) plus
+`AiActionsService.countPending()` for the Action Center backlog, and a single direct
+`prisma.attendance.count()` for today's check-ins (the one number genuinely "daily" rather than
+"this month" or "current snapshot," and too trivial to warrant a sixth service). No new
+computation is introduced, and every existing `notComputable` disclosure
+(`RevenueSummary.notComputable`, `TrainerIntelligence.notComputable`) is passed through verbatim
+in the aggregated response rather than summarized away -- an owner reading the briefing gets the
+same honesty guarantee as someone reading the underlying reports directly. Exposed both as
+`GET /briefing/daily` (`reports.view`, same tier as the underlying data) and as a `get_daily_briefing`
+AI tool (empty args, `resolveAccess()`-gated on `reports.view`, same pattern as the other 5
+`get_*` tools), so both a dashboard and the assistant can present it.
+
+**Alternatives considered:** Generating a narrative/prose summary of the numbers server-side (an
+actual LLM call baked into the briefing endpoint). Rejected: the assistant's existing
+`get_daily_briefing` tool call already produces exactly that narrative when a user asks for it
+through `/ai/chat` -- adding a second, server-side text-generation path for the same data would
+duplicate cost and complexity for no capability gain, and would risk the "Do not fake features,
+AI" rule if that second path were ever built as a canned/templated string rather than a real
+model call. The REST endpoint stays structured JSON; turning it into prose is what the chat
+interface is already for.
+
+**Consequences:** Any future report this project adds that's "a view over data that already has
+its own endpoint" should follow the same shape: a thin aggregation service that calls the real
+per-domain services in parallel and passes their `notComputable` arrays through, not a
+re-implementation of their queries. `DailyBriefingController`/`DailyBriefingService` have no
+model of their own beyond what `Promise.all` composes at request time -- there is nothing here to
+keep in sync with schema changes in the underlying domains beyond what those domains' own services
+already handle.

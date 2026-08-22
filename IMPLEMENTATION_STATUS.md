@@ -98,14 +98,25 @@ remain blocked on the same missing PT-session data model P1 already flagged, not
 |---|---|---|
 | Action Center (approval workflow) | ✅ | `src/ai-actions/` — READ→RECOMMEND→DRAFT→APPROVE→EXECUTE for the first genuinely consequential AI tools (`propose_assign_workout_plan`, `propose_assign_diet_plan`). `ai.approve` alone is not sufficient to approve: the approver's own resource permission (`workouts.assign`/`nutrition.assign`) is independently re-checked — see `ARCHITECTURE_DECISIONS.md` AI-15 |
 | AI memory | ✅ | `src/ai/conversations/` — `AiConversation`/`AiMessage`, per-org-and-per-user scoped, soft-delete only per `docs/database/data-retention.md`. `POST /ai/chat` accepts `conversationId` to continue a real persisted conversation; `GET/DELETE /ai/conversations` for history management. See `ARCHITECTURE_DECISIONS.md` AI-16 |
-| Owner Daily Briefing | ⬜ | Not started — next in this phase |
-| AI Supervisor / specialist agents | ⬜ (deliberate) | Still one tool-calling loop (13 tools); nothing built has ever needed routing between specialist toolsets. See `ARCHITECTURE_DECISIONS.md` AI-17 |
+| Owner Daily Briefing | ✅ | `src/briefing/` — `GET /briefing/daily` (and the `get_daily_briefing` AI tool) aggregate today's check-ins, this month's revenue, at-risk members, sales funnel, low-stock products, trainer workload, and pending Action Center proposals into one real, computed report — no new data source, every `notComputable` disclosure preserved |
+| AI Supervisor / specialist agents | ⬜ (deliberate) | Still one tool-calling loop (14 tools); nothing built has ever needed routing between specialist toolsets. See `ARCHITECTURE_DECISIONS.md` AI-17 |
 | Global AI command interface | ⬜ (deliberate, frontend) | Frontend-only concern; this session has worked exclusively in `mygymagent-b`. Backend already provides everything needed (`POST /ai/chat` + `GET /ai/conversations`). See `ARCHITECTURE_DECISIONS.md` AI-17 |
 
 **Action Center + AI memory verification (2026-08-22):** typecheck clean, lint clean, 11/11 unit
 tests passing, 24/24 e2e suites passing (151/151 tests, up from 139 — 12 new: 5 in
 `test/ai-actions.e2e-spec.ts`, 7 in `test/ai-conversations.e2e-spec.ts`). All against real
 Postgres/Redis/SMTP.
+
+**Owner Daily Briefing verification (2026-08-22):** typecheck clean, lint clean, 11/11 unit tests
+passing, 25/25 e2e suites passing (153/153 tests, up from 151 — 2 new, in
+`test/daily-briefing.e2e-spec.ts`). Covers the aggregation reaching real seeded data (a check-in,
+a low-stock product, a pending AI proposal) and the `reports.view` permission gate on both the
+REST endpoint and the AI tool.
+
+**P3 status: complete**, within the same honesty discipline P1/P2 established. The AI Supervisor/
+specialist-agent layer and the global AI command interface are the two P3 master-prompt items not
+built, both as deliberate, documented scope decisions rather than oversights — see
+`ARCHITECTURE_DECISIONS.md` AI-17.
 
 ## How this file is maintained
 

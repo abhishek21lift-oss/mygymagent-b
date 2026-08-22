@@ -205,6 +205,15 @@ export const AI_TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'get_daily_briefing',
+      description:
+        "Get today's owner briefing: today's check-in count, this month's revenue and outstanding balances, the at-risk-member watch list, this month's sales funnel, low-stock products, trainer workload, and the number of AI proposals awaiting approval. One aggregated report over the same data the other get_* tools expose individually -- use this when asked for an overview or \"how are we doing,\" not when asked about one specific number (use the matching narrower tool for that).",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'propose_assign_workout_plan',
       description:
         "Propose assigning an existing workout plan to a member. This does NOT assign it immediately -- it creates a pending proposal a staff member with workout-assignment permission must approve before the member's program actually changes. Tell the user it's pending approval, not that it's done.",

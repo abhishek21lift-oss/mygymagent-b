@@ -69,6 +69,16 @@ export class AiActionsService {
     return action;
   }
 
+  /** Used by the Owner Daily Briefing (`src/briefing/`) to surface "N
+   * proposals awaiting your decision" -- a count, not the full list, so
+   * the briefing doesn't duplicate what `GET /ai-actions` already shows
+   * in detail. */
+  async countPending(organizationId: string): Promise<number> {
+    return this.prisma.aiAction.count({
+      where: { organizationId, status: 'PENDING_APPROVAL' },
+    });
+  }
+
   /** Called by the `propose_assign_workout_plan`/`propose_assign_diet_plan`
    * AI tools -- confirms the member and plan are real before drafting a
    * proposal about them (a proposal for a nonexistent member helps no

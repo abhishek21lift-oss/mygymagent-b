@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AiActionsModule } from '../ai-actions/ai-actions.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AttendanceModule } from '../attendance/attendance.module';
+import { BriefingModule } from '../briefing/briefing.module';
 import { CrmModule } from '../crm/crm.module';
 import { MembersModule } from '../members/members.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
@@ -31,6 +32,7 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     RbacModule,
     AnalyticsModule,
     AiActionsModule,
+    BriefingModule,
   ],
   controllers: [AiController, AiConversationsController],
   providers: [
