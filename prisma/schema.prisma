@@ -113,6 +113,8 @@ model Organization {
   messageTemplates        MessageTemplate[]
   messageLogs             MessageLog[]
   automationRuns          AutomationRun[]
+  aiActions               AiAction[]
+  aiConversations         AiConversation[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -244,6 +246,9 @@ model User {
   screeningsRecorded       MemberScreening[]         @relation("ScreeningRecordedBy")
   goalsCreated             MemberGoal[]              @relation("GoalCreatedBy")
   filesUploaded            File[]                    @relation("FileUploadedBy")
+  aiActionsProposed        AiAction[]                @relation("AiActionProposedBy")
+  aiActionsDecided         AiAction[]                @relation("AiActionDecidedBy")
+  aiConversations          AiConversation[]
 
   @@index([organizationId])
   @@map("users")
@@ -1732,4 +1737,116 @@ model AutomationRun {
 
   @@index([organizationId, key, subjectId, createdAt])
   @@map("automation_runs")
+}
+
+/// -- src/ai-actions/ (P3 "Gym Brain": Action Center) ---------------------
+/// READ -> RECOMMEND -> DRAFT -> APPROVE -> EXECUTE for AI-proposed
+/// changes the master prompt calls "high-risk" -- anything that alters a
+/// member's real program/data, as opposed to P0-P2's AI tools, which are
+/// either pure reads or create an inert, unassigned draft (a
+/// WorkoutPlan/DietPlan nobody's using yet -- see src/ai/README.md's
+/// "No approval queue" note for why those didn't need this). One row per
+/// proposed action; never mutated back to PENDING_APPROVAL once decided.
+enum AiActionType {
+  ASSIGN_WORKOUT_PLAN
+  ASSIGN_DIET_PLAN
+}
+
+enum AiActionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+model AiAction {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  type   AiActionType
+  status AiActionStatus @default(PENDING_APPROVAL)
+  /// Validated args for the eventual execution (e.g. {memberId,
+  /// workoutPlanId, startDate?, notes?}) -- re-validated against the same
+  /// DTO at approval time, never trusted as-is from when it was drafted.
+  payload Json
+  /// Human-readable explanation shown to the approver -- an approver
+  /// deciding on a raw payload with no context isn't a real approval
+  /// step, it's a rubber stamp.
+  reasoning String?
+
+  proposedByUserId String
+  proposedByUser   User   @relation("AiActionProposedBy", fields: [proposedByUserId], references: [id], onDelete: Cascade)
+
+  decidedByUserId String?
+  decidedByUser   User?     @relation("AiActionDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  decidedAt       DateTime?
+  rejectionReason String?
+
+  /// The id of whatever record execution actually created (e.g. the new
+  /// WorkoutAssignment.id) -- traceability from the proposal to its
+  /// real-world effect, not just a status flag.
+  resultResourceId String?
+  errorMessage      String?
+  executedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@map("ai_actions")
+}
+
+/// -- src/ai/conversations/ (P3 "Gym Brain": AI memory) -------------------
+/// Was explicitly not built through P0-P2 -- see src/ai/README.md's old
+/// "No conversation persistence" note and docs/database/data-retention.md's
+/// AI-conversations section, which this follows: tenant-scoped, soft-delete
+/// only (a user clearing their history hides it from them, never destroys
+/// an org's audit trail of what the AI was asked/told), never used as
+/// training data.
+model AiConversation {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([organizationId, userId, deletedAt, updatedAt])
+  @@map("ai_conversations")
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+}
+
+/// One row per user-visible turn (not every raw tool-call/tool-result
+/// exchange -- see AiService's comment on why persisted history only
+/// carries the natural-language content the model actually needs re-fed
+/// on the next turn, the same shape the pre-persistence client-resent
+/// `history` array already used).
+model AiMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role    AiMessageRole
+  content String
+  /// The tool calls made while producing this reply, if any -- kept for
+  /// transcript/audit visibility only, never replayed back into a later
+  /// prompt.
+  toolCalls Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
 }

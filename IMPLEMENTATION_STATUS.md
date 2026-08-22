@@ -94,7 +94,18 @@ remain blocked on the same missing PT-session data model P1 already flagged, not
 
 ## P3 — Gym Brain
 
-⬜ Not started.
+| Area | Status | Note |
+|---|---|---|
+| Action Center (approval workflow) | ✅ | `src/ai-actions/` — READ→RECOMMEND→DRAFT→APPROVE→EXECUTE for the first genuinely consequential AI tools (`propose_assign_workout_plan`, `propose_assign_diet_plan`). `ai.approve` alone is not sufficient to approve: the approver's own resource permission (`workouts.assign`/`nutrition.assign`) is independently re-checked — see `ARCHITECTURE_DECISIONS.md` AI-15 |
+| AI memory | ✅ | `src/ai/conversations/` — `AiConversation`/`AiMessage`, per-org-and-per-user scoped, soft-delete only per `docs/database/data-retention.md`. `POST /ai/chat` accepts `conversationId` to continue a real persisted conversation; `GET/DELETE /ai/conversations` for history management. See `ARCHITECTURE_DECISIONS.md` AI-16 |
+| Owner Daily Briefing | ⬜ | Not started — next in this phase |
+| AI Supervisor / specialist agents | ⬜ (deliberate) | Still one tool-calling loop (13 tools); nothing built has ever needed routing between specialist toolsets. See `ARCHITECTURE_DECISIONS.md` AI-17 |
+| Global AI command interface | ⬜ (deliberate, frontend) | Frontend-only concern; this session has worked exclusively in `mygymagent-b`. Backend already provides everything needed (`POST /ai/chat` + `GET /ai/conversations`). See `ARCHITECTURE_DECISIONS.md` AI-17 |
+
+**Action Center + AI memory verification (2026-08-22):** typecheck clean, lint clean, 11/11 unit
+tests passing, 24/24 e2e suites passing (151/151 tests, up from 139 — 12 new: 5 in
+`test/ai-actions.e2e-spec.ts`, 7 in `test/ai-conversations.e2e-spec.ts`). All against real
+Postgres/Redis/SMTP.
 
 ## How this file is maintained
 

@@ -91,6 +91,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'nutrition.assign',
       'reports.view',
       'ai.generate',
+      'ai.approve',
     ),
   },
   {

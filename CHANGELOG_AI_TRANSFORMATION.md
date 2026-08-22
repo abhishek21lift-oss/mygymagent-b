@@ -429,3 +429,82 @@ All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks
 **P2 — Intelligence is now complete**, within the same honesty discipline P1 established. Next:
 P3 ("Gym Brain") — AI Supervisor, specialist agents, AI memory, Action Center, approval workflows,
 global AI command interface, owner Daily Briefing.
+
+## 2026-08-22 — P3: Action Center (approval workflow) + AI memory
+
+### Built: the Action Center (`src/ai-actions/`)
+
+READ→RECOMMEND→DRAFT→APPROVE→EXECUTE for the first AI tools that perform a genuinely consequential
+write. Two new propose-only tools (`propose_assign_workout_plan`, `propose_assign_diet_plan`) can
+only create a `PENDING_APPROVAL` `AiAction` row — never assign anything directly. New model
+`AiAction` (`AiActionType`: `ASSIGN_WORKOUT_PLAN`/`ASSIGN_DIET_PLAN`; `AiActionStatus`:
+`PENDING_APPROVAL`→`APPROVED`/`REJECTED`→`EXECUTED`/`FAILED`), new `/ai-actions` endpoints
+(`GET`, `GET :id`, `PATCH :id/approve`, `PATCH :id/reject`), all gated on the (previously reserved,
+now used) `ai.approve` permission, granted to `HEAD_TRAINER`.
+
+**Core security property:** `ai.approve` alone is *necessary but not sufficient* to approve an
+action. `AiActionsService.approve()` independently re-checks, via `PermissionsService.hasPermission()`,
+that the approving user also holds the REST-equivalent resource permission the proposed action
+needs (`workouts.assign`/`nutrition.assign`) — closing the indirect-bypass hole where a user with
+only `ai.approve` could otherwise cause an assignment they could never perform directly over REST.
+The *approving* user, not the proposer, is recorded as the actor on the resulting assignment. See
+`ARCHITECTURE_DECISIONS.md` AI-15 for the full reasoning and rejected alternative.
+
+### Built: AI memory (`src/ai/conversations/`)
+
+New models `AiConversation`/`AiMessage` (+ `AiMessageRole` enum) replace v1's client-resent
+`history` array with real server-side persistence. `POST /ai/chat` gains an optional
+`conversationId`: passing one loads that conversation's real history and appends to it; omitting
+one starts a new, still-persisted conversation whose id comes back in the response. New
+`GET/DELETE /ai/conversations` endpoints (`ai.generate`) for listing (with preview + message count)
+and viewing a full transcript, or soft-deleting one.
+
+Only natural-language USER/ASSISTANT turns are persisted as conversational content and replayed
+into future prompts; tool-call mechanics are auxiliary `toolCalls` metadata on the ASSISTANT
+message for transcript viewing only, never replayed. Soft-delete only, per the pre-existing
+"AI conversations" policy in `docs/database/data-retention.md` — hidden from the user, but the row
+and its messages survive for the org's audit record. Ownership is scoped per-user, not just
+per-org: one user's conversations are invisible to another user in the same org. The user's message
+is persisted *before* the provider call, so a conversation exists even when the call itself then
+fails (as it always does in this test environment, with no `OPENROUTER_API_KEY` configured). See
+`ARCHITECTURE_DECISIONS.md` AI-16.
+
+### Documented: what P3 deliberately does not build this phase
+
+The master prompt's P3 scope also names an "AI Supervisor, specialist agents" layer and a "global
+AI command interface." Neither is built: there is still exactly one tool-calling loop (now 13
+tools) and nothing built across P0–P3 has ever needed routing between distinct specialist toolsets,
+so a Supervisor with nothing to route between would be unverifiable scaffolding; the "global AI
+command interface" is a frontend/UI concern and this session has worked exclusively in the
+`mygymagent-b` backend repo, which already exposes everything a frontend surface would need
+(`POST /ai/chat` + `GET /ai/conversations`). See `ARCHITECTURE_DECISIONS.md` AI-17 for the full
+reasoning.
+
+- Changed: `prisma/schema.prisma` (+`AiAction`/`AiActionType`/`AiActionStatus`,
+  +`AiConversation`/`AiMessage`/`AiMessageRole`, two new migrations), `src/rbac/roles.catalog.ts`
+  (`ai.approve` added to `HEAD_TRAINER`), `src/ai/tools/tool-definitions.ts`,
+  `src/ai/tools/tool-executor.service.ts`, `src/ai/dto/chat.dto.ts`, `src/ai/ai.service.ts`,
+  `src/ai/ai.module.ts`, `src/app.module.ts`.
+- New: `src/ai-actions/` (service, controller, module, 3 DTOs, README), `src/ai/conversations/`
+  (service, controller).
+- Tested: `test/ai-actions.e2e-spec.ts` (new, 5 tests) — the full propose→approve→execute and
+  propose→reject cycle, re-deciding an already-decided action rejected, and the two-permission
+  approval gap closed (an `ai.approve`-holding but `workouts.assign`-lacking user cannot approve).
+  `test/ai-conversations.e2e-spec.ts` (new, 7 tests) — message persisted despite provider failure,
+  conversation continuation via `conversationId`, a nonexistent or cross-org/cross-user
+  `conversationId` rejected before the provider is ever called, list/detail transcript viewing,
+  per-user ownership scoping, and soft-delete (hidden via REST, row+messages survive for audit).
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 151/151 e2e tests passing across 24 suites (was 139/22; +12)
+```
+
+All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks.
+
+Remaining P3 work: the Owner Daily Briefing (aggregating P1/P2 intelligence into a real, computed
+report).

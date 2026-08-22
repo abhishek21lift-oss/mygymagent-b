@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AiUsageService } from './ai-usage.service';
+import { AiConversationsService } from './conversations/ai-conversations.service';
 import type { ChatDto } from './dto/chat.dto';
 import {
   OpenRouterProvider,
@@ -39,6 +40,7 @@ const MAX_TOOL_ITERATIONS = 6;
 export interface ChatResult {
   reply: string;
   toolCalls: { name: string; args: unknown }[];
+  conversationId: string;
 }
 
 interface UsageTotals {
@@ -70,6 +72,7 @@ export class AiService {
     private readonly provider: OpenRouterProvider,
     private readonly toolExecutor: ToolExecutorService,
     private readonly usageService: AiUsageService,
+    private readonly conversations: AiConversationsService,
   ) {}
 
   async chat(
@@ -78,14 +81,30 @@ export class AiService {
     dto: ChatDto,
     requestedBranchId?: string,
   ): Promise<ChatResult> {
+    // AI memory (P3): a conversationId gets its real persisted history
+    // (authoritative over `dto.history`, which only matters for a fresh
+    // conversation -- see ChatDto's comment); omitting it starts a new
+    // one, still persisted, whose id comes back for the client to
+    // continue later.
+    const conversation = await this.conversations.getOrCreate(
+      organizationId,
+      userId,
+      dto.conversationId,
+    );
+    const priorHistory: ChatMessage[] = dto.conversationId
+      ? await this.conversations.getHistory(conversation.id)
+      : (dto.history ?? []).map((m) => ({ role: m.role, content: m.content }));
+
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(dto.history ?? []).map((m): ChatMessage => ({
-        role: m.role,
-        content: m.content,
-      })),
+      ...priorHistory,
       { role: 'user', content: dto.message },
     ];
+    await this.conversations.appendMessage(
+      conversation.id,
+      'USER',
+      dto.message,
+    );
 
     const toolCallLog: { name: string; args: unknown }[] = [];
     const usageTotals: UsageTotals = {
@@ -112,7 +131,18 @@ export class AiService {
             model: lastModel,
             usageTotals,
           });
-          return { reply: response.content ?? '', toolCalls: toolCallLog };
+          const reply = response.content ?? '';
+          await this.conversations.appendMessage(
+            conversation.id,
+            'ASSISTANT',
+            reply,
+            toolCallLog,
+          );
+          return {
+            reply,
+            toolCalls: toolCallLog,
+            conversationId: conversation.id,
+          };
         }
 
         messages.push(response);
@@ -163,10 +193,18 @@ export class AiService {
         model: lastModel,
         usageTotals,
       });
+      const timedOutReply =
+        "I wasn't able to finish that within the allowed number of steps -- could you narrow the request?";
+      await this.conversations.appendMessage(
+        conversation.id,
+        'ASSISTANT',
+        timedOutReply,
+        toolCallLog,
+      );
       return {
-        reply:
-          "I wasn't able to finish that within the allowed number of steps -- could you narrow the request?",
+        reply: timedOutReply,
         toolCalls: toolCallLog,
+        conversationId: conversation.id,
       };
     } catch (error) {
       await this.logUsage(organizationId, userId, {

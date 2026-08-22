@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AiActionsModule } from '../ai-actions/ai-actions.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { CrmModule } from '../crm/crm.module';
@@ -9,6 +10,8 @@ import { WorkoutsModule } from '../workouts/workouts.module';
 import { AiUsageService } from './ai-usage.service';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { AiConversationsController } from './conversations/ai-conversations.controller';
+import { AiConversationsService } from './conversations/ai-conversations.service';
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
 
@@ -27,13 +30,15 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     NutritionModule,
     RbacModule,
     AnalyticsModule,
+    AiActionsModule,
   ],
-  controllers: [AiController],
+  controllers: [AiController, AiConversationsController],
   providers: [
     AiService,
     OpenRouterProvider,
     ToolExecutorService,
     AiUsageService,
+    AiConversationsService,
   ],
 })
 export class AiModule {}

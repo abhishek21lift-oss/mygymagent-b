@@ -397,3 +397,114 @@ again. If a future DTO is ever added with genuinely zero decorated properties fo
 reason, it will also skip this particular class-validator guard -- acceptable, since
 `forbidNonWhitelisted` remains the operative protection against unexpected model-supplied
 arguments in every case that matters.
+
+---
+
+## AI-15: The Action Center's approval step re-checks the approver's own resource permission -- `ai.approve` is necessary but not sufficient
+
+**Context:** P3 introduces the first AI tools that perform a genuinely consequential write (plan
+assignment) rather than an inert draft. The master prompt's own diagram gates this behind
+`ai.approve`, a permission already reserved (but unused) since P0. The naive reading is "grant
+`ai.approve` to whoever should be allowed to approve AI proposals, gate the approve endpoint on it,
+done." That reading has a hole: `ai.approve` alone says nothing about whether the approver is
+actually allowed to perform the *specific* action being approved. A user who holds `ai.approve` but
+not `workouts.assign` could otherwise approve an AI's proposal to assign a workout plan -- an action
+they could never take directly over `POST /workout-plans/:id/assign` -- which is exactly the kind of
+indirect permission bypass the master prompt's "AI must never bypass existing permissions" rule
+exists to prevent. The bypass is real regardless of the AI being involved at all: the AI only chose
+*which* plan to propose; the approver is the one actually causing the assignment to happen.
+
+**Decision:** `AiActionsController` gates every route on `ai.approve` (can this user interact with
+the Action Center at all), but `AiActionsService.approve()` independently re-checks, via
+`PermissionsService.hasPermission()`, that the *approving* user also holds the REST-equivalent
+resource permission the proposed action needs (`REQUIRED_PERMISSION` map: `ASSIGN_WORKOUT_PLAN` ->
+`workouts.assign`, `ASSIGN_DIET_PLAN` -> `nutrition.assign`) -- before executing anything, and
+rejecting with `ForbiddenException` if not. `ai.approve` means "can decide on AI proposals";
+performing the underlying action still needs the underlying permission, exactly as it would over
+REST. The approving user (not the proposing AI, and not whoever the AI acted on behalf of) is
+recorded as the actor on the resulting `WorkoutAssignment`/`DietAssignment`, since they are the real
+actor -- the AI only drafted a suggestion.
+
+**Alternatives considered:** Granting `ai.approve` only to roles that already hold every
+"approvable" resource permission, so the extra check would be redundant. Rejected: this couples
+`ai.approve` to the *current* set of proposal types, silently breaking (or requiring a manual role
+audit) the moment a new `AiActionType` is added for a resource permission not every `ai.approve`
+holder has. An explicit per-type re-check is self-maintaining -- add a case to `REQUIRED_PERMISSION`
+and the guarantee holds for the new type automatically.
+
+**Consequences:** Every future `AiActionType` must add an entry to `REQUIRED_PERMISSION`
+(`ai-actions.service.ts`) before it can be approved at all -- there is no default-allow path. Tested
+end-to-end in `test/ai-actions.e2e-spec.ts` using an `ACCOUNTANT`-role user granted `ai.approve` via
+a direct `UserPermissionOverride` (mirroring `test/permission-override-precedence.e2e-spec.ts`'s
+pattern) but lacking `workouts.assign` -- confirmed the approval is rejected despite holding
+`ai.approve`.
+
+---
+
+## AI-16: AI memory persists natural-language turns only; tool-call mechanics are auxiliary metadata, never replayed
+
+**Context:** P3 requires real conversation memory (the master prompt's "AI memory" item), replacing
+v1's client-resent `history` array. The design question was granularity: what exactly gets
+persisted and fed back into a future prompt as "prior context"? The full mechanics of a past
+exchange include the model's raw tool-call requests and each tool's raw JSON result, not just the
+natural-language reply the user saw.
+
+**Decision:** `AiMessage.content` stores only the human-readable USER message or ASSISTANT reply.
+Tool-call information (`{name, args}[]`) is stored as auxiliary `toolCalls Json?` metadata on the
+ASSISTANT message, kept so a human can view a full transcript (`GET /ai/conversations/:id`) but
+never fed back into `messages[]` when `AiService.chat()` rebuilds the prompt for a later turn --
+`AiConversationsService.getHistory()` selects only `role`/`content`. A future turn sees "the
+assistant told the user X," not a replay of exactly which tools ran to produce X.
+
+**Alternatives considered:** Persisting and replaying the full tool-call/tool-result sequence, so a
+later turn could see precisely what data was already fetched (potentially saving a redundant tool
+call). Rejected for this pass: it roughly doubles the token cost of every reloaded conversation,
+raw tool results often contain the same PII-minimized-but-still-detailed data the read tools already
+took care to summarize (see `src/ai/README.md`'s "Read tools return summaries" note) with less
+reason to keep resurfacing it turn after turn, and nothing in the master prompt's P3 scope actually
+requires this depth -- "AI memory" means the assistant remembers what was discussed, not that it
+must avoid ever re-querying data it already looked up once.
+
+**Consequences:** A tool that was called in an earlier turn may be called again in a later one if
+the model decides it needs that data again -- an accepted, minor cost. If a future need appears for
+genuine tool-result caching across turns, it should be a separate, explicit cache keyed by
+conversation, not a change to what `AiMessage` persists as conversational content.
+
+---
+
+## AI-17: P3's "Supervisor" and "global AI command interface" are explicitly not built this phase
+
+**Context:** The master prompt's P3 ("Gym Brain") scope names "AI Supervisor, specialist agents...
+global AI command interface" alongside the items actually built this phase (Action Center, AI
+memory). Two of these were deliberately not attempted, and the master prompt's own rule --
+"make safe engineering decisions autonomously; stop only for destructive/irreversible decisions,
+unavailable credentials, paid services or genuinely ambiguous business rules" -- requires explaining
+why, not silently dropping them.
+
+**Decision:**
+1. **No multi-agent Supervisor.** As already reasoned in AI-13 for P2's tool additions: there is
+   still exactly one tool-calling loop, now with 13 tools (6 v1 + 5 P2 intelligence + 2 P3
+   propose-only). Nothing built across P0-P3 has ever needed *routing* between distinct specialist
+   toolsets -- one model with a well-scoped, permission-gated tool list has handled every case. A
+   Supervisor that dispatches between "agents" with nothing requiring the dispatch would be
+   unverifiable scaffolding, which is exactly the "flashy AI UI before the operational foundation"
+   the master prompt warns against. This is a scope decision, not a limitation discovered by
+   trying and failing.
+2. **No "global AI command interface."** This item is a frontend/UI concern (a command palette or
+   omnipresent chat surface reachable from anywhere in the app) -- this entire session, across all
+   of P0-P3, has worked exclusively in the `mygymagent-b` backend repo, and building it belongs in
+   `mygymagent-f`. Nothing on the backend blocks it: `POST /ai/chat` (now with `conversationId`)
+   plus `GET /ai/conversations` already provide everything a frontend surface needs -- send a
+   message from anywhere in the app, resume any past conversation -- without further backend work.
+
+**Alternatives considered:** Building a minimal Supervisor now (e.g., a single `route()` function
+that always picks the one existing toolset) purely to have the shape present for later phases.
+Rejected: a router with one possible destination is not a real architectural decision, just an
+unnecessary layer of indirection with no behavior difference -- it would need to be redesigned
+anyway once a second toolset actually existed to route to.
+
+**Consequences:** If a genuinely distinct specialist toolset need ever arises (e.g., a
+finance-specific agent with tools too specialized to belong in the general chat's allowlist), that
+is the trigger to build a real Supervisor -- not before. The global command interface is frontend
+work with no backend dependency remaining; it can be picked up independently, in `mygymagent-f`,
+whenever frontend work on this project resumes.

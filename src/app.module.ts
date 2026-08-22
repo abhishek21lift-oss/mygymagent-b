@@ -29,6 +29,7 @@ import { BillingModule } from './billing/billing.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { CrmModule } from './crm/crm.module';
 import { AiModule } from './ai/ai.module';
+import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 
@@ -67,6 +68,7 @@ import { AutomationModule } from './automation/automation.module';
     WorkoutsModule,
     CrmModule,
     AiModule,
+    AiActionsModule,
     NutritionModule,
     InventoryModule,
 

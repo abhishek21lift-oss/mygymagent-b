@@ -195,6 +195,55 @@ export const AI_TOOL_DEFINITIONS = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  // -- P3 Action Center tools (src/ai-actions/) -- these do NOT assign
+  // anything directly. They create a PENDING_APPROVAL AiAction a human
+  // with the right permission must explicitly approve before it takes
+  // effect (READ -> RECOMMEND -> DRAFT -> APPROVE -> EXECUTE) -- unlike
+  // create_workout_draft/create_diet_draft above, which are safe to
+  // execute immediately because their result is inert until a human
+  // separately assigns it. See src/ai-actions/README.md.
+  {
+    type: 'function' as const,
+    function: {
+      name: 'propose_assign_workout_plan',
+      description:
+        "Propose assigning an existing workout plan to a member. This does NOT assign it immediately -- it creates a pending proposal a staff member with workout-assignment permission must approve before the member's program actually changes. Tell the user it's pending approval, not that it's done.",
+      parameters: {
+        type: 'object',
+        properties: {
+          memberId: { type: 'string', description: 'The member id' },
+          planId: { type: 'string', description: 'The workout plan id' },
+          startDate: {
+            type: 'string',
+            description: 'Optional ISO 8601 start date; defaults to today',
+          },
+          notes: { type: 'string', description: 'Optional notes' },
+        },
+        required: ['memberId', 'planId'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'propose_assign_diet_plan',
+      description:
+        "Propose assigning an existing diet plan to a member. This does NOT assign it immediately -- it creates a pending proposal a staff member with diet-assignment permission must approve before the member's program actually changes. Tell the user it's pending approval, not that it's done.",
+      parameters: {
+        type: 'object',
+        properties: {
+          memberId: { type: 'string', description: 'The member id' },
+          planId: { type: 'string', description: 'The diet plan id' },
+          startDate: {
+            type: 'string',
+            description: 'Optional ISO 8601 start date; defaults to today',
+          },
+          notes: { type: 'string', description: 'Optional notes' },
+        },
+        required: ['memberId', 'planId'],
+      },
+    },
+  },
 ] as const;
 
 export type AiToolName =

@@ -3,6 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AiActionsService } from '../../ai-actions/ai-actions.service';
+import { AssignPlanPayloadDto } from '../../ai-actions/dto/assign-plan-payload.dto';
 import { FinanceService } from '../../analytics/finance.service';
 import { InventoryIntelligenceService } from '../../analytics/inventory-intelligence.service';
 import { MemberIntelligenceService } from '../../analytics/member-intelligence.service';
@@ -75,6 +77,7 @@ export class ToolExecutorService {
     private readonly salesIntelligence: SalesIntelligenceService,
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
+    private readonly aiActionsService: AiActionsService,
   ) {}
 
   /**
@@ -145,6 +148,10 @@ export class ToolExecutorService {
         return this.getTrainerWorkload(rawArgs, context);
       case 'get_inventory_forecast':
         return this.getInventoryForecast(rawArgs, context);
+      case 'propose_assign_workout_plan':
+        return this.proposeAssignWorkoutPlan(rawArgs, context);
+      case 'propose_assign_diet_plan':
+        return this.proposeAssignDietPlan(rawArgs, context);
       default: {
         const _exhaustive: never = name;
         throw new NotFoundException(`Unknown tool: ${String(_exhaustive)}`);
@@ -397,5 +404,59 @@ export class ToolExecutorService {
       'reports.view',
     ]);
     return this.inventoryIntelligence.getStockForecast(organizationId);
+  }
+
+  private async proposeAssignWorkoutPlan(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    const { memberId, planId, startDate, notes } = validateToolArgs(
+      AssignPlanPayloadDto,
+      rawArgs,
+    );
+    // Same permission the REST equivalent (POST /workout-plans/:id/assign)
+    // requires -- proposing is gated the same as doing, even though the
+    // proposal itself has no effect until a human approves it. Branch
+    // scope isn't derived/enforced here, matching createWorkoutDraft's
+    // comment: workouts has no branch-scoping model at the REST layer
+    // either (audit F-05).
+    await this.resolveAccess(userId, organizationId, requestedBranchId, [
+      'workouts.assign',
+    ]);
+    const action = await this.aiActionsService.proposeAssignPlan(
+      organizationId,
+      userId,
+      'ASSIGN_WORKOUT_PLAN',
+      { memberId, planId, startDate, notes },
+    );
+    return {
+      actionId: action.id,
+      status: action.status,
+      reasoning: action.reasoning,
+    };
+  }
+
+  private async proposeAssignDietPlan(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    const { memberId, planId, startDate, notes } = validateToolArgs(
+      AssignPlanPayloadDto,
+      rawArgs,
+    );
+    await this.resolveAccess(userId, organizationId, requestedBranchId, [
+      'nutrition.assign',
+    ]);
+    const action = await this.aiActionsService.proposeAssignPlan(
+      organizationId,
+      userId,
+      'ASSIGN_DIET_PLAN',
+      { memberId, planId, startDate, notes },
+    );
+    return {
+      actionId: action.id,
+      status: action.status,
+      reasoning: action.reasoning,
+    };
   }
 }

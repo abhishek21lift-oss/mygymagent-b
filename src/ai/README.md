@@ -1,29 +1,35 @@
 # ai
 
-**Status: partially implemented (v1 scope).** A single tool-calling chat
-endpoint is real. The full Gateway -> Model Router -> Provider Adapters ->
-Specialized Agents pipeline described in `docs/ai/architecture.md` is
-scoped down to its essentials for a first pass: one provider (OpenRouter),
-no model routing (one configured model for everything), no persisted
-conversation memory.
+**Status: partially implemented (v1-v3 scope, incrementally extended through P3).** A single
+tool-calling chat endpoint is real, now with persisted conversation memory and (via
+`src/ai-actions/`) an approval flow for the one tool that performs a consequential write. The full
+Gateway -> Model Router -> Provider Adapters -> Specialized Agents pipeline described in
+`docs/ai/architecture.md` remains scoped down: one provider (OpenRouter), no model routing (one
+configured model for everything), and no multi-agent Supervisor -- see "Deliberate simplifications"
+below for why, and what would need to change to add one.
 
 ## What exists
 
-- `POST /ai/chat` (`ai.generate`) -- takes `{ message, history? }`
-  (`history` is the client-resent prior turns; no server-side conversation
-  storage in v1 -- see "What's still missing"), runs a bounded tool-calling
-  loop (max 6 iterations) against OpenRouter, and returns
-  `{ reply, toolCalls }` (`toolCalls` is included for transparency/
+- `POST /ai/chat` (`ai.generate`) -- takes `{ message, history?, conversationId? }`. Passing
+  `conversationId` loads that conversation's real persisted history (authoritative over `history`,
+  which only matters for a brand-new conversation -- see `dto/chat.dto.ts`); omitting it starts a
+  new conversation, always persisted, whose id comes back in the response for the client to
+  continue later. Runs a bounded tool-calling loop (max 6 iterations) against OpenRouter, and
+  returns `{ reply, toolCalls, conversationId }` (`toolCalls` is included for transparency/
   debugging in the UI, not just an internal detail).
+- **`GET/DELETE /ai/conversations`** (`conversations/`, `ai.generate`) -- a user's own past
+  conversations (never another user's, even within the same org -- see "AI memory" below).
 - **Explicit tool allowlist** (`tools/tool-definitions.ts`), the v1 set
   `docs/ai/architecture.md` specified (`read_member`,
   `read_workout_history`, `read_attendance`, `create_workout_draft`,
   `create_diet_draft`, `create_followup`) plus 5 P2 read-only
-  intelligence tools added on top of it (`get_revenue_summary`,
-  `get_at_risk_members`, `get_sales_funnel`, `get_trainer_workload`,
-  `get_inventory_forecast` -- each mirrors a real `GET /analytics/*`
-  endpoint, see `src/analytics/README.md`). No `execute_sql`-shaped tool
-  exists or ever should -- see `docs/ai/architecture.md`'s "§56" section.
+  intelligence tools (`get_revenue_summary`, `get_at_risk_members`,
+  `get_sales_funnel`, `get_trainer_workload`, `get_inventory_forecast` --
+  each mirrors a real `GET /analytics/*` endpoint, see
+  `src/analytics/README.md`) plus 2 P3 propose-only tools
+  (`propose_assign_workout_plan`, `propose_assign_diet_plan` -- see
+  `src/ai-actions/README.md`). No `execute_sql`-shaped tool exists or
+  ever should -- see `docs/ai/architecture.md`'s "§56" section.
 - **No special-cased data path**: every tool executor
   (`tools/tool-executor.service.ts`) calls the exact same
   organizationId-scoped domain service the REST API uses
@@ -55,26 +61,27 @@ conversation memory.
   on the provider call, and a bounded tool-call loop -- see
   `providers/openrouter.provider.ts` and `ai.service.ts`.
 
-## Deliberate v1 simplifications (read before extending this module)
+## AI memory (P3)
 
-- **No approval queue.** The original design said "consequential AI
-  output is always a draft requiring human approval before commit" (the
-  `ai.approve` permission in the catalog is reserved for this, unused
-  today). v1's two write tools are safe without one *by construction*,
-  not because the rule was dropped: `create_workout_draft` and
-  `create_diet_draft` create an **unassigned** plan -- inert until a
-  human explicitly assigns it (`POST /workout-plans/:id/assign` or
-  `POST /diet-plans/:id/assign`, neither of which is an AI tool); and
-  `create_followup` creates a task for a *human* to act on (call/email a
-  lead), not an autonomous action on the lead itself. If a future tool
-  does something directly consequential (assigns a plan, converts a lead,
-  charges a payment), it needs a real `PENDING`-status + approve/reject
-  flow using `ai.approve`, not immediate execution like these two.
-- **No conversation persistence.** The client resends history each
-  request. Building this properly means a `Conversation`/`Message` table
-  with the same retention rules already documented in
-  `docs/database/data-retention.md`'s AI-conversations section -- not
-  attempted here to keep this pass proportionate to the other v1 modules.
+- `AiConversation`/`AiMessage` (schema, see their comments) persist every `chat()` exchange,
+  tenant- and user-scoped. Only natural-language USER/ASSISTANT turns are stored as `content`;
+  tool-call mechanics are auxiliary `toolCalls Json?` metadata on the ASSISTANT message, kept for
+  transcript viewing but never replayed back into a future prompt as if the model needs to see its
+  own past tool calls again -- only the natural-language exchange matters for continuity.
+- Soft-delete only (`deletedAt`), per the pre-existing "AI conversations" policy in
+  `docs/database/data-retention.md`: hidden from the user via `DELETE /ai/conversations/:id`, but
+  the row and its messages survive for the org's audit record. Never used as training data (same
+  doc).
+- Ownership is per-user, not just per-org -- `AiConversationsService` scopes every read by
+  `(organizationId, userId)`, so one org admin's chat history is invisible to another user in the
+  same org, including one who could otherwise see everything else about the org.
+- The user's message is persisted *before* the provider call (`AiService.chat()`), so a
+  conversation and its first turn exist even if the provider call itself then fails (a dead
+  `OPENROUTER_API_KEY`, a timeout, a rate limit) -- there's a real record of what was asked, not
+  just of what got answered.
+
+## Deliberate simplifications (read before extending this module)
+
 - **No model routing.** One `OPENROUTER_MODEL` for every request. Routing
   cheap-vs-strong models by task type (per `docs/ai/architecture.md`'s
   cost-control section) is real future work once there's usage data to
@@ -92,6 +99,21 @@ conversation memory.
   model to treat tool-result content as data, not instructions (the
   standard mitigation), but nothing automated verifies this holds --
   see `docs/security/overview.md`'s test matrix, still marked N/A for AI.
+- **No multi-agent Supervisor.** There is exactly one tool-calling loop, now with 13 tools across
+  reads, drafts, intelligence, and propose-only writes -- not a Supervisor that routes a request to
+  a "reporting agent" vs. a "member-management agent" per `docs/ai/architecture.md`'s diagram. See
+  `ARCHITECTURE_DECISIONS.md` AI-13 and AI-17: nothing built so far has actually needed request
+  routing between specialist toolsets, and building that dispatch layer with nothing that requires
+  it would be exactly the "flashy AI UI before the operational foundation" the master prompt warns
+  against. If a future need for genuinely different tool subsets per request-type appears (not
+  just "more tools"), a Supervisor would dispatch to specialist agents that reuse these same typed
+  tools and `resolveAccess()`/Action Center patterns, not duplicate them.
+- **No global AI command interface.** The master prompt's P3 scope includes a "global AI command
+  interface" -- this is a frontend/UI concern (a command palette or omnipresent chat surface), and
+  this session's work has only ever touched the `mygymagent-b` backend repo. Nothing here blocks
+  building it: `POST /ai/chat` plus `GET /ai/conversations` already give a frontend everything it
+  needs (send a message from anywhere, resume any past conversation) to build that surface without
+  further backend work.
 
 ## Environment variables
 
