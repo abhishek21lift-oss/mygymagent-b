@@ -302,3 +302,51 @@ npm run test:e2e                     # 122/122 e2e tests passing across 20 suite
 ```
 
 All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks.
+
+## 2026-08-22 — P1: Revenue & Finance intelligence layer
+
+**Source:** Master prompt's last P1 item — "centralized tested financial intelligence layer."
+Closes out P1.
+
+### Built
+
+`src/analytics/` (previously an empty module skeleton — its README already described this exact
+seam: "KPI aggregation... via scheduled aggregation jobs, not ad hoc on every dashboard request").
+
+- **`FinanceService.getRevenueSummary()`**, exposed as `GET /analytics/revenue`
+  (`?from=&to=`, both optional, defaulting to the current UTC calendar month), guarded by the
+  already-seeded `reports.view` permission, branch-scoped via the same `@CurrentBranchScope()`
+  pattern every other list endpoint uses.
+- Computed **per currency** (`Payment.currency`/`Membership.currency` are per-record, not fixed
+  per org — see `ARCHITECTURE_DECISIONS.md` AI-11 for why summing across currencies would be a
+  real bug, not a simplification): gross revenue, the subset linked to a membership, the remainder
+  ("other"), refunds, net, and — as a current-state snapshot, not period-scoped — outstanding
+  balance across every ACTIVE/PENDING membership with a shortfall (same computation
+  `PaymentOverdueScanner` already uses, aggregated instead of per-membership).
+- **`notComputable`**, always present in the response, naming product revenue, PT revenue,
+  discounts, expenses, payroll, and commissions with the specific schema gap behind each —
+  no price on `StockMovement`, no PT-session model, no discount/expense/payroll fields, no
+  payment-to-staff attribution for the existing `StaffProfile.commissionRate`. An explicit field a
+  caller has to actively ignore to misread as "zero," not a silent omission — see
+  `ARCHITECTURE_DECISIONS.md` AI-12.
+
+- Changed: `src/analytics/**` (was an empty module — first real capability), no schema changes
+  (reads existing `Payment`/`Refund`/`Membership` data only).
+- Tested: `test/analytics-revenue.e2e-spec.ts` (new, 4 tests) — the membership/other split with a
+  partial refund netted correctly, a EUR payment proven not to bleed into the USD bucket (or vice
+  versa), the outstanding-balance figure against a real short-paid membership, and the
+  `notComputable` field's full contents, plus date-validation on the query params.
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 126/126 e2e tests passing across 21 suites (was 122/20; +4)
+```
+
+All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks.
+
+**P1 — Operational Foundation is now complete.** Next: P2 (Member/Revenue/Sales/Trainer-PT/
+Inventory intelligence, AI Agent architecture evolution with typed permission-aware tools).

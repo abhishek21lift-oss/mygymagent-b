@@ -281,3 +281,54 @@ value yet -- adding one, plus the workflow around it, is real P3 work, not a tri
 Every automation added between now and P3 should keep to the same notification-only risk tier this
 decision assumes; the first automation that needs to *change* data (not just notify about it)
 is the trigger to build the approval step for real, not before.
+
+---
+
+## AI-11: Revenue is reported per-currency, never summed across currencies
+
+**Context:** Building `FinanceService.getRevenueSummary()` for the P1 Revenue & Finance item,
+found that `Payment.currency` and `Membership.currency` are per-record fields (default `"USD"`,
+but overridable per plan/payment), not fixed per organization. A naive `SUM(amount)` across every
+payment in a period would silently add, say, 100 USD and 50 EUR into a meaningless "150," with no
+unit attached -- exactly the kind of unreliable calculation the master prompt says not to build a
+report (or later, a chart) on.
+
+**Decision:** Every revenue/outstanding-balance figure is grouped by `currency` and returned as an
+array (one entry per currency actually seen), never flattened into one number. `FinanceService`
+uses Prisma's `groupBy` for the (potentially large) `Payment` aggregation, and a fetch-and-reduce
+over the (much smaller) `Refund`/`Membership` sets where a currency has to be read off a joined
+relation `groupBy` can't reach directly.
+
+**Alternatives considered:** Assume single-currency-per-org and sum flatly, since in practice most
+gyms probably do bill in one currency. Rejected: "probably" isn't a basis for a financial number a
+gym owner or an AI tool might act on, and the schema explicitly allows per-payment currency --
+building on an assumption the data model itself doesn't guarantee is exactly the "unreliable
+calculation" the master prompt warns against.
+
+**Consequences:** Any future revenue/financial computation (P2 intelligence, a future dashboard,
+an AI finance tool) must follow the same per-currency shape, not introduce a second, flatter
+aggregation elsewhere that quietly reintroduces the cross-currency-sum bug this entry avoids.
+
+---
+
+## AI-12: `notComputable` is a first-class, explicit field in the revenue response, not an omission
+
+**Context:** The master prompt's Revenue & Finance item lists product revenue, PT revenue,
+discounts, expenses, payroll, and commissions alongside membership/payment revenue. None of the
+first six are computable from this schema (see `src/analytics/README.md` for the specific gap
+behind each one -- no price on `StockMovement`, no PT data model, no discount/expense/payroll
+fields, no payment-to-staff attribution for `StaffProfile.commissionRate`). Simply omitting them
+from the response would look identical to "computed as zero" to any caller -- a dashboard or an AI
+tool reading the response has no way to distinguish "no product revenue this period" from "product
+revenue isn't tracked at all."
+
+**Decision:** `RevenueSummary.notComputable` is always present, always lists all six, each with a
+one-sentence reason. A caller (this phase's controller; a future dashboard; a future AI finance
+tool) has to actively ignore an explicit field to misrepresent one of these as zero -- the honest
+answer is structurally part of the API, not left to documentation a caller might not read.
+
+**Consequences:** When any of these six gets a real data model later (e.g. a PT-session model),
+the fix is to move that key out of `NOT_COMPUTABLE` and add the real computation -- not to leave
+the flag in place alongside a number that contradicts it. Any future analytics endpoint this
+project adds for a metric with a real gap in the underlying data should follow the same pattern:
+an explicit "here's what I can't tell you and why," not a silent zero.

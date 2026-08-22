@@ -1,11 +1,15 @@
 import { Module } from '@nestjs/common';
+import { AnalyticsController } from './analytics.controller';
+import { FinanceService } from './finance.service';
 
 /**
- * Not yet implemented -- see README.md in this directory and
- * docs/ARCHITECTURE.md for the intended design. Registered here (empty)
- * in AppModule so the module boundary and its place in the dependency
- * graph exist before the first real provider/controller lands, instead of
- * being invented ad hoc later.
+ * First real capability: the Revenue & Finance intelligence layer (P1) --
+ * see README.md for what's built vs. deliberately not (member/sales/
+ * trainer/inventory intelligence are P2 scope; still empty here).
  */
-@Module({})
+@Module({
+  controllers: [AnalyticsController],
+  providers: [FinanceService],
+  exports: [FinanceService],
+})
 export class AnalyticsModule {}

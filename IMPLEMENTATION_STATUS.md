@@ -38,7 +38,7 @@ corrected security test matrix rather than implied fixed.
 | Scheduler + Jobs infrastructure | ✅ | `src/automation/automation-scheduler.service.ts` — BullMQ `upsertJobScheduler` (idempotent daily repeatable jobs), reusing `QueueModule`'s existing retries/backoff/failure-tracking rather than a second scheduling abstraction |
 | Event Engine (tenant-aware domain events) | 🚧 | `inventory.low` now has a real listener (`src/automation/inventory-low.listener.ts`); `membership.started`/`cancelled`, `payment.recorded`/`refunded`, `lead.converted`, etc. still unconsumed — the automations built don't need them (they're poll-based scans, not event-reactive) |
 | Automation Engine (Trigger → Conditions → Action → Approval-if-required → Execute → Audit) | ✅ (5 of 6) | `src/automation/` — membership renewal, payment overdue, inactive-member recovery, lead follow-up, low-stock alert. PT expiry explicitly **not built**: no PT session/package data model exists to compute an expiry from — see `src/automation/README.md`. No approval step yet: every automation here is a notification send, so "Approval-if-required" is honestly "not required" at this risk tier — see that README for when that changes. |
-| Revenue & Finance intelligence layer | ⬜ | |
+| Revenue & Finance intelligence layer | ✅ | `src/analytics/finance.service.ts` — `GET /analytics/revenue`: gross/membership/other revenue, refunds, net, and outstanding balance, all computed per-currency from real Payment/Refund/Membership rows (never summed across currencies). Product revenue, PT revenue, discounts, expenses, payroll, commissions are explicitly flagged as not computable (with why) rather than approximated — see `src/analytics/README.md`. |
 
 **Communication (EMAIL) verification (2026-08-21):** typecheck clean, lint clean, 11/11 unit tests
 passing, 19/19 e2e suites passing (115/115 tests, up from 113 — 2 new: password-reset end-to-end
@@ -57,6 +57,18 @@ unit tests passing, 20/20 e2e suites passing (122/122 tests, up from 115 — 7 n
 trigger condition, its cooldown suppressing a repeat run, the payment-overdue balance computed
 from real Payment/Refund rows, the MARKETING-consent-gated SKIPPED path, and the real-time
 inventory-low event → queue → email path end to end.
+
+**Revenue & Finance verification (2026-08-22):** typecheck clean, lint clean, 11/11 unit tests
+passing, 21/21 e2e suites passing (126/126 tests, up from 122 — 4 new, in
+`test/analytics-revenue.e2e-spec.ts`). Covers the membership/other revenue split, refunds netting
+correctly, multi-currency payments staying in separate buckets rather than being summed, and the
+outstanding-balance figure agreeing with a short-paid membership.
+
+**P1 status: complete**, within what the master prompt's own rules allow honestly building —
+WhatsApp/SMS/Push (deferred by explicit user choice, needs paid credentials), PT expiry (blocked,
+no data model), and 9 of 10 domain events remaining unconsumed (not needed by what was built) are
+documented gaps, not oversights. Every ✅ above has real code, a real test, and a real verification
+run behind it.
 
 ## P2 — Intelligence
 
