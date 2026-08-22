@@ -15,18 +15,29 @@ conversation memory.
   loop (max 6 iterations) against OpenRouter, and returns
   `{ reply, toolCalls }` (`toolCalls` is included for transparency/
   debugging in the UI, not just an internal detail).
-- **Explicit tool allowlist** (`tools/tool-definitions.ts`), exactly the
-  set `docs/ai/architecture.md` specified: `read_member`,
+- **Explicit tool allowlist** (`tools/tool-definitions.ts`), the v1 set
+  `docs/ai/architecture.md` specified (`read_member`,
   `read_workout_history`, `read_attendance`, `create_workout_draft`,
-  `create_diet_draft`, `create_followup`. No `execute_sql`-shaped tool
+  `create_diet_draft`, `create_followup`) plus 5 P2 read-only
+  intelligence tools added on top of it (`get_revenue_summary`,
+  `get_at_risk_members`, `get_sales_funnel`, `get_trainer_workload`,
+  `get_inventory_forecast` -- each mirrors a real `GET /analytics/*`
+  endpoint, see `src/analytics/README.md`). No `execute_sql`-shaped tool
   exists or ever should -- see `docs/ai/architecture.md`'s "§56" section.
 - **No special-cased data path**: every tool executor
   (`tools/tool-executor.service.ts`) calls the exact same
   organizationId-scoped domain service the REST API uses
   (`MembersService`, `AttendanceService`, `WorkoutPlansService`,
-  `WorkoutAssignmentsService`, `DietPlansService`, `LeadsService`).
+  `WorkoutAssignmentsService`, `DietPlansService`, `LeadsService`, and
+  now `FinanceService`/`MemberIntelligenceService`/
+  `SalesIntelligenceService`/`TrainerIntelligenceService`/
+  `InventoryIntelligenceService` from `src/analytics/`).
   `organizationId` comes from the authenticated caller's JWT
   (`AiController` -> `AiService`), never from anything the model said.
+  The 5 intelligence tools are gated on `reports.view` via the same
+  `resolveAccess()` every other tool uses -- a caller who can't see
+  `GET /analytics/revenue` over REST can't reach `get_revenue_summary`
+  through the assistant either.
 - **Structured validation before persistence**: every tool's arguments are
   validated against a DTO (`tools/validate-tool-args.ts`, the same
   class-validator machinery the global `ValidationPipe` uses) before

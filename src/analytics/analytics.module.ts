@@ -1,15 +1,31 @@
 import { Module } from '@nestjs/common';
 import { AnalyticsController } from './analytics.controller';
 import { FinanceService } from './finance.service';
+import { InventoryIntelligenceService } from './inventory-intelligence.service';
+import { MemberIntelligenceService } from './member-intelligence.service';
+import { SalesIntelligenceService } from './sales-intelligence.service';
+import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
 /**
- * First real capability: the Revenue & Finance intelligence layer (P1) --
- * see README.md for what's built vs. deliberately not (member/sales/
- * trainer/inventory intelligence are P2 scope; still empty here).
+ * Revenue & Finance (P1) plus Member/Sales/Trainer/Inventory
+ * intelligence (P2) -- see README.md for what each service computes and
+ * what's deliberately flagged as not computable rather than guessed at.
  */
 @Module({
   controllers: [AnalyticsController],
-  providers: [FinanceService],
-  exports: [FinanceService],
+  providers: [
+    FinanceService,
+    MemberIntelligenceService,
+    SalesIntelligenceService,
+    TrainerIntelligenceService,
+    InventoryIntelligenceService,
+  ],
+  exports: [
+    FinanceService,
+    MemberIntelligenceService,
+    SalesIntelligenceService,
+    TrainerIntelligenceService,
+    InventoryIntelligenceService,
+  ],
 })
 export class AnalyticsModule {}

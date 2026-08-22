@@ -41,6 +41,19 @@ export interface RevenueSummary {
   notComputable: NotComputable[];
 }
 
+interface RevenueMonth {
+  currency: string;
+  grossRevenue: string;
+  refunded: string;
+  netRevenue: string;
+}
+
+export interface RevenueTrendMonth {
+  /// UTC calendar month, "YYYY-MM".
+  month: string;
+  revenue: RevenueMonth[];
+}
+
 const NOT_COMPUTABLE: NotComputable[] = [
   {
     key: 'productRevenue',
@@ -164,6 +177,83 @@ export class FinanceService {
       ),
       notComputable: NOT_COMPUTABLE,
     };
+  }
+
+  /// One entry per UTC calendar month, oldest first -- the "is revenue
+  /// growing" trend a caller needs a series for, not a single-period
+  /// snapshot. Deliberately a separate, leaner query per month (gross/
+  /// refunded/net only) rather than calling getRevenueSummary() in a
+  /// loop -- that would recompute the *current* outstanding-balance
+  /// snapshot and repeat the identical notComputable array `months`
+  /// times over, neither of which varies per historical month.
+  async getRevenueTrend(
+    organizationId: string,
+    branchScope: string | null,
+    months: number,
+  ): Promise<RevenueTrendMonth[]> {
+    const now = new Date();
+    const monthStarts = Array.from(
+      { length: months },
+      (_, i) =>
+        new Date(
+          Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth() - (months - 1 - i),
+            1,
+          ),
+        ),
+    );
+
+    return Promise.all(
+      monthStarts.map(async (start) => {
+        const end = new Date(
+          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1),
+        );
+        const paymentWhere = {
+          organizationId,
+          createdAt: { gte: start, lt: end },
+          ...(branchScope ? { branchId: branchScope } : {}),
+        };
+
+        const [gross, refunds] = await Promise.all([
+          this.prisma.payment.groupBy({
+            by: ['currency'],
+            where: paymentWhere,
+            _sum: { amount: true },
+          }),
+          this.prisma.refund.findMany({
+            where: {
+              organizationId,
+              createdAt: { gte: start, lt: end },
+              ...(branchScope ? { payment: { branchId: branchScope } } : {}),
+            },
+            select: { amount: true, payment: { select: { currency: true } } },
+          }),
+        ]);
+
+        const refundedByCurrency = new Map<string, number>();
+        for (const refund of refunds) {
+          const currency = refund.payment.currency;
+          refundedByCurrency.set(
+            currency,
+            (refundedByCurrency.get(currency) ?? 0) + Number(refund.amount),
+          );
+        }
+
+        const revenue: RevenueMonth[] = gross.map((row) => {
+          const grossAmount = Number(row._sum.amount ?? 0);
+          const refunded = refundedByCurrency.get(row.currency) ?? 0;
+          return {
+            currency: row.currency,
+            grossRevenue: grossAmount.toFixed(2),
+            refunded: refunded.toFixed(2),
+            netRevenue: (grossAmount - refunded).toFixed(2),
+          };
+        });
+
+        return { month: start.toISOString().slice(0, 7), revenue };
+      }),
+    );
   }
 
   /// Same "outstanding balance" definition PaymentOverdueScanner uses

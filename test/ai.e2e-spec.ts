@@ -348,5 +348,90 @@ describe('AI (e2e)', () => {
         ),
       ).rejects.toThrow(/Missing permission/);
     });
+
+    it('get_revenue_summary rejects a caller who holds ai.generate but not reports.view', async () => {
+      // Same shape as the create_followup case above -- TRAINER holds
+      // ai.generate but not reports.view (roles.catalog.ts).
+      await expect(
+        toolExecutor.execute(
+          'get_revenue_summary',
+          {},
+          { organizationId: orgA.organizationId, userId: trainerId },
+        ),
+      ).rejects.toThrow(/Missing permission/);
+    });
+  });
+
+  /**
+   * P2 intelligence tools (src/analytics/) -- each mirrors a real
+   * GET /analytics/* endpoint via the exact same service, so the
+   * computation itself is already covered by
+   * test/analytics-revenue.e2e-spec.ts and
+   * test/analytics-intelligence.e2e-spec.ts. What's tested here is that
+   * the tool executor actually reaches those services (permission-gated
+   * on `reports.view`, matching the REST endpoints) and returns their
+   * real shape, not a stub.
+   */
+  describe('P2 intelligence tools', () => {
+    it('get_revenue_summary returns real revenue data and the notComputable disclosure', async () => {
+      const result = (await toolExecutor.execute(
+        'get_revenue_summary',
+        {},
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      )) as { revenue: unknown[]; notComputable: { key: string }[] };
+
+      expect(Array.isArray(result.revenue)).toBe(true);
+      expect(result.notComputable.map((n) => n.key)).toContain(
+        'productRevenue',
+      );
+    });
+
+    it('get_at_risk_members returns a real list (empty is valid, not an error)', async () => {
+      const result = await toolExecutor.execute(
+        'get_at_risk_members',
+        {},
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      );
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('get_sales_funnel returns real funnel totals', async () => {
+      const result = (await toolExecutor.execute(
+        'get_sales_funnel',
+        {},
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      )) as { totalLeads: number };
+      expect(typeof result.totalLeads).toBe('number');
+    });
+
+    it('get_trainer_workload returns the notComputable PT disclosure', async () => {
+      const result = (await toolExecutor.execute(
+        'get_trainer_workload',
+        {},
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      )) as { notComputable: { key: string }[] };
+      expect(result.notComputable.map((n) => n.key)).toContain(
+        'ptSessionUtilization',
+      );
+    });
+
+    it('get_inventory_forecast returns a real list (empty is valid, not an error)', async () => {
+      const result = await toolExecutor.execute(
+        'get_inventory_forecast',
+        {},
+        { organizationId: orgA.organizationId, userId: orgA.userId },
+      );
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('rejects unexpected arguments on a no-arg tool', async () => {
+      await expect(
+        toolExecutor.execute(
+          'get_revenue_summary',
+          { unexpected: 'field' },
+          { organizationId: orgA.organizationId, userId: orgA.userId },
+        ),
+      ).rejects.toThrow(/Invalid tool arguments/);
+    });
   });
 });

@@ -72,7 +72,25 @@ run behind it.
 
 ## P2 — Intelligence
 
-⬜ Not started (Member/Revenue/Sales/Trainer/Inventory intelligence, AI Agent architecture evolution).
+| Area | Status | Note |
+|---|---|---|
+| Member intelligence | ✅ | `src/analytics/member-intelligence.service.ts` — `GET /analytics/members/at-risk` (14-day no-attendance watch list), `GET /analytics/members/status-breakdown` |
+| Revenue intelligence | ✅ | `FinanceService.getRevenueTrend()` — `GET /analytics/revenue/trend?months=`, per-currency monthly series on top of P1's per-period snapshot |
+| Sales intelligence | ✅ | `src/analytics/sales-intelligence.service.ts` — `GET /analytics/sales/funnel`: conversion rate, time-to-conversion, follow-up completion rate |
+| Trainer-PT intelligence | ✅ (workload only) | `src/analytics/trainer-intelligence.service.ts` — `GET /analytics/trainers/workload`: assigned-member count, recent plan-assignment activity. PT-specific metrics (session utilization, PT revenue, commission) explicitly flagged not computable — same PT-data-model gap as P1's PT expiry |
+| Inventory intelligence | ✅ | `src/analytics/inventory-intelligence.service.ts` — `GET /analytics/inventory/forecast`: real stock-velocity forecasting (days-until-stockout) from actual `StockMovement` history |
+| AI Agent architecture evolution | ✅ (typed tools, not full Supervisor) | 5 new typed, permission-aware AI tools (`get_revenue_summary`, `get_at_risk_members`, `get_sales_funnel`, `get_trainer_workload`, `get_inventory_forecast`) added to `src/ai/tools/`, each gated on `reports.view` via the P0 `resolveAccess()` pattern. A full multi-agent Supervisor/specialist-agent orchestration layer is explicitly deferred to P3 ("Gym Brain") — see `ARCHITECTURE_DECISIONS.md` AI-13 |
+
+**P2 verification (2026-08-22):** typecheck clean, lint clean, 11/11 unit tests passing, 22/22 e2e
+suites passing (139/139 tests, up from 126 — 13 new: 6 in `test/analytics-intelligence.e2e-spec.ts`,
+7 added to `test/ai.e2e-spec.ts`). Also fixed a real class-validator bug found while adding the
+first genuinely argument-less AI tool: `forbidUnknownValues` (a class-validator safety default)
+rejects any DTO with zero validation decorators outright, which `EmptyArgsDto` is by design — fixed
+in `validateToolArgs()`, safe for every existing DTO since none of them have zero decorators. See
+`ARCHITECTURE_DECISIONS.md` AI-14.
+
+**P2 status: complete**, within the same honesty discipline as P1 — PT-specific trainer metrics
+remain blocked on the same missing PT-session data model P1 already flagged, not approximated.
 
 ## P3 — Gym Brain
 

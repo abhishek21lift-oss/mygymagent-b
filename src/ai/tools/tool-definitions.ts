@@ -146,6 +146,55 @@ export const AI_TOOL_DEFINITIONS = [
       },
     },
   },
+  // -- P2 intelligence tools (src/analytics/) -- each mirrors a real
+  // GET /analytics/* endpoint, computed from real data, never a guess.
+  // See that module's README for exactly what's computable vs. flagged
+  // as notComputable in the tool's own response.
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_revenue_summary',
+      description:
+        "Get this organization's revenue for the current calendar month: gross/membership/other revenue, refunds, net revenue, and outstanding balances, broken out per currency (never summed across currencies). Also names what it cannot compute (product/PT revenue, discounts, expenses, payroll, commissions) and why -- never presents those as zero.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_at_risk_members',
+      description:
+        "List currently-ACTIVE members who haven't checked in for 14+ days (or have never checked in at all), ranked most-at-risk first. Each entry names exactly how many days it's been.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_sales_funnel',
+      description:
+        'Get the all-time CRM lead funnel: counts by status, conversion rate, average days from lead creation to a WON conversion, and follow-up completion rate.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_trainer_workload',
+      description:
+        'List every trainer with their currently-assigned member count and workout/diet plans they assigned in the last 30 days. Also names PT-specific metrics (session utilization, PT revenue, commission) it cannot compute and why.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_inventory_forecast',
+      description:
+        'List active products with their current stock, whether they are at or below the reorder level, recent daily sales rate, and an estimated days-until-stockout (null when there is no recent sales history to forecast from). Sorted soonest-to-stock-out first.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
 ] as const;
 
 export type AiToolName =

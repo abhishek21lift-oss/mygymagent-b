@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AnalyticsModule } from '../analytics/analytics.module';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { CrmModule } from '../crm/crm.module';
 import { MembersModule } from '../members/members.module';
@@ -25,6 +26,7 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     CrmModule,
     NutritionModule,
     RbacModule,
+    AnalyticsModule,
   ],
   controllers: [AiController],
   providers: [

@@ -332,3 +332,68 @@ the fix is to move that key out of `NOT_COMPUTABLE` and add the real computation
 the flag in place alongside a number that contradicts it. Any future analytics endpoint this
 project adds for a metric with a real gap in the underlying data should follow the same pattern:
 an explicit "here's what I can't tell you and why," not a silent zero.
+
+---
+
+## AI-13: P2's "AI Agent Architecture evolution" is typed tools on the existing executor, not a new Supervisor layer
+
+**Context:** The master prompt describes P2's AI evolution as User -> AI Gateway -> Supervisor ->
+Permission Check -> Specialist Agent -> Typed Tool -> Domain Service -> DB -> Result -> AI
+Response -- but P3 ("Gym Brain") separately and explicitly owns "AI Supervisor, specialist agents,
+permission-aware tools, AI memory, Action Center, approval workflows." The two phases' own
+descriptions overlap on "Supervisor" and "specialist agents." P2 also carries the master prompt's
+largest non-AI item (Member/Revenue/Sales/Trainer-PT/Inventory intelligence), and its own explicit
+instruction is "make safe engineering decisions autonomously... do not jump directly to flashy AI
+UI."
+
+**Decision:** Read P2's AI item as "typed, permission-aware tools reaching real intelligence,"
+not "build the Supervisor/multi-agent orchestration layer." Added 5 new tools
+(`get_revenue_summary`, `get_at_risk_members`, `get_sales_funnel`, `get_trainer_workload`,
+`get_inventory_forecast`) to the *existing* `ToolExecutorService` from P0 -- each calls a real
+`src/analytics/` service and is gated by `resolveAccess()`, the exact same permission-resolution
+pattern the P0 fix already built and tested. No new Supervisor class, no per-tool "specialist
+agent," no AI memory. This is genuinely "typed permission-aware tools" per the master prompt's own
+diagram's rightmost stages (Typed Tool -> Domain Service -> DB -> Result), just not yet routed
+through a Supervisor that picks which specialist handles a request -- there is exactly one
+tool-calling loop today, same as P0/P1, just with 11 tools instead of 6.
+
+**Alternatives considered:** Building a Supervisor now that dispatches to a "reporting agent" vs. a
+"member-management agent," to more literally match the master prompt's diagram. Rejected: nothing
+in this codebase yet needs request routing between multiple specialist toolsets -- one model with
+11 well-scoped tools handles every case P1/P2 produced. Building multi-agent orchestration with
+nothing that actually requires it is exactly the "flashy AI UI before the operational foundation"
+the master prompt warns against, and P3 already explicitly owns this work under its own name.
+
+**Consequences:** P3's "Gym Brain" work starts from an 11-tool, single-loop foundation, not zero --
+the Supervisor P3 builds should dispatch to specialist agents that reuse these same typed tools
+(and `resolveAccess()`), not duplicate them. Any P2/P3-boundary tool added between now and P3
+should keep going through `ToolExecutorService` the same way, until the day a real Supervisor
+exists to route to.
+
+---
+
+## AI-14: `validateToolArgs()` disables class-validator's `forbidUnknownValues` guard
+
+**Context:** Adding the first genuinely argument-less AI tool (`get_revenue_summary` and 4 others,
+each taking `{}`) needed an `EmptyArgsDto` with zero validation decorators. Calling
+`validateToolArgs(EmptyArgsDto, {})` threw `BadRequestException: Invalid tool arguments: an
+unknown value was passed to the validate function` -- traced to class-validator's
+`forbidUnknownValues` option (`true` by default, independent of `forbidNonWhitelisted`), a
+built-in safeguard that rejects validating any class with zero registered decorators outright, on
+the theory that a decorator-free class is probably a mistake, not an intentional "nothing to
+validate" DTO.
+
+**Decision:** Added `forbidUnknownValues: false` to the single shared `validateSync()` call in
+`validate-tool-args.ts`. Confirmed safe for every existing tool DTO by reading class-validator's
+own source (`ValidationExecutor.execute()`): the guard only fires when a class has *zero* matched
+validation metadata, which none of the other 6 tool-argument DTOs do (they all have real
+`@IsString()`/etc. decorators) -- so this change has no effect on their behavior. `whitelist` +
+`forbidNonWhitelisted` (unaffected by this option) still correctly reject an unexpected property on
+an empty-args tool call, verified by a dedicated test (`test/ai.e2e-spec.ts`,
+"rejects unexpected arguments on a no-arg tool").
+
+**Consequences:** Any future argument-less tool can keep using `EmptyArgsDto` without hitting this
+again. If a future DTO is ever added with genuinely zero decorated properties for some other
+reason, it will also skip this particular class-validator guard -- acceptable, since
+`forbidNonWhitelisted` remains the operative protection against unexpected model-supplied
+arguments in every case that matters.

@@ -18,6 +18,15 @@ export function validateToolArgs<T extends object>(
   const errors = validateSync(instance as object, {
     whitelist: true,
     forbidNonWhitelisted: true,
+    // class-validator's default forbidUnknownValues guard rejects any
+    // class with zero validation decorators outright (a "you probably
+    // forgot decorators" safeguard) -- exactly what a genuinely
+    // argument-less tool's DTO (EmptyArgsDto) is by design. Harmless to
+    // disable universally: every other DTO here has real decorated
+    // properties, so this guard never had anything to catch for them --
+    // forbidNonWhitelisted above already rejects unexpected properties
+    // even with it off.
+    forbidUnknownValues: false,
   });
   if (errors.length > 0) {
     const message = errors

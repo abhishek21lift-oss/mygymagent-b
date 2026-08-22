@@ -3,6 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { FinanceService } from '../../analytics/finance.service';
+import { InventoryIntelligenceService } from '../../analytics/inventory-intelligence.service';
+import { MemberIntelligenceService } from '../../analytics/member-intelligence.service';
+import { SalesIntelligenceService } from '../../analytics/sales-intelligence.service';
+import { TrainerIntelligenceService } from '../../analytics/trainer-intelligence.service';
 import { AttendanceService } from '../../attendance/attendance.service';
 import { AuditService } from '../../audit/audit.service';
 import { LeadsService } from '../../crm/leads.service';
@@ -14,6 +19,7 @@ import { MembersService } from '../../members/members.service';
 import { WorkoutAssignmentsService } from '../../workouts/workout-assignments.service';
 import { WorkoutPlansService } from '../../workouts/workout-plans.service';
 import { CreateFollowupArgsDto } from './dto/create-followup-args.dto';
+import { EmptyArgsDto } from './dto/empty-args.dto';
 import { MemberIdArgsDto } from './dto/member-id-args.dto';
 import type { AiToolName } from './tool-definitions';
 import { validateToolArgs } from './validate-tool-args';
@@ -64,6 +70,11 @@ export class ToolExecutorService {
     private readonly dietPlansService: DietPlansService,
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
+    private readonly financeService: FinanceService,
+    private readonly memberIntelligence: MemberIntelligenceService,
+    private readonly salesIntelligence: SalesIntelligenceService,
+    private readonly trainerIntelligence: TrainerIntelligenceService,
+    private readonly inventoryIntelligence: InventoryIntelligenceService,
   ) {}
 
   /**
@@ -124,6 +135,16 @@ export class ToolExecutorService {
         return this.createDietDraft(rawArgs, context);
       case 'create_followup':
         return this.createFollowup(rawArgs, context);
+      case 'get_revenue_summary':
+        return this.getRevenueSummary(rawArgs, context);
+      case 'get_at_risk_members':
+        return this.getAtRiskMembers(rawArgs, context);
+      case 'get_sales_funnel':
+        return this.getSalesFunnel(rawArgs, context);
+      case 'get_trainer_workload':
+        return this.getTrainerWorkload(rawArgs, context);
+      case 'get_inventory_forecast':
+        return this.getInventoryForecast(rawArgs, context);
       default: {
         const _exhaustive: never = name;
         throw new NotFoundException(`Unknown tool: ${String(_exhaustive)}`);
@@ -299,5 +320,82 @@ export class ToolExecutorService {
       afterState: { leadId, note, dueAt },
     });
     return { id: followUp.id, dueAt: followUp.dueAt };
+  }
+
+  private async getRevenueSummary(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.financeService.getRevenueSummary(
+      organizationId,
+      {},
+      branchScope,
+    );
+  }
+
+  private async getAtRiskMembers(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.memberIntelligence.getAtRiskMembers(
+      organizationId,
+      branchScope,
+    );
+  }
+
+  private async getSalesFunnel(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.salesIntelligence.getFunnel(organizationId, branchScope, {});
+  }
+
+  private async getTrainerWorkload(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.trainerIntelligence.getWorkload(organizationId, branchScope);
+  }
+
+  private async getInventoryForecast(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    // Permission-gate only, matching readWorkoutHistory's comment --
+    // Product has no branch-scoping model in this schema either (see
+    // that model's comment), so there is no branchScope to derive here.
+    await this.resolveAccess(userId, organizationId, requestedBranchId, [
+      'reports.view',
+    ]);
+    return this.inventoryIntelligence.getStockForecast(organizationId);
   }
 }

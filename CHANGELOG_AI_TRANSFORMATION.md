@@ -350,3 +350,82 @@ All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks
 
 **P1 — Operational Foundation is now complete.** Next: P2 (Member/Revenue/Sales/Trainer-PT/
 Inventory intelligence, AI Agent architecture evolution with typed permission-aware tools).
+
+## 2026-08-22 — P2: Member/Sales/Trainer/Inventory intelligence + typed AI tools
+
+**Source:** Master prompt's P2 item, both halves — the intelligence layer, and the AI Agent
+Architecture evolution.
+
+### Built: intelligence services (`src/analytics/`)
+
+Extends P1's `FinanceService` with four new services, each read-only, explainable (every figure
+traces to real rows), and honest about what it can't answer (see `src/analytics/README.md` for
+full detail per service):
+
+1. **`MemberIntelligenceService`** — `GET /analytics/members/at-risk` (ACTIVE members with no
+   attendance in 14+ days, ranked most-at-risk first; deliberately earlier than
+   `MemberInactiveScanner`'s 30-day automation trigger — a watch list, not a duplicate) and
+   `GET /analytics/members/status-breakdown`.
+2. **`FinanceService.getRevenueTrend()`** — `GET /analytics/revenue/trend?months=` (1–24, default
+   6): per-currency monthly gross/refunded/net series, computed separately from
+   `getRevenueSummary()` rather than calling it in a loop (avoids recomputing the
+   period-independent outstanding-balance snapshot and repeating `notComputable` N times).
+3. **`SalesIntelligenceService`** — `GET /analytics/sales/funnel`: lead counts by status,
+   conversion rate, average days-to-conversion, follow-up completion rate.
+4. **`TrainerIntelligenceService`** — `GET /analytics/trainers/workload`: assigned-member count
+   and recent workout/diet-assignment activity per trainer. Its own `notComputable` array flags PT
+   session utilization, PT revenue per trainer, and commission earned — all blocked on the same
+   missing PT-session data model and payment-to-staff attribution P1 already documented.
+5. **`InventoryIntelligenceService`** — `GET /analytics/inventory/forecast`: real stock-velocity
+   forecasting from `StockMovement` `SALE` history (30-day lookback), days-until-stockout is
+   `null` (not a guess) when there's no recent sales history to forecast from.
+
+### Built: typed AI tools (`src/ai/`)
+
+Added 5 new tools to the existing `ToolExecutorService` (built in P0) exposing the intelligence
+above: `get_revenue_summary`, `get_at_risk_members`, `get_sales_funnel`, `get_trainer_workload`,
+`get_inventory_forecast`. Each calls the exact same `src/analytics/` service its REST counterpart
+does, and is gated on `reports.view` via the P0-era `resolveAccess()` pattern — a caller who can't
+see `GET /analytics/revenue` over REST can't reach `get_revenue_summary` through the assistant
+either.
+
+Scoping decision: read the master prompt's P2 "AI Agent Architecture evolution" as "typed
+permission-aware tools reaching real domain services" (which this is), not "build the full
+Supervisor/specialist-agent orchestration layer" — that's explicitly P3 ("Gym Brain") scope in the
+master prompt's own words, and nothing yet needs multi-agent routing. See
+`ARCHITECTURE_DECISIONS.md` AI-13 for the full reasoning.
+
+### Real bug found and fixed along the way
+
+Adding the first genuinely argument-less tool (an `EmptyArgsDto` with zero decorators) tripped
+class-validator's `forbidUnknownValues` guard, which rejects validating any zero-decorator class
+outright. Fixed in `validate-tool-args.ts` with `forbidUnknownValues: false` — verified safe for
+every other tool DTO (none have zero decorators) by reading class-validator's own source, and
+verified `forbidNonWhitelisted` still correctly rejects an unexpected property on an empty-args
+call. See `ARCHITECTURE_DECISIONS.md` AI-14.
+
+- Changed: `src/analytics/**` (4 new services + DTOs, plus `FinanceService.getRevenueTrend()`),
+  `src/ai/tools/tool-definitions.ts`, `src/ai/tools/tool-executor.service.ts`,
+  `src/ai/tools/dto/empty-args.dto.ts` (new), `src/ai/tools/validate-tool-args.ts`,
+  `src/ai/ai.module.ts`. No schema changes.
+- Tested: `test/analytics-intelligence.e2e-spec.ts` (new, 6 tests) — at-risk detection and
+  correct exclusion of a recently-active member, member status breakdown, a full sales funnel,
+  trainer workload with its PT-related `notComputable` disclosure, stock-forecast ranking, and
+  the revenue trend series. `test/ai.e2e-spec.ts` (+7 tests) — the 5 tools reachable and returning
+  real data, a `reports.view` permission rejection matching the existing `leads.manage` rejection
+  pattern, and the empty-args validation fix itself.
+
+### Verification
+
+```
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 11/11 unit tests passing
+npm run test:e2e                     # 139/139 e2e tests passing across 22 suites (was 126/21; +13)
+```
+
+All e2e tests ran against real Postgres, real Redis, and real SMTP — not mocks.
+
+**P2 — Intelligence is now complete**, within the same honesty discipline P1 established. Next:
+P3 ("Gym Brain") — AI Supervisor, specialist agents, AI memory, Action Center, approval workflows,
+global AI command interface, owner Daily Briefing.
