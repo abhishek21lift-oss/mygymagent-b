@@ -34,7 +34,10 @@ describe('IntelligenceToolExecutorService', () => {
         memberId: '00000000-0000-0000-0000-000000000001',
         exerciseId: '00000000-0000-0000-0000-000000000002',
       },
-      { organizationId: '00000000-0000-0000-0000-000000000003', userId: 'u1' },
+      {
+        organizationId: '00000000-0000-0000-0000-000000000003',
+        userId: '00000000-0000-0000-0000-000000000004',
+      },
     );
 
     expect(result).toEqual({
@@ -48,12 +51,26 @@ describe('IntelligenceToolExecutorService', () => {
   it('computes an evidence-backed progression signal from real sets', async () => {
     exerciseHistory.getMemberExerciseHistory.mockResolvedValue([
       {
-        session_id: 's2', session_date: new Date('2026-08-20'), session_status: 'COMPLETED',
-        set_number: 1, weight_kg: 100, reps: 8, rpe: 8, rir: 2, completed: true,
+        session_id: 's2',
+        session_date: new Date('2026-08-20'),
+        session_status: 'COMPLETED',
+        set_number: 1,
+        weight_kg: 100,
+        reps: 8,
+        rpe: 8,
+        rir: 2,
+        completed: true,
       },
       {
-        session_id: 's1', session_date: new Date('2026-08-13'), session_status: 'COMPLETED',
-        set_number: 1, weight_kg: 90, reps: 8, rpe: 8, rir: 2, completed: true,
+        session_id: 's1',
+        session_date: new Date('2026-08-13'),
+        session_status: 'COMPLETED',
+        set_number: 1,
+        weight_kg: 90,
+        reps: 8,
+        rpe: 8,
+        rir: 2,
+        completed: true,
       },
     ]);
 
@@ -67,7 +84,10 @@ describe('IntelligenceToolExecutorService', () => {
         memberId: '00000000-0000-0000-0000-000000000001',
         exerciseId: '00000000-0000-0000-0000-000000000002',
       },
-      { organizationId: '00000000-0000-0000-0000-000000000003', userId: 'u1' },
+      {
+        organizationId: '00000000-0000-0000-0000-000000000003',
+        userId: '00000000-0000-0000-0000-000000000004',
+      },
     );
 
     expect(result).toMatchObject({
