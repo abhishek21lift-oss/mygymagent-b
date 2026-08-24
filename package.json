@@ -14,7 +14,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "prisma migrate deploy && node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "lint:ci": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "lint:ci": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -26,6 +26,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:dev": "tsx prisma/seed-dev.ts",
+    "db:seed:prod": "tsx prisma/seed-prod.ts",
     "platform:create-admin": "tsx prisma/create-platform-admin.ts",
     "postinstall": "prisma generate"
   },
