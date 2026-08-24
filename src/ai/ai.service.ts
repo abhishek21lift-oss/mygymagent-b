@@ -7,7 +7,10 @@ import {
   type ChatMessage,
   type OpenRouterUsage,
 } from './providers/openrouter.provider';
-import { AI_TOOL_DEFINITIONS, type AiToolName } from './tools/intelligence-tool-definitions';
+import {
+  AI_TOOL_DEFINITIONS,
+  type AiToolName,
+} from './tools/intelligence-tool-definitions';
 import { IntelligenceToolExecutorService } from './tools/intelligence-tool-executor.service';
 
 const KNOWN_TOOL_NAMES: readonly string[] = AI_TOOL_DEFINITIONS.map(
@@ -94,7 +97,11 @@ export class AiService {
       ...priorHistory,
       { role: 'user', content: dto.message },
     ];
-    await this.conversations.appendMessage(conversation.id, 'USER', dto.message);
+    await this.conversations.appendMessage(
+      conversation.id,
+      'USER',
+      dto.message,
+    );
 
     const toolCallLog: { name: string; args: unknown }[] = [];
     const usageTotals: UsageTotals = {
@@ -128,7 +135,11 @@ export class AiService {
             reply,
             toolCallLog,
           );
-          return { reply, toolCalls: toolCallLog, conversationId: conversation.id };
+          return {
+            reply,
+            toolCalls: toolCallLog,
+            conversationId: conversation.id,
+          };
         }
 
         messages.push(response);
@@ -150,7 +161,11 @@ export class AiService {
             const result = await this.toolExecutor.execute(
               call.function.name,
               args,
-              { organizationId, userId, requestedBranchId },
+              {
+                organizationId,
+                userId,
+                requestedBranchId,
+              },
             );
             resultContent = JSON.stringify(result);
           } catch (error) {
@@ -181,7 +196,11 @@ export class AiService {
         timedOutReply,
         toolCallLog,
       );
-      return { reply: timedOutReply, toolCalls: toolCallLog, conversationId: conversation.id };
+      return {
+        reply: timedOutReply,
+        toolCalls: toolCallLog,
+        conversationId: conversation.id,
+      };
     } catch (error) {
       await this.logUsage(organizationId, userId, {
         latencyMs: Date.now() - startedAt,
@@ -214,7 +233,9 @@ export class AiService {
       promptTokens: entry.usageTotals.promptTokens || undefined,
       completionTokens: entry.usageTotals.completionTokens || undefined,
       totalTokens: entry.usageTotals.totalTokens || undefined,
-      costUsd: entry.usageTotals.hasCost ? entry.usageTotals.costUsd : undefined,
+      costUsd: entry.usageTotals.hasCost
+        ? entry.usageTotals.costUsd
+        : undefined,
       latencyMs: entry.latencyMs,
       status: entry.status,
       errorMessage: entry.errorMessage,
