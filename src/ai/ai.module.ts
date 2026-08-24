@@ -15,13 +15,8 @@ import { AiConversationsController } from './conversations/ai-conversations.cont
 import { AiConversationsService } from './conversations/ai-conversations.service';
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
+import { IntelligenceToolExecutorService } from './tools/intelligence-tool-executor.service';
 
-/**
- * v1 AI: a single tool-calling chat endpoint over OpenRouter, restricted
- * to the explicit tool allowlist in tools/tool-definitions.ts. See
- * README.md for what's built vs. still-designed-only from
- * docs/ai/architecture.md.
- */
 @Module({
   imports: [
     MembersModule,
@@ -39,6 +34,7 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     AiService,
     OpenRouterProvider,
     ToolExecutorService,
+    IntelligenceToolExecutorService,
     AiUsageService,
     AiConversationsService,
   ],
