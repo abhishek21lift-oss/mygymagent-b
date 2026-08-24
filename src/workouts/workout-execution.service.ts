@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LogWorkoutSetDto } from './dto/log-workout-set.dto';
 
-interface SqlSession {
+export interface SqlSession {
   id: string; client_id: string; trainer_id: string | null;
   workout_assignment_id: string | null; session_date: Date; status: string;
 }
@@ -84,7 +84,16 @@ export class WorkoutExecutionService {
         if (existing[0]) return existing[0];
       }
 
-      const rows = await tx.$queryRaw`
+      const rows = await tx.$queryRaw<Array<{
+        id: string;
+        session_exercise_id: string;
+        set_number: number;
+        weight_kg: number | null;
+        reps: number | null;
+        rpe: number | null;
+        rir: number | null;
+        completed: boolean;
+      }>>`
         INSERT INTO workout_sets
           (session_exercise_id, set_number, weight_kg, reps, rpe, rir, tempo, rest_seconds, completed, notes, client_token)
         VALUES
