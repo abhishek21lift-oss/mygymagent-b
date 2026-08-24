@@ -98,6 +98,13 @@ export class MembersService {
         'Cannot create a member outside your assigned branch',
       );
     }
+
+    await this.validateMemberReferences(
+      organizationId,
+      dto.primaryBranchId,
+      dto.assignedTrainerId,
+    );
+
     const memberCode = await this.generateMemberCode(organizationId);
     const member = await this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
@@ -170,6 +177,15 @@ export class MembersService {
         'Cannot move a member outside your assigned branch',
       );
     }
+
+    await this.validateMemberReferences(
+      organizationId,
+      dto.primaryBranchId ?? before.primaryBranchId,
+      dto.assignedTrainerId === undefined
+        ? before.assignedTrainerId
+        : dto.assignedTrainerId,
+    );
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.member.update({
         where: { id },
@@ -289,6 +305,46 @@ export class MembersService {
       where: { id },
       data: { deletedAt: new Date(), status: 'INACTIVE' },
     });
+  }
+
+  private async validateMemberReferences(
+    organizationId: string,
+    primaryBranchId: string,
+    assignedTrainerId: string | null | undefined,
+  ): Promise<void> {
+    const [branch, trainer] = await Promise.all([
+      this.prisma.branch.findFirst({
+        where: {
+          id: primaryBranchId,
+          organizationId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      }),
+      assignedTrainerId
+        ? this.prisma.user.findFirst({
+            where: {
+              id: assignedTrainerId,
+              organizationId,
+              deletedAt: null,
+              status: 'ACTIVE',
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (!branch) {
+      throw new BadRequestException(
+        'Primary branch does not belong to the current organization',
+      );
+    }
+
+    if (assignedTrainerId && !trainer) {
+      throw new BadRequestException(
+        'Assigned trainer does not belong to the current organization',
+      );
+    }
   }
 
   private async generateMemberCode(organizationId: string): Promise<string> {
