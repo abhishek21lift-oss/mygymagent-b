@@ -98,6 +98,11 @@ export class MembersService {
         'Cannot create a member outside your assigned branch',
       );
     }
+    await this.validateReferences(
+      organizationId,
+      dto.primaryBranchId,
+      dto.assignedTrainerId,
+    );
     const memberCode = await this.generateMemberCode(organizationId);
     const member = await this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
@@ -108,9 +113,6 @@ export class MembersService {
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
         },
       });
-      // Seed history from day one, not just from the first *change* --
-      // otherwise a member's original status/branch/trainer is invisible
-      // in history (see docs/architecture/discovery-report.md §6).
       await tx.memberStatusHistory.create({
         data: {
           organizationId,
@@ -170,6 +172,11 @@ export class MembersService {
         'Cannot move a member outside your assigned branch',
       );
     }
+    await this.validateReferences(
+      organizationId,
+      dto.primaryBranchId,
+      dto.assignedTrainerId,
+    );
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.member.update({
         where: { id },
@@ -289,6 +296,27 @@ export class MembersService {
       where: { id },
       data: { deletedAt: new Date(), status: 'INACTIVE' },
     });
+  }
+
+  private async validateReferences(
+    organizationId: string,
+    primaryBranchId?: string,
+    assignedTrainerId?: string | null,
+  ) {
+    if (primaryBranchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: primaryBranchId, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!branch) throw new BadRequestException('Branch does not belong to this organization');
+    }
+    if (assignedTrainerId) {
+      const trainer = await this.prisma.user.findFirst({
+        where: { id: assignedTrainerId, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!trainer) throw new BadRequestException('Trainer does not belong to this organization');
+    }
   }
 
   private async generateMemberCode(organizationId: string): Promise<string> {
