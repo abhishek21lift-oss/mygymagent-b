@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsNumber, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
 
 export class WorkoutPlanExerciseDto {
   @IsString() exerciseId!: string;
@@ -8,7 +8,8 @@ export class WorkoutPlanExerciseDto {
   @IsString() reps!: string;
   @IsOptional() @IsInt() @Min(0) restSeconds?: number;
   @IsOptional() @IsString() notes?: string;
-  @IsOptional() @IsInt() @Min(0) @Max(6) dayOfWeek?: number;
+  /** Database convention is ISO weekday 1=Monday ... 7=Sunday. */
+  @IsOptional() @IsInt() @Min(1) @Max(7) dayOfWeek?: number;
 }
 
 export class CreateWorkoutPlanDto {
