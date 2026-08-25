@@ -4,12 +4,6 @@
  * This is data, not code branches: every permission listed here is a row
  * seeded into the `permissions` table (see prisma/seed.ts) and referenced
  * by key from route decorators (`@RequirePermissions('members.read')`).
- *
- * Permissions for domains not yet implemented (billing, workouts,
- * nutrition, inventory, crm, ai, notifications, analytics) are included so
- * role definitions and the frontend nav can be written against a stable
- * key set now, without a data migration when those modules land. No route
- * in this phase currently requires them.
  */
 export interface PermissionDefinition {
   key: string;
@@ -31,7 +25,6 @@ function resource(
 }
 
 export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
-  // Platform / org administration -------------------------------------------------
   ...resource('organizations', {
     read: 'View organization profile and settings',
     update: 'Update organization profile and settings',
@@ -59,12 +52,9 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   ...resource('settings', {
     manage: 'Manage organization-wide settings',
   }),
-
-  // Core gym domain ------------------------------------------------------------
   ...resource('members', {
     read: 'View member profiles',
-    read_assigned:
-      'View only members assigned to you (e.g. a trainer’s own clients)',
+    read_assigned: 'View only members assigned to you (e.g. a trainer’s own clients)',
     create: 'Create a member',
     update: 'Update a member profile',
     delete: 'Delete (deactivate) a member',
@@ -78,15 +68,16 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   }),
   ...resource('memberships', {
     read: 'View member subscriptions',
+    read_assigned: 'View subscriptions for members assigned to you',
     create: 'Sell/create a membership',
     update: 'Update a membership (freeze/extend/upgrade/cancel)',
   }),
   ...resource('attendance', {
     read: 'View attendance records',
+    read_assigned: 'View attendance for members assigned to you',
     create: 'Record a check-in/check-out',
+    create_assigned: 'Record attendance for members assigned to you',
   }),
-
-  // Deferred domains (permission keys reserved for future modules) --------------
   ...resource('payments', {
     read: 'View payments and invoices',
     create: 'Record a payment',
