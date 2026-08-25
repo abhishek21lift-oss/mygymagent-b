@@ -16,11 +16,13 @@ export class WorkoutAssignmentsService {
     query: PaginationQueryDto,
     memberId?: string,
     assignmentScope: string | null = null,
+    branchScope: string | null = null,
   ) {
     const where = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(assignmentScope ? { member: { assignedTrainerId: assignmentScope } } : {}),
+      ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.workoutAssignment.findMany({
