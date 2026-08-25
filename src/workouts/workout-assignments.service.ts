@@ -18,11 +18,14 @@ export class WorkoutAssignmentsService {
     assignmentScope: string | null = null,
     branchScope: string | null = null,
   ) {
+    const memberWhere = {
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
     const where = {
       organizationId,
       ...(memberId ? { memberId } : {}),
-      ...(assignmentScope ? { member: { assignedTrainerId: assignmentScope } } : {}),
-      ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+      ...(Object.keys(memberWhere).length > 0 ? { member: memberWhere } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.workoutAssignment.findMany({
