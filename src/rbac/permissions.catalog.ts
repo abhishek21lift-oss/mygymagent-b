@@ -92,7 +92,8 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     manage: 'Manage leads and follow-ups',
   }),
   ...resource('workouts', {
-    read: 'View workout programs',
+    read: 'View workout programs and assignments',
+    read_assigned: 'View workout assignments for members assigned to you',
     create: 'Create a workout program/draft',
     assign: 'Assign a workout program to a member',
   }),
