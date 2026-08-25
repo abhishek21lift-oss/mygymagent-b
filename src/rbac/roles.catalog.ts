@@ -60,7 +60,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     permissions: perms(
       'members.read_assigned', 'memberships.read_assigned',
       'attendance.read_assigned', 'attendance.create_assigned',
-      'workouts.read', 'workouts.create', 'workouts.assign', 'ai.generate',
+      'workouts.read_assigned', 'workouts.create', 'workouts.assign', 'ai.generate',
     ),
   },
   {
