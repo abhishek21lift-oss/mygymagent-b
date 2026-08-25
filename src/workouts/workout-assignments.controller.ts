@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { RequireAnyPermission, RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { ListWorkoutAssignmentsQueryDto } from './dto/list-workout-assignments-query.dto';
 import { UpdateWorkoutAssignmentStatusDto } from './dto/update-workout-assignment-status.dto';
@@ -14,15 +15,17 @@ export class WorkoutAssignmentsController {
   ) {}
 
   @Get()
-  @RequirePermissions('workouts.read')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListWorkoutAssignmentsQueryDto,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.workoutAssignmentsService.list(
       user.organizationId!,
       query,
       query.memberId,
+      assignmentScope,
     );
   }
 
