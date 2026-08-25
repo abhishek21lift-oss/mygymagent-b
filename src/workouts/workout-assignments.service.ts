@@ -15,8 +15,13 @@ export class WorkoutAssignmentsService {
     organizationId: string,
     query: PaginationQueryDto,
     memberId?: string,
+    assignmentScope: string | null = null,
   ) {
-    const where = { organizationId, ...(memberId ? { memberId } : {}) };
+    const where = {
+      organizationId,
+      ...(memberId ? { memberId } : {}),
+      ...(assignmentScope ? { member: { assignedTrainerId: assignmentScope } } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.workoutAssignment.findMany({
         where,
@@ -24,7 +29,7 @@ export class WorkoutAssignmentsService {
         orderBy: { createdAt: query.order ?? 'desc' },
         include: {
           workoutPlan: { select: { id: true, name: true } },
-          member: { select: { id: true, firstName: true, lastName: true } },
+          member: { select: { id: true, firstName: true, lastName: true, assignedTrainerId: true } },
         },
       }),
       this.prisma.workoutAssignment.count({ where }),
