@@ -935,6 +935,62 @@ model Refund {
   @@map("refunds")
 }
 
+/// Personal training sessions booked between members and trainers
+model PtSession {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// Optional trainer - if null, session is unassigned or self-guided
+  trainerId      String?
+  trainer        StaffProfile? @relation(fields: [trainerId], references: [id])
+
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  startTime      DateTime
+  endTime        DateTime
+
+  /// Type of session: personal, partner, or small group training
+  type           PtSessionType  @default(PERSONAL_TRAINING)
+
+  /// Current status of the session
+  status         PtSessionStatus @default(SCHEDULED)
+
+  /// Price charged for this session (nullable for comp/internal sessions)
+  price          Decimal?     @db.Decimal(10, 2)
+
+  /// Whether payment has been collected for this session
+  isPaid         Boolean      @default(false)
+
+  /// Trainer notes for the session
+  notes          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([organizationId, branchId, startTime])
+  @@index([memberId, startTime])
+  @@index([trainerId, startTime])
+  @@map("pt_sessions")
+}
+
+enum PtSessionType {
+  PERSONAL_TRAINING
+  PARTNER_TRAINING
+  SMALL_GROUP
+}
+
+enum PtSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
 // ----------------------------------------------------------------------------
 // Workout / PT engine -- v1 scope. The module README originally described a
 // Program -> Phase -> Week -> Day -> Workout -> Exercise -> Set hierarchy;

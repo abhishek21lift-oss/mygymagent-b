@@ -32,6 +32,7 @@ import { AiModule } from './ai/ai.module';
 import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { PtSessionsModule } from './pt-sessions/pt-sessions.module';
 
 // NotificationsModule now has a first real capability (queue-backed welcome
 // email, see its README.md); search/analytics are still empty module
@@ -67,6 +68,7 @@ import { BriefingModule } from './briefing/briefing.module';
     AttendanceModule,
     BillingModule,
     WorkoutsModule,
+    PtSessionsModule,
     CrmModule,
     AiModule,
     AiActionsModule,
