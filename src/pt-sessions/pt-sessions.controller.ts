@@ -34,9 +34,10 @@ export class PtSessionsController {
     @Query('branchId') branchId?: string,
     @Query('startFrom') startFrom?: string,
     @Query('endTo') endTo?: string,
+    @CurrentUser() user: CurrentUserType,
   ) {
     return this.ptSessionsService.list(
-      query.organizationId,
+      user.organizationId,
       query,
       memberId,
       trainerId,
@@ -50,8 +51,9 @@ export class PtSessionsController {
   @RequirePermissions('pt-sessions.read')
   async getOne(
     @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
   ) {
-    return this.ptSessionsService.getOne(id, query.organizationId);
+    return this.ptSessionsService.getOne(id, user.organizationId);
   }
 
   @Post()
