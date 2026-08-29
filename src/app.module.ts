@@ -33,10 +33,7 @@ import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PtSessionsModule } from './pt-sessions/pt-sessions.module';
-
-// NotificationsModule now has a first real capability (queue-backed welcome
-// email, see its README.md); search/analytics are still empty module
-// skeletons -- see each directory's README.md.
+import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -48,8 +45,6 @@ import { BriefingModule } from './briefing/briefing.module';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }),
-
-    // Foundation
     PrismaModule,
     QueueModule,
     FilesModule,
@@ -57,8 +52,6 @@ import { BriefingModule } from './briefing/briefing.module';
     RbacModule,
     AuthModule,
     HealthModule,
-
-    // Core gym domain
     OrganizationsModule,
     BranchesModule,
     UsersModule,
@@ -69,17 +62,13 @@ import { BriefingModule } from './briefing/briefing.module';
     BillingModule,
     WorkoutsModule,
     PtSessionsModule,
+    PtPackagesModule,
     CrmModule,
     AiModule,
     AiActionsModule,
     NutritionModule,
     InventoryModule,
-
-    // Platform (cross-tenant) administration -- see docs/security/overview.md
     PlatformModule,
-
-    // NotificationsModule has a first real capability now; files/search/
-    // analytics are still empty skeletons -- see docs/ARCHITECTURE.md.
     NotificationsModule,
     SearchModule,
     AnalyticsModule,
