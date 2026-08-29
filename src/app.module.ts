@@ -32,57 +32,23 @@ import { AiModule } from './ai/ai.module';
 import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
-
-// NotificationsModule now has a first real capability (queue-backed welcome
-// email, see its README.md); search/analytics are still empty module
-// skeletons -- see each directory's README.md.
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }),
-
-    // Foundation
-    PrismaModule,
-    QueueModule,
-    FilesModule,
-    AuditModule,
-    RbacModule,
-    AuthModule,
-    HealthModule,
-
-    // Core gym domain
-    OrganizationsModule,
-    BranchesModule,
-    UsersModule,
-    MembersModule,
-    MembershipPlansModule,
-    MembershipsModule,
-    AttendanceModule,
-    BillingModule,
-    WorkoutsModule,
-    CrmModule,
-    AiModule,
-    AiActionsModule,
-    NutritionModule,
-    InventoryModule,
-
-    // Platform (cross-tenant) administration -- see docs/security/overview.md
-    PlatformModule,
-
-    // NotificationsModule has a first real capability now; files/search/
-    // analytics are still empty skeletons -- see docs/ARCHITECTURE.md.
-    NotificationsModule,
-    SearchModule,
-    AnalyticsModule,
-    AutomationModule,
-    BriefingModule,
+    PrismaModule, QueueModule, FilesModule, AuditModule, RbacModule, AuthModule, HealthModule,
+    OrganizationsModule, BranchesModule, UsersModule, MembersModule, MembershipPlansModule,
+    MembershipsModule, AttendanceModule, BillingModule, WorkoutsModule, CrmModule, AiModule,
+    AiActionsModule, NutritionModule, InventoryModule, PlatformModule, NotificationsModule,
+    SearchModule, AnalyticsModule, AutomationModule, BriefingModule, WhatsAppModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -94,7 +60,5 @@ import { BriefingModule } from './briefing/briefing.module';
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
-  }
+  configure(consumer: MiddlewareConsumer): void { consumer.apply(RequestIdMiddleware).forRoutes('*'); }
 }
