@@ -5,7 +5,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { decryptWhatsAppToken, encryptWhatsAppToken } from './whatsapp.crypto';
 
-interface IntegrationRow { id: string; organization_id: string; phone_number_id: string; business_account_id: string | null; display_phone_number: string | null; display_name: string | null; status: string; last_verified_at: Date | null; }
+export interface IntegrationRow { id: string; organization_id: string; phone_number_id: string; business_account_id: string | null; display_phone_number: string | null; display_name: string | null; status: string; last_verified_at: Date | null; }
 interface ConnectInput { phoneNumberId: string; businessAccountId?: string; accessToken: string; displayPhoneNumber?: string; displayName?: string; }
 
 @Injectable()
