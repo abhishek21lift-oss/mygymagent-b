@@ -4,11 +4,12 @@ import { MembersService } from '../members/members.service';
 import { StaffProfilesService } from '../staff-profiles/staff-profiles.service';
 import { BranchesService } from '../branches/branches.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PtPackagesModule } from '../pt-packages/pt-packages.module';
 import { PtSessionsController } from './pt-sessions.controller';
 import { PtSessionsService } from './pt-sessions.service';
 
 @Module({
-  imports: [EventEmitterModule],
+  imports: [EventEmitterModule, PtPackagesModule],
   controllers: [PtSessionsController],
   providers: [
     PtSessionsService,
