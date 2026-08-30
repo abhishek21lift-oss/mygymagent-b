@@ -6,7 +6,11 @@ export interface MessageProvider {
 
 export class UnimplementedChannelProvider implements MessageProvider {
   constructor(private readonly channelName: string) {}
-  async send(): Promise<void> {
-    throw new ChannelNotConfiguredError(`${this.channelName} is not connected on this deployment -- no provider is implemented yet.`);
+  send(): Promise<void> {
+    return Promise.reject(
+      new ChannelNotConfiguredError(
+        `${this.channelName} is not connected on this deployment -- no provider is implemented yet.`,
+      ),
+    );
   }
 }
