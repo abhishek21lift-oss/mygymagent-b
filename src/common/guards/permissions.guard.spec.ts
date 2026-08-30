@@ -9,17 +9,14 @@ import {
 
 describe('PermissionsGuard tenant/branch isolation', () => {
   const branchId = 'branch-b';
-  const user = {
-    id: 'user-1',
-    organizationId: 'org-1',
-  };
+  const user = { id: 'user-1', organizationId: 'org-1' };
+  type RequestShape = { user: typeof user; headers: Record<string, string>; branchScope?: string | null; grantedViaPermission?: string };
 
-  function makeContext(metadata: {
-    required?: string[];
-    requiredAny?: string[];
-    headers?: Record<string, string>;
-  }, permissions: (key: string, branch?: string) => boolean) {
-    const request: any = {
+  function makeContext(
+    metadata: { required?: string[]; requiredAny?: string[]; headers?: Record<string, string> },
+    permissions: (key: string, branch?: string) => boolean,
+  ) {
+    const request: RequestShape = {
       user,
       headers: metadata.headers ?? { 'x-branch-id': branchId },
     };
@@ -51,12 +48,8 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('preserves a branch-scoped grant when a later AND permission is org-wide', async () => {
     const { guard, context, request } = makeContext(
       { required: ['members.read_assigned', 'reports.view'] },
-      (key, requestedBranch) => {
-        if (key === 'members.read_assigned') return requestedBranch === branchId;
-        return requestedBranch === undefined;
-      },
+      (key, requestedBranch) => key === 'members.read_assigned' ? requestedBranch === branchId : requestedBranch === undefined,
     );
-
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBe(branchId);
   });
@@ -64,12 +57,8 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('preserves a branch-scoped grant when it appears after an org-wide permission', async () => {
     const { guard, context, request } = makeContext(
       { required: ['reports.view', 'members.read_assigned'] },
-      (key, requestedBranch) => {
-        if (key === 'members.read_assigned') return requestedBranch === branchId;
-        return requestedBranch === undefined;
-      },
+      (key, requestedBranch) => key === 'members.read_assigned' ? requestedBranch === branchId : requestedBranch === undefined,
     );
-
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBe(branchId);
   });
@@ -77,12 +66,8 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('does not invent a branch restriction for an org-wide OR permission', async () => {
     const { guard, context, request } = makeContext(
       { requiredAny: ['reports.view', 'members.read_assigned'] },
-      (key, requestedBranch) => {
-        if (key === 'reports.view') return requestedBranch === undefined;
-        return false;
-      },
+      (key, requestedBranch) => key === 'reports.view' && requestedBranch === undefined,
     );
-
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBeNull();
     expect(request.grantedViaPermission).toBe('reports.view');
@@ -93,9 +78,6 @@ describe('PermissionsGuard tenant/branch isolation', () => {
       { required: ['members.read_assigned'], headers: {} },
       () => false,
     );
-
-    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
