@@ -38,5 +38,5 @@ export class WhatsAppController {
 
   @Post('webhook')
   @Public()
-  receive(@Body() payload: unknown) { return this.whatsapp.handleWebhook(payload); }
+  receive(@Body() payload: unknown) { return this.whatsapp.handleWebhook(payload as Parameters<WhatsAppService['handleWebhook']>[0]); }
 }
