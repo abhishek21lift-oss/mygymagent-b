@@ -32,12 +32,10 @@ describe('PermissionsGuard tenant/branch isolation', () => {
     } as unknown as Reflector;
 
     const permissionService = {
-      hasPermission: jest.fn(async (
-        _userId: string,
-        _organizationId: string,
-        key: string,
-        requestedBranch?: string,
-      ) => permissions(key, requestedBranch)),
+      hasPermission: jest.fn(
+        (_userId: string, _organizationId: string, key: string, requestedBranch?: string) =>
+          Promise.resolve(permissions(key, requestedBranch)),
+      ),
     } as any;
 
     const guard = new PermissionsGuard(reflector, permissionService);
