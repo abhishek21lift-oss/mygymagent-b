@@ -39,9 +39,10 @@ import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
 import { CommunicationsModule } from './communications/communications.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { Client360Module } from './client-360/client-360.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }), EventEmitterModule.forRoot(), ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }), PrismaModule, QueueModule, FilesModule, AuditModule, RbacModule, AuthModule, HealthModule, OrganizationsModule, BranchesModule, UsersModule, MembersModule, MembershipPlansModule, MembershipsModule, AttendanceModule, BillingModule, WorkoutsModule, CrmModule, AiModule, AiActionsModule, NutritionModule, InventoryModule, PlatformModule, NotificationsModule, SearchModule, AnalyticsModule, AutomationModule, BriefingModule, WhatsAppModule, CommunicationsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }), EventEmitterModule.forRoot(), ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }), PrismaModule, QueueModule, FilesModule, AuditModule, RbacModule, AuthModule, HealthModule, OrganizationsModule, BranchesModule, UsersModule, MembersModule, MembershipPlansModule, MembershipsModule, AttendanceModule, BillingModule, WorkoutsModule, CrmModule, AiModule, AiActionsModule, NutritionModule, InventoryModule, PlatformModule, NotificationsModule, SearchModule, AnalyticsModule, AutomationModule, BriefingModule, WhatsAppModule, CommunicationsModule, Client360Module],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: PermissionsGuard }, { provide: APP_GUARD, useClass: PlatformRoleGuard }, { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor }, { provide: APP_INTERCEPTOR, useClass: AuditInterceptor }],
 })
 export class AppModule implements NestModule { configure(consumer: MiddlewareConsumer): void { consumer.apply(RequestIdMiddleware).forRoutes('*'); } }
