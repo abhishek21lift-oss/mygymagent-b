@@ -18,6 +18,7 @@ import { UpdateMembershipPlanDto } from './dto/update-membership-plan.dto';
 import { MembershipPlansService } from './membership-plans.service';
 
 @Controller('membership-plans')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class MembershipPlansController {
   constructor(private readonly plansService: MembershipPlansService) {}
 

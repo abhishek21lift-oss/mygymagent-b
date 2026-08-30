@@ -44,7 +44,28 @@ import { BriefingModule } from './briefing/briefing.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
-    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 120, // Default limit for general endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 20, // Strict limit for auth endpoints (already set in controllers)
+      },
+      {
+        ttl: 60_000,
+        limit: 30, // Limit for analytics endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 40, // Limit for member endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 50, // Limit for billing endpoints
+      },
+    ]),
     PrismaModule,
     QueueModule,
     FilesModule,
@@ -56,19 +77,19 @@ import { BriefingModule } from './briefing/briefing.module';
     BranchesModule,
     UsersModule,
     MembersModule,
-    MembershipPlansModule,
     MembershipsModule,
+    MembershipPlansModule,
     AttendanceModule,
+    PlatformModule,
     BillingModule,
     WorkoutsModule,
-    PtSessionsModule,
-    PtPackagesModule,
     CrmModule,
     AiModule,
     AiActionsModule,
     NutritionModule,
     InventoryModule,
-    PlatformModule,
+    PtSessionsModule,
+    PtPackagesModule,
     NotificationsModule,
     SearchModule,
     AnalyticsModule,
@@ -85,7 +106,7 @@ import { BriefingModule } from './briefing/briefing.module';
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  configure(reader: MiddlewareConsumer) {
+    reader.apply(RequestIdMiddleware).forRoutes('*');
   }
 }

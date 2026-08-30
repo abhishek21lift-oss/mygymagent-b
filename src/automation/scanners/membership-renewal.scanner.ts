@@ -54,7 +54,7 @@ export class MembershipRenewalScanner {
           this.communications.sendMembershipRenewalReminder(
             membership.organizationId,
             membership.member.id,
-            membership.member.email!,
+            membership.member.email,
             {
               firstName: membership.member.firstName,
               planName: membership.membershipPlan.name,

@@ -4,12 +4,14 @@ import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.de
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequireAnyPermission } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AttendanceService } from './attendance.service';
 import { CheckInDto } from './dto/check-in.dto';
 import { ListAttendanceQueryDto } from './dto/list-attendance-query.dto';
 
 @Controller('attendance')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
@@ -37,7 +39,13 @@ export class AttendanceController {
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.attendanceService.checkIn(user.organizationId!, user.id, dto, branchScope, assignmentScope);
+    return this.attendanceService.checkIn(
+      user.organizationId!,
+      user.id,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Post(':id/check-out')
@@ -49,6 +57,11 @@ export class AttendanceController {
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.attendanceService.checkOut(user.organizationId!, id, branchScope, assignmentScope);
+    return this.attendanceService.checkOut(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

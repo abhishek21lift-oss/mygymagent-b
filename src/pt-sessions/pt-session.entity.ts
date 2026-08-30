@@ -1,4 +1,13 @@
-import { BeforeInsert, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, UpdateDateColumn } from 'typeorm';
+import {
+  BeforeInsert,
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  UpdateDateColumn,
+} from 'typeorm';
 import { Branch } from '../branches/branch.entity';
 import { Member } from '../members/member.entity';
 import { StaffProfile } from '../staff-profiles/staff-profile.entity';
@@ -59,7 +68,11 @@ export class PtSession {
   @Column({ type: 'enum', enum: PtSessionType })
   type: PtSessionType;
 
-  @Column({ type: 'enum', enum: PtSessionStatus, default: PtSessionStatus.SCHEDULED })
+  @Column({
+    type: 'enum',
+    enum: PtSessionStatus,
+    default: PtSessionStatus.SCHEDULED,
+  })
   status: PtSessionStatus;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })

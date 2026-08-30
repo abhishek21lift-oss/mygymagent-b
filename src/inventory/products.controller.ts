@@ -10,6 +10,7 @@ import {
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateStockMovementDto } from './dto/create-stock-movement.dto';
@@ -19,6 +20,7 @@ import { ProductsService } from './products.service';
 import { StockMovementsService } from './stock-movements.service';
 
 @Controller('products')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class ProductsController {
   constructor(
     private readonly productsService: ProductsService,

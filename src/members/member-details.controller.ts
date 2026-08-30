@@ -6,9 +6,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Throttle,
 } from '@nestjs/common';
-import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
@@ -40,6 +42,7 @@ import { MemberDetailsService } from './member-details.service';
  * sub-resource.
  */
 @Controller('members/:memberId')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MemberDetailsController {
   constructor(private readonly details: MemberDetailsService) {}
 

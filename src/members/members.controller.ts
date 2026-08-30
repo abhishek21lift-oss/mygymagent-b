@@ -8,6 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { RequestedBranchId } from '../common/decorators/branch-id.decorator';
@@ -24,6 +25,7 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 import { MembersService } from './members.service';
 
 @Controller('members')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 

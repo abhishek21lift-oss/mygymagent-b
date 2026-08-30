@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Throttle,
+} from '@nestjs/common';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
@@ -19,6 +27,7 @@ import {
 import { MemberGoalsService } from './member-goals.service';
 
 @Controller('members/:memberId/goals')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MemberGoalsController {
   constructor(private readonly goals: MemberGoalsService) {}
 

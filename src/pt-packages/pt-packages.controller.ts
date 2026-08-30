@@ -13,7 +13,10 @@ export class PtPackagesController {
 
   @Get()
   @RequirePermissions('pt-packages.read')
-  list(@CurrentUser() user: CurrentUserType, @Query('memberId') memberId?: string) {
+  list(
+    @CurrentUser() user: CurrentUserType,
+    @Query('memberId') memberId?: string,
+  ) {
     return this.service.list(user.organizationId, memberId);
   }
 
@@ -25,7 +28,10 @@ export class PtPackagesController {
 
   @Post()
   @RequirePermissions('pt-packages.create')
-  create(@Body() dto: CreatePtPackageDto, @CurrentUser() user: CurrentUserType) {
+  create(
+    @Body() dto: CreatePtPackageDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.service.create(user.organizationId, dto, user.id);
   }
 }

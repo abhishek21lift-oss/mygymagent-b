@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Throttle } from '@nestjs/common';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
@@ -15,6 +15,7 @@ import { CreateMemberScreeningDto } from './dto/member-screening.dto';
 import { MemberAssessmentsService } from './member-assessments.service';
 
 @Controller('members/:memberId')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MemberAssessmentsController {
   constructor(private readonly assessments: MemberAssessmentsService) {}
 

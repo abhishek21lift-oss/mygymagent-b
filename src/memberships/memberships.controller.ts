@@ -3,7 +3,10 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequireAnyPermission, RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CancelMembershipDto } from './dto/cancel-membership.dto';
 import { CreateMembershipDto } from './dto/create-membership.dto';
@@ -12,6 +15,7 @@ import { ListMembershipsQueryDto } from './dto/list-memberships-query.dto';
 import { MembershipsService } from './memberships.service';
 
 @Controller('memberships')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MembershipsController {
   constructor(private readonly membershipsService: MembershipsService) {}
 
@@ -24,7 +28,11 @@ export class MembershipsController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membershipsService.list(
-      user.organizationId!, query, query.memberId, branchScope, assignmentScope,
+      user.organizationId!,
+      query,
+      query.memberId,
+      branchScope,
+      assignmentScope,
     );
   }
 
@@ -37,7 +45,10 @@ export class MembershipsController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membershipsService.getOne(
-      user.organizationId!, id, branchScope, assignmentScope,
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
     );
   }
 
@@ -49,7 +60,11 @@ export class MembershipsController {
     @Body() dto: CreateMembershipDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.create(user.organizationId!, dto, branchScope);
+    return this.membershipsService.create(
+      user.organizationId!,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/freeze')
@@ -61,7 +76,12 @@ export class MembershipsController {
     @Body() dto: FreezeMembershipDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.freeze(user.organizationId!, id, dto, branchScope);
+    return this.membershipsService.freeze(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post(':id/resume')
@@ -72,7 +92,11 @@ export class MembershipsController {
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.resume(user.organizationId!, id, branchScope);
+    return this.membershipsService.resume(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
   }
 
   @Post(':id/cancel')
@@ -84,6 +108,11 @@ export class MembershipsController {
     @Body() dto: CancelMembershipDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membershipsService.cancel(user.organizationId!, id, dto, branchScope);
+    return this.membershipsService.cancel(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 }

@@ -1,4 +1,5 @@
 import { Controller, Get, Param } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -7,6 +8,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { Client360Service } from './client-360.service';
 
 @Controller('client-360')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class Client360Controller {
   constructor(private readonly client360: Client360Service) {}
 

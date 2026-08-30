@@ -18,6 +18,7 @@ import { UpdateDietPlanDto } from './dto/update-diet-plan.dto';
 import { DietPlansService } from './diet-plans.service';
 
 @Controller('diet-plans')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class DietPlansController {
   constructor(private readonly dietPlansService: DietPlansService) {}
 

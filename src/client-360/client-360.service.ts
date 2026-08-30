@@ -23,10 +23,30 @@ export class Client360Service {
     );
 
     const [addresses, emergencyContacts, notes, consents] = await Promise.all([
-      this.details.listAddresses(organizationId, memberId, branchScope, assignmentScope),
-      this.details.listEmergencyContacts(organizationId, memberId, branchScope, assignmentScope),
-      this.details.listNotes(organizationId, memberId, branchScope, assignmentScope),
-      this.details.listConsents(organizationId, memberId, branchScope, assignmentScope),
+      this.details.listAddresses(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
+      this.details.listEmergencyContacts(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
+      this.details.listNotes(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
+      this.details.listConsents(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
     ]);
 
     return {

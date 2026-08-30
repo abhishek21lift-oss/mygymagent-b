@@ -17,7 +17,7 @@ export const envSchema = z.object({
     .min(16, 'JWT_REFRESH_SECRET must be at least 16 characters'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
 
-  CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  CORS_ORIGIN: z.string().optional(),
 
   // Base URL of the frontend app, for building links inside outbound
   // messages (e.g. the password-reset email's reset link). Distinct from

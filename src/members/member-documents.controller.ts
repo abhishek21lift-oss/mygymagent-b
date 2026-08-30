@@ -9,6 +9,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
@@ -34,6 +35,7 @@ import {
  * src/files/README.md.
  */
 @Controller('members/:memberId/documents')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MemberDocumentsController {
   constructor(private readonly documents: MemberDocumentsService) {}
 

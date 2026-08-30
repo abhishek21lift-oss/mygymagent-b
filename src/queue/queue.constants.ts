@@ -15,6 +15,7 @@ export const JOB_NAMES = {
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due',
   SEND_LOW_STOCK_ALERT: 'send-low-stock-alert',
+  SCAN_DATA_RETENTION: 'scan-data-retention',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -27,4 +28,5 @@ export const JOB_SCHEDULER_IDS = {
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue-daily',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive-daily',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due-daily',
+  SCAN_DATA_RETENTION: 'scan-data-retention-daily',
 } as const;

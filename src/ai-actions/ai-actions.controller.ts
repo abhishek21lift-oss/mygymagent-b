@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AiActionsService } from './ai-actions.service';
 import { ListAiActionsQueryDto } from './dto/list-ai-actions-query.dto';
@@ -14,6 +15,7 @@ import { RejectAiActionDto } from './dto/reject-ai-action.dto';
  * action itself needs (see AiActionsService.approve()'s comment); this
  * guard alone is not sufficient to actually approve anything. */
 @Controller('ai-actions')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AiActionsController {
   constructor(private readonly aiActions: AiActionsService) {}
 

@@ -3,11 +3,13 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { RequestedBranchId } from '../common/decorators/branch-id.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AiService } from './ai.service';
 import { ChatDto } from './dto/chat.dto';
 
 @Controller('ai')
+@Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 

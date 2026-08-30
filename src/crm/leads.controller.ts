@@ -11,6 +11,7 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { CreateFollowUpDto } from './dto/create-follow-up.dto';
@@ -21,6 +22,7 @@ import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
 import { LeadsService } from './leads.service';
 
 @Controller('leads')
+@Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}
 

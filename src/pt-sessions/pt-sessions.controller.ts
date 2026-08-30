@@ -35,7 +35,15 @@ export class PtSessionsController {
     @Query('endTo') endTo?: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.ptSessionsService.list(user.organizationId, query, memberId, trainerId, branchId, startFrom ? new Date(startFrom) : undefined, endTo ? new Date(endTo) : undefined);
+    return this.ptSessionsService.list(
+      user.organizationId,
+      query,
+      memberId,
+      trainerId,
+      branchId,
+      startFrom ? new Date(startFrom) : undefined,
+      endTo ? new Date(endTo) : undefined,
+    );
   }
 
   @Get(':id')
@@ -46,31 +54,53 @@ export class PtSessionsController {
 
   @Post()
   @RequirePermissions('pt-sessions.create')
-  async book(@Body() dto: BookPtSessionDto, @CurrentUser() user: CurrentUserType) {
+  async book(
+    @Body() dto: BookPtSessionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.ptSessionsService.book(user.organizationId, dto, user.id);
   }
 
   @Patch(':id')
   @RequirePermissions('pt-sessions.update')
-  async update(@Param('id') id: string, @Body() dto: UpdatePtSessionDto, @CurrentUser() user: CurrentUserType) {
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePtSessionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.ptSessionsService.update(user.organizationId, id, dto, user.id);
   }
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
-  async complete(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+  async complete(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.ptSessionsService.complete(user.organizationId, id, user.id);
   }
 
   @Patch(':id/cancel')
   @RequirePermissions('pt-sessions.update')
-  async cancel(@Param('id') id: string, @CurrentUser() user: CurrentUserType, @Query('reason') cancellationReason?: string) {
-    return this.ptSessionsService.cancel(user.organizationId, id, user.id, cancellationReason);
+  async cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+    @Query('reason') cancellationReason?: string,
+  ) {
+    return this.ptSessionsService.cancel(
+      user.organizationId,
+      id,
+      user.id,
+      cancellationReason,
+    );
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
-  async markNoShow(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+  async markNoShow(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
     return this.ptSessionsService.markNoShow(user.organizationId, id, user.id);
   }
 }

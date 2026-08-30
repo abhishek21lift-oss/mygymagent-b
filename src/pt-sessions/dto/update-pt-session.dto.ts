@@ -1,4 +1,11 @@
-import { IsDate, IsEnum, IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
+import {
+  IsDate,
+  IsEnum,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { PtSessionStatus, PtSessionType } from '../pt-session.entity';
 
 export class UpdatePtSessionDto {

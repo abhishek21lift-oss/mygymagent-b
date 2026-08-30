@@ -15,6 +15,7 @@ import { AiConversationsController } from './conversations/ai-conversations.cont
 import { AiConversationsService } from './conversations/ai-conversations.service';
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
+import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 
 /**
  * v1 AI: a single tool-calling chat endpoint over OpenRouter, restricted
@@ -34,13 +35,19 @@ import { ToolExecutorService } from './tools/tool-executor.service';
     AiActionsModule,
     BriefingModule,
   ],
-  controllers: [AiController, AiConversationsController],
+  controllers: [
+    AiController,
+    AiConversationsController,
+    GlobalAiCommandController,
+  ],
   providers: [
     AiService,
     OpenRouterProvider,
     ToolExecutorService,
     AiUsageService,
     AiConversationsService,
+    AiSupervisorService,
+    GlobalAiCommandService,
   ],
 })
 export class AiModule {}

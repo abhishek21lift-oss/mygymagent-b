@@ -73,6 +73,7 @@ export class AiService {
     private readonly toolExecutor: ToolExecutorService,
     private readonly usageService: AiUsageService,
     private readonly conversations: AiConversationsService,
+    private readonly supervisor: AiSupervisorService,
   ) {}
 
   async chat(
@@ -162,7 +163,7 @@ export class AiService {
             if (!isKnownToolName(call.function.name)) {
               throw new Error(`Unknown tool: ${call.function.name}`);
             }
-            const result = await this.toolExecutor.execute(
+            const result = await this.supervisor.execute(
               call.function.name,
               args,
               {

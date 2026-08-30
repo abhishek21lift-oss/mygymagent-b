@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -51,6 +52,17 @@ export class FileStorageService {
   private readonly client: S3Client | null;
   private readonly bucket: string | undefined;
 
+  // Allowed MIME types for file uploads (adjust as needed for your use case)
+  private static readonly ALLOWED_MIME_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/pdf',
+  ] as const;
+
+  // Maximum file size in bytes (10 MB)
+  private static readonly MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
   constructor(private readonly config: ConfigService) {
     const endpoint = this.config.get<string>('S3_ENDPOINT');
     const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID');
@@ -85,6 +97,20 @@ export class FileStorageService {
   }
 
   async upload(input: UploadFileInput): Promise<UploadFileResult> {
+    // Validate file size
+    if (input.buffer.length > FileStorageService.MAX_SIZE_BYTES) {
+      throw new BadRequestException(
+        `File is too large (max ${FileStorageService.MAX_SIZE_BYTES / (1024 * 1024)}MB).`,
+      );
+    }
+
+    // Validate MIME type
+    if (!FileStorageService.ALLOWED_MIME_TYPES.includes(input.mimeType)) {
+      throw new BadRequestException(
+        `Unsupported file type "${input.mimeType}". Allowed: ${FileStorageService.ALLOWED_MIME_TYPES.join(', ')}`,
+      );
+    }
+
     const client = this.assertConfigured();
     const key = `org/${input.organizationId}/${input.pathPrefix}/${randomUUID()}-${sanitizeFilename(input.originalName)}`;
 

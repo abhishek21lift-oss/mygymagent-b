@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { StripeService } from '../payments/stripe.service';
+import { StripeWebhookController } from '../payments/stripe-webhook.controller';
 
 /**
  * Gym operational billing (member payments and refunds) -- NOT platform
@@ -15,8 +17,8 @@ import { PaymentsService } from './payments.service';
  * written against.
  */
 @Module({
-  controllers: [PaymentsController],
-  providers: [PaymentsService],
+  controllers: [PaymentsController, StripeWebhookController],
+  providers: [PaymentsService, StripeService],
   exports: [PaymentsService],
 })
 export class BillingModule {}

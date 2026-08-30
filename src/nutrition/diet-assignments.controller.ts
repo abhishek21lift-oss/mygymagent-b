@@ -8,6 +8,7 @@ import { ListDietAssignmentsQueryDto } from './dto/list-diet-assignments-query.d
 import { UpdateDietAssignmentStatusDto } from './dto/update-diet-assignment-status.dto';
 
 @Controller('diet-assignments')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class DietAssignmentsController {
   constructor(
     private readonly dietAssignmentsService: DietAssignmentsService,

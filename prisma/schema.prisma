@@ -115,6 +115,7 @@ model Organization {
   automationRuns          AutomationRun[]
   aiActions               AiAction[]
   aiConversations         AiConversation[]
+  ptSessions            PtSession[]   @relation("PtSession")
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -154,6 +155,7 @@ model Branch {
   attendances             Attendance[]
   userRoles               UserRole[]
   payments                Payment[]
+  ptSessions              PtSession[] @relation("PtSession")
   leads                   Lead[]
   primaryUsers            User[]                @relation("UserPrimaryBranch")
   primaryMembers          Member[]              @relation("MemberPrimaryBranch")
@@ -277,6 +279,8 @@ model StaffProfile {
   @@index([organizationId])
   @@index([branchId])
   @@map("staff_profiles")
+
+  ptSessions PtSession[] @relation("PtSession")
 }
 
 /// Permission catalog, e.g. "members.read", "payments.refund". Global, not
@@ -519,6 +523,7 @@ model Member {
   payments           Payment[]
   workoutAssignments WorkoutAssignment[]
   dietAssignments    DietAssignment[]
+  ptSessions         PtSession[]   @relation("PtSession")
   /// Set if this member originated from a converted Lead -- the opposite
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
@@ -873,6 +878,7 @@ enum PaymentStatus {
   COMPLETED
   REFUNDED
   PARTIALLY_REFUNDED
+  FAILED
 }
 
 /// A member paying the gym (membership fee, PT session, product, ...).
@@ -880,17 +886,19 @@ enum PaymentStatus {
 /// a refund is a new linked Refund row, never a mutation of this row. See
 /// docs/database/data-retention.md's financial-records section.
 model Payment {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  memberId       String
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  id                     String       @id @default(uuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId               String?
+  branch                 Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberId               String
+  member                 Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
   /// Nullable: a payment can be a one-off (PT session, product) not tied to
   /// a membership purchase/renewal.
-  membershipId   String?
-  membership     Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  membershipId           String?
+  membership             Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  /// Stripe Payment Intent ID for idempotency and linking to Stripe
+  stripePaymentIntentId  String?      @unique
 
   amount   Decimal       @db.Decimal(10, 2)
   currency String        @default("USD")
@@ -905,9 +913,10 @@ model Payment {
 
   refunds Refund[]
 
+  @@index([organizationId, createdAt])
+  @@index([organizationId, memberId, createdAt])
+  @@index([organizationId, membershipId])
   @@index([organizationId, branchId, createdAt])
-  @@index([memberId, createdAt])
-  @@index([membershipId])
   @@map("payments")
 }
 
@@ -939,17 +948,17 @@ model Refund {
 model PtSession {
   id             String       @id @default(uuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation("PtSession", fields: [organizationId], references: [id], onDelete: Cascade)
 
   memberId       String
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member       @relation("PtSession", fields: [memberId], references: [id], onDelete: Cascade)
 
   /// Optional trainer - if null, session is unassigned or self-guided
   trainerId      String?
-  trainer        StaffProfile? @relation(fields: [trainerId], references: [id])
+  trainer        StaffProfile? @relation("PtSession", fields: [trainerId], references: [id])
 
   branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch         Branch       @relation("PtSession", fields: [branchId], references: [id], onDelete: Cascade)
 
   startTime      DateTime
   endTime        DateTime

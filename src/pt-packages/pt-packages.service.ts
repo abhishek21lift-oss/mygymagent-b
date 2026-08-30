@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePtPackageDto } from './dto/create-pt-package.dto';
@@ -28,17 +32,28 @@ export class PtPackagesService {
     return rows[0];
   }
 
-  async create(organizationId: string, dto: CreatePtPackageDto, createdByUserId: string) {
+  async create(
+    organizationId: string,
+    dto: CreatePtPackageDto,
+    createdByUserId: string,
+  ) {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
-    if (startDate > endDate) throw new BadRequestException('End date must be on or after start date');
+    if (startDate > endDate)
+      throw new BadRequestException('End date must be on or after start date');
 
     const [member, branch] = await Promise.all([
-      this.prisma.member.findFirst({ where: { id: dto.memberId, organizationId } }),
-      this.prisma.branch.findFirst({ where: { id: dto.branchId, organizationId } }),
+      this.prisma.member.findFirst({
+        where: { id: dto.memberId, organizationId },
+      }),
+      this.prisma.branch.findFirst({
+        where: { id: dto.branchId, organizationId },
+      }),
     ]);
-    if (!member) throw new BadRequestException('Member not found in this organization');
-    if (!branch) throw new BadRequestException('Branch not found in this organization');
+    if (!member)
+      throw new BadRequestException('Member not found in this organization');
+    if (!branch)
+      throw new BadRequestException('Branch not found in this organization');
 
     if (dto.templateId) {
       const template = await this.prisma.$queryRawUnsafe<any[]>(
@@ -46,7 +61,10 @@ export class PtPackagesService {
         dto.templateId,
         organizationId,
       );
-      if (!template[0]) throw new BadRequestException('Package template not found or inactive in this organization');
+      if (!template[0])
+        throw new BadRequestException(
+          'Package template not found or inactive in this organization',
+        );
     }
 
     const id = crypto.randomUUID();
@@ -73,7 +91,11 @@ export class PtPackagesService {
         organizationId,
         createdByUserId,
         id,
-        JSON.stringify({ memberId: dto.memberId, branchId: dto.branchId, totalSessions: dto.totalSessions }),
+        JSON.stringify({
+          memberId: dto.memberId,
+          branchId: dto.branchId,
+          totalSessions: dto.totalSessions,
+        }),
       );
     });
     return this.getOne(organizationId, id);
@@ -97,7 +119,12 @@ export class PtPackagesService {
       organizationId,
       ptSessionId,
     );
-    if (existing[0]) return { consumed: false, packageId: existing[0].packageId ?? null, alreadyConsumed: true };
+    if (existing[0])
+      return {
+        consumed: false,
+        packageId: existing[0].packageId ?? null,
+        alreadyConsumed: true,
+      };
 
     const packages = await tx.$queryRawUnsafe<any[]>(
       `SELECT id, "totalSessions", "usedSessions"
@@ -113,7 +140,8 @@ export class PtPackagesService {
       sessionStartTime,
     );
     const pkg = packages[0];
-    if (!pkg) return { consumed: false, packageId: null, alreadyConsumed: false };
+    if (!pkg)
+      return { consumed: false, packageId: null, alreadyConsumed: false };
 
     const consumptionId = crypto.randomUUID();
     await tx.$executeRawUnsafe(

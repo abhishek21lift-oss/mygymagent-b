@@ -6,10 +6,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueConnection } from '../queue/queue.module';
 
 @Controller()
+@Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
