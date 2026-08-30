@@ -27,12 +27,11 @@ declare module 'express-serve-static-core' {
  * guard resolves authorization scope from the authenticated user and the
  * requested branch.
  *
- * IMPORTANT: when a route requires multiple permissions (AND), a single
- * branch-scoped permission must keep the whole request branch-scoped even if
- * another required permission is org-wide. The previous implementation
- * could overwrite that restriction with null while processing a later
- * org-wide permission, creating a privilege-escalation path for future or
- * combined routes.
+ * For every permission we first test the organization-wide grant. If it is
+ * present, no branch header is needed. Otherwise we test the requested
+ * branch. This avoids rejecting an org-wide grant merely because a branch
+ * header was supplied, while preserving the narrowest branch scope for
+ * branch-only grants on AND routes.
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -68,57 +67,58 @@ export class PermissionsGuard implements CanActivate {
 
     if (hasAnd && required) {
       for (const key of required) {
-        const allowed = await this.permissionsService.hasPermission(
-          user.id,
-          user.organizationId,
-          key,
-          branchId,
-        );
-        if (!allowed) {
-          throw new ForbiddenException(`Missing permission: ${key}`);
-        }
-
         const orgWide = await this.permissionsService.hasPermission(
           user.id,
           user.organizationId,
           key,
         );
 
-        if (!orgWide) {
-          // The permission was satisfied only because of this branch.
-          // Preserve that restriction across ALL AND-required permissions.
-          branchScopedGrant = true;
-          branchScope = branchId ?? null;
+        if (orgWide) continue;
+
+        const branchAllowed = await this.permissionsService.hasPermission(
+          user.id,
+          user.organizationId,
+          key,
+          branchId,
+        );
+        if (!branchAllowed) {
+          throw new ForbiddenException(`Missing permission: ${key}`);
         }
+
+        // The permission was satisfied only because of this branch.
+        // Preserve that restriction across ALL AND-required permissions.
+        branchScopedGrant = true;
+        branchScope = branchId ?? null;
       }
     }
 
     if (hasOr && requiredAny) {
       let matchedKey: string | undefined;
-      for (const key of requiredAny) {
-        const allowed = await this.permissionsService.hasPermission(
-          user.id,
-          user.organizationId,
-          key,
-          branchId,
-        );
-        if (!allowed) continue;
+      let matchedOrgWide = false;
 
-        matchedKey = key;
+      for (const key of requiredAny) {
         const orgWide = await this.permissionsService.hasPermission(
           user.id,
           user.organizationId,
           key,
         );
 
-        // An OR match only introduces a branch restriction when the matched
-        // permission itself is branch-scoped. Never clear an existing AND
-        // restriction established above.
-        if (!orgWide && !branchScopedGrant) {
-          branchScopedGrant = true;
-          branchScope = branchId ?? null;
+        if (orgWide) {
+          matchedKey = key;
+          matchedOrgWide = true;
+          break;
         }
-        break;
+
+        const branchAllowed = await this.permissionsService.hasPermission(
+          user.id,
+          user.organizationId,
+          key,
+          branchId,
+        );
+        if (branchAllowed) {
+          matchedKey = key;
+          break;
+        }
       }
 
       if (!matchedKey) {
@@ -126,7 +126,12 @@ export class PermissionsGuard implements CanActivate {
           `Missing permission: one of ${requiredAny.join(', ')}`,
         );
       }
+
       request.grantedViaPermission = matchedKey;
+      if (!matchedOrgWide && !branchScopedGrant) {
+        branchScopedGrant = true;
+        branchScope = branchId ?? null;
+      }
     }
 
     request.branchScope = branchScope;
