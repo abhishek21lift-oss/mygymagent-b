@@ -25,6 +25,6 @@ import { MembersService } from './members.service';
     MemberGoalsService,
     MemberDocumentsService,
   ],
-  exports: [MembersService],
+  exports: [MembersService, MemberDetailsService],
 })
 export class MembersModule {}
