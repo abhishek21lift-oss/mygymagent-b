@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -7,6 +7,12 @@ import { decryptWhatsAppToken, encryptWhatsAppToken } from './whatsapp.crypto';
 
 export interface IntegrationRow { id: string; organization_id: string; phone_number_id: string; business_account_id: string | null; display_phone_number: string | null; display_name: string | null; status: string; last_verified_at: Date | null; }
 interface ConnectInput { phoneNumberId: string; businessAccountId?: string; accessToken: string; displayPhoneNumber?: string; displayName?: string; }
+interface WebhookMessage { id?: string; from?: string; type?: string; text?: { body?: string }; }
+interface WebhookStatus { id?: string; status?: string; }
+interface WebhookValue { metadata?: { phone_number_id?: string }; messages?: WebhookMessage[]; statuses?: WebhookStatus[]; }
+interface WebhookChange { value?: WebhookValue; }
+interface WebhookEntry { changes?: WebhookChange[]; }
+interface WebhookPayload { entry?: WebhookEntry[]; }
 
 @Injectable()
 export class WhatsAppService {
@@ -54,29 +60,29 @@ export class WhatsAppService {
     return { providerMessageId, status: 'SENT' };
   }
 
-  async webhookVerify(mode: string | undefined, token: string | undefined, challenge: string | undefined) {
+  webhookVerify(mode: string | undefined, token: string | undefined, challenge: string | undefined) {
     const expected = this.config.get<string>('WHATSAPP_VERIFY_TOKEN');
     if (!expected || mode !== 'subscribe' || !token || !challenge || token.length !== expected.length || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) throw new BadRequestException('Webhook verification failed');
     return challenge;
   }
 
-  async handleWebhook(payload: any) {
-    const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+  async handleWebhook(payload: WebhookPayload) {
+    const entries = Array.isArray(payload.entry) ? payload.entry : [];
     let processed = 0;
-    for (const entry of entries) for (const change of entry?.changes ?? []) {
-      const value = change?.value;
+    for (const entry of entries) for (const change of entry.changes ?? []) {
+      const value = change.value;
       const phoneNumberId = value?.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
       const rows = await this.prisma.$queryRaw<{ organization_id: string }[]>(Prisma.sql`SELECT organization_id FROM whatsapp_integrations WHERE phone_number_id=${phoneNumberId} AND status='CONNECTED' LIMIT 1`);
       const organizationId = rows[0]?.organization_id;
       if (!organizationId) continue;
       for (const message of value?.messages ?? []) {
-        const text = message?.text?.body ?? null;
-        await this.prisma.$executeRaw(Prisma.sql`INSERT INTO whatsapp_messages (id, organization_id, phone_number_id, provider_message_id, direction, from_number, to_number, message_type, text, status, raw_payload, created_at, updated_at) VALUES (${randomUUID()}, ${organizationId}, ${phoneNumberId}, ${message?.id ?? null}, 'INBOUND', ${message?.from ?? null}, ${phoneNumberId}, ${message?.type ?? 'unknown'}, ${text}, 'RECEIVED', ${JSON.stringify(message)}::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (provider_message_id) DO NOTHING`);
+        const text = message.text?.body ?? null;
+        await this.prisma.$executeRaw(Prisma.sql`INSERT INTO whatsapp_messages (id, organization_id, phone_number_id, provider_message_id, direction, from_number, to_number, message_type, text, status, raw_payload, created_at, updated_at) VALUES (${randomUUID()}, ${organizationId}, ${phoneNumberId}, ${message.id ?? null}, 'INBOUND', ${message.from ?? null}, ${phoneNumberId}, ${message.type ?? 'unknown'}, ${text}, 'RECEIVED', ${JSON.stringify(message)}::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (provider_message_id) DO NOTHING`);
         processed++;
       }
       for (const status of value?.statuses ?? []) {
-        await this.prisma.$executeRaw(Prisma.sql`UPDATE whatsapp_messages SET status=${String(status?.status ?? 'UNKNOWN').toUpperCase()}, updated_at=CURRENT_TIMESTAMP WHERE provider_message_id=${status?.id ?? ''} AND organization_id=${organizationId}`);
+        await this.prisma.$executeRaw(Prisma.sql`UPDATE whatsapp_messages SET status=${String(status.status ?? 'UNKNOWN').toUpperCase()}, updated_at=CURRENT_TIMESTAMP WHERE provider_message_id=${status.id ?? ''} AND organization_id=${organizationId}`);
       }
     }
     return { received: true, processed };
