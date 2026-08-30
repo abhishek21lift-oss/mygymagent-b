@@ -10,6 +10,8 @@ describe('production environment validation', () => {
     CORS_ORIGIN: 'https://app.mygymagent.com',
     FRONTEND_URL: 'https://app.mygymagent.com',
     REDIS_URL: 'redis://redis.example.com:6379',
+    WHATSAPP_ENCRYPTION_KEY: 'c'.repeat(32),
+    WHATSAPP_VERIFY_TOKEN: 'whatsapp-test-token',
   };
 
   it('accepts a real HTTPS production configuration', () => {
