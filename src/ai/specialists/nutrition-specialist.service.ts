@@ -1,14 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { BaseSpecialistService } from './base-specialist.service';
 import { DietPlansService } from '../../nutrition/diet-plans.service';
-import { AiToolName } from '../../tools/tool-definitions';
+import { AiToolName } from '../tools/tool-definitions';
+import { ToolExecutorService } from '../tools/tool-executor.service';
+import { AiActionsService } from '../../ai-actions/ai-actions.service';
 
 @Injectable()
 export class NutritionSpecialistService extends BaseSpecialistService {
   constructor(
-    dietPlansService: DietPlansService,
-    aiActionsService: any,
-    toolExecutorService: any,
+    toolExecutorService: ToolExecutorService,
+    aiActionsService: AiActionsService,
+    private readonly dietPlansService: DietPlansService,
   ) {
     super(toolExecutorService, aiActionsService);
   }
