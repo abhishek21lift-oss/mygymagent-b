@@ -27,12 +27,7 @@ import { MemberIdArgsDto } from './dto/member-id-args.dto';
 import type { AiToolName } from './tool-definitions';
 import { validateToolArgs } from './validate-tool-args';
 
-export interface ToolCallContext {
-  organizationId: string;
-  userId: string;
-  requestedBranchId?: string;
-}
-
+export interface ToolCallContext { organizationId: string; userId: string; requestedBranchId?: string; }
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 @Injectable()
@@ -109,54 +104,28 @@ export class ToolExecutorService {
 
   private async createWorkoutDraft(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
     await this.resolveAccess(userId, organizationId, requestedBranchId, ['workouts.create']);
-    const dto = validateToolArgs(CreateWorkoutPlanDto, rawArgs);
-    const plan = await this.workoutPlansService.create(organizationId, dto, userId);
+    const dto = validateToolArgs(CreateWorkoutPlanDto, rawArgs); const plan = await this.workoutPlansService.create(organizationId, dto, userId);
     await this.audit.record({ organizationId, actorUserId: userId, action: 'ai_tool.create_workout_draft', resource: 'workout_plan', resourceId: plan.id, afterState: { name: plan.name, exerciseCount: dto.exercises.length } });
     return { id: plan.id, name: plan.name };
   }
-
   private async createDietDraft(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
     await this.resolveAccess(userId, organizationId, requestedBranchId, ['nutrition.create']);
-    const dto = validateToolArgs(CreateDietPlanDto, rawArgs);
-    const plan = await this.dietPlansService.create(organizationId, dto, userId);
+    const dto = validateToolArgs(CreateDietPlanDto, rawArgs); const plan = await this.dietPlansService.create(organizationId, dto, userId);
     await this.audit.record({ organizationId, actorUserId: userId, action: 'ai_tool.create_diet_draft', resource: 'diet_plan', resourceId: plan.id, afterState: { name: plan.name, itemCount: dto.items.length } });
     return { id: plan.id, name: plan.name };
   }
-
   private async createFollowup(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    const { leadId, note, dueAt } = validateToolArgs(CreateFollowupArgsDto, rawArgs);
-    const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['leads.manage']);
+    const { leadId, note, dueAt } = validateToolArgs(CreateFollowupArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['leads.manage']);
     const followUp = await this.leadsService.addFollowUp(organizationId, leadId, { note, dueAt }, userId, branchScope);
     await this.audit.record({ organizationId, actorUserId: userId, action: 'ai_tool.create_followup', resource: 'lead_follow_up', resourceId: followUp.id, afterState: { leadId, note, dueAt } });
     return { id: followUp.id, dueAt: followUp.dueAt };
   }
-
-  private async getRevenueSummary(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.financeService.getRevenueSummary(organizationId, {}, branchScope);
-  }
-  private async getAtRiskMembers(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.memberIntelligence.getAtRiskMembers(organizationId, branchScope);
-  }
-  private async getSalesFunnel(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.salesIntelligence.getFunnel(organizationId, branchScope, {});
-  }
-  private async getTrainerWorkload(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.trainerIntelligence.getWorkload(organizationId, branchScope);
-  }
-  private async getInventoryForecast(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.inventoryIntelligence.getStockForecast(organizationId);
-  }
-  private async getDailyBriefing(rawArgs: unknown, { organizationId, userId, requestedBranchId }: ToolCallContext) {
-    validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(userId, organizationId, requestedBranchId, ['reports.view']); return this.dailyBriefingService.getBriefing(organizationId, branchScope);
-  }
-  private async proposeAssignWorkoutPlan(rawArgs: unknown, context: ToolCallContext) {
-    await this.resolveAccess(context.userId, context.organizationId, context.requestedBranchId, ['workouts.assign']);
-    const payload = validateToolArgs(AssignPlanPayloadDto, rawArgs);
-    return this.aiActionsService.proposeAssignPlan(context.organizationId, context.userId, 'ASSIGN_WORKOUT_PLAN', payload);
-  }
-  private async proposeAssignDietPlan(rawArgs: unknown, context: ToolCallContext) {
-    await this.resolveAccess(context.userId, context.organizationId, context.requestedBranchId, ['nutrition.assign']);
-    const payload = validateToolArgs(AssignPlanPayloadDto, rawArgs);
-    return this.aiActionsService.proposeAssignPlan(context.organizationId, context.userId, 'ASSIGN_DIET_PLAN', payload);
-  }
+  private async getRevenueSummary(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.financeService.getRevenueSummary(c.organizationId,{},branchScope); }
+  private async getAtRiskMembers(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.memberIntelligence.getAtRiskMembers(c.organizationId,branchScope); }
+  private async getSalesFunnel(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.salesIntelligence.getFunnel(c.organizationId,branchScope,{}); }
+  private async getTrainerWorkload(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.trainerIntelligence.getWorkload(c.organizationId,branchScope); }
+  private async getInventoryForecast(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.inventoryIntelligence.getStockForecast(c.organizationId); }
+  private async getDailyBriefing(rawArgs: unknown, c: ToolCallContext) { validateToolArgs(EmptyArgsDto, rawArgs); const { branchScope } = await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['reports.view']); return this.dailyBriefingService.getDailyBriefing(c.organizationId,branchScope); }
+  private async proposeAssignWorkoutPlan(rawArgs: unknown,c: ToolCallContext) { await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['workouts.assign']); const payload=validateToolArgs(AssignPlanPayloadDto,rawArgs); return this.aiActionsService.proposeAssignPlan(c.organizationId,c.userId,'ASSIGN_WORKOUT_PLAN',payload); }
+  private async proposeAssignDietPlan(rawArgs: unknown,c: ToolCallContext) { await this.resolveAccess(c.userId,c.organizationId,c.requestedBranchId,['nutrition.assign']); const payload=validateToolArgs(AssignPlanPayloadDto,rawArgs); return this.aiActionsService.proposeAssignPlan(c.organizationId,c.userId,'ASSIGN_DIET_PLAN',payload); }
 }
