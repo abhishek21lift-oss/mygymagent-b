@@ -18,6 +18,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePaymentDto } from './dto/create-payment.dto';
 import type { RefundPaymentDto } from './dto/refund-payment.dto';
+import type { PaymentStatus } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
@@ -122,7 +123,7 @@ export class PaymentsService {
         amount,
         currency,
         method: 'CARD', // Assuming Stripe payments are card payments
-        status: status as 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED',
+        status: status as 'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
         stripePaymentIntentId,
         recordedByUserId,
       },

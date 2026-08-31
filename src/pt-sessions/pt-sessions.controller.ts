@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -17,6 +18,13 @@ import { PtSessionsService } from './pt-sessions.service';
 import { BookPtSessionDto } from './dto/book-pt-session.dto';
 import { UpdatePtSessionDto } from './dto/update-pt-session.dto';
 
+function requireOrgId(user: AuthenticatedUser): string {
+  if (!user.organizationId) {
+    throw new BadRequestException('Organization context is required');
+  }
+  return user.organizationId;
+}
+
 @Controller('pt-sessions')
 @UseInterceptors(AuditInterceptor)
 export class PtSessionsController {
@@ -34,7 +42,7 @@ export class PtSessionsController {
     @Query('endTo') endTo?: string,
   ) {
     return this.ptSessionsService.list(
-      user.organizationId,
+      requireOrgId(user),
       query,
       memberId,
       trainerId,
@@ -47,13 +55,13 @@ export class PtSessionsController {
   @Get(':id')
   @RequirePermissions('pt-sessions.read')
   async getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.ptSessionsService.getOne(user.organizationId, id);
+    return this.ptSessionsService.getOne(requireOrgId(user), id);
   }
 
   @Post()
   @RequirePermissions('pt-sessions.create')
   async book(@Body() dto: BookPtSessionDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.ptSessionsService.book(user.organizationId, dto, user.id);
+    return this.ptSessionsService.book(requireOrgId(user), dto, user.id);
   }
 
   @Patch(':id')
@@ -63,13 +71,13 @@ export class PtSessionsController {
     @Body() dto: UpdatePtSessionDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.ptSessionsService.update(user.organizationId, id, dto, user.id);
+    return this.ptSessionsService.update(requireOrgId(user), id, dto, user.id);
   }
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
   async complete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.ptSessionsService.complete(user.organizationId, id, user.id);
+    return this.ptSessionsService.complete(requireOrgId(user), id, user.id);
   }
 
   @Patch(':id/cancel')
@@ -79,12 +87,12 @@ export class PtSessionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('reason') cancellationReason?: string,
   ) {
-    return this.ptSessionsService.cancel(user.organizationId, id, user.id, cancellationReason);
+    return this.ptSessionsService.cancel(requireOrgId(user), id, user.id, cancellationReason);
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
   async markNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.ptSessionsService.markNoShow(user.organizationId, id, user.id);
+    return this.ptSessionsService.markNoShow(requireOrgId(user), id, user.id);
   }
 }

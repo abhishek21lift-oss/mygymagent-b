@@ -20,7 +20,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { BookPtSessionDto } from './dto/book-pt-session.dto';
 import type { UpdatePtSessionDto } from './dto/update-pt-session.dto';
 import { MembersService } from '../members/members.service';
-import { StaffProfilesService } from '../staff-profiles/staff-profiles.service';
 import { BranchesService } from '../branches/branches.service';
 import { PtPackagesService } from '../pt-packages/pt-packages.service';
 
@@ -30,7 +29,6 @@ export class PtSessionsService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly membersService: MembersService,
-    private readonly staffProfilesService: StaffProfilesService,
     private readonly branchesService: BranchesService,
     private readonly ptPackagesService: PtPackagesService,
   ) {}
@@ -77,8 +75,6 @@ export class PtSessionsService {
           trainer: {
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
               user: { select: { firstName: true, lastName: true } },
             },
           },
@@ -102,14 +98,12 @@ export class PtSessionsService {
             memberCode: true,
           },
         },
-        trainer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            user: { select: { firstName: true, lastName: true } },
-          },
-        },
+trainer: {
+              select: {
+                id: true,
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
         branch: { select: { id: true, name: true } },
       },
     });
@@ -193,7 +187,6 @@ export class PtSessionsService {
           type: dto.type,
           price: dto.price,
           notes: dto.notes,
-          bookedByUserId,
         },
       });
       const payload: PtSessionBookedEvent = {
@@ -281,7 +274,6 @@ export class PtSessionsService {
           ...(dto.isPaid !== undefined ? { isPaid: dto.isPaid } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-          updatedByUserId,
         },
         include: {
           member: {
@@ -292,14 +284,12 @@ export class PtSessionsService {
               memberCode: true,
             },
           },
-          trainer: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              user: { select: { firstName: true, lastName: true } },
+trainer: {
+              select: {
+                id: true,
+                user: { select: { firstName: true, lastName: true } },
+              },
             },
-          },
           branch: { select: { id: true, name: true } },
         },
       });

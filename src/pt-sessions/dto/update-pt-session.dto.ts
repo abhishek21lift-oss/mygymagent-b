@@ -57,4 +57,7 @@ export class UpdatePtSessionDto {
   @IsOptional()
   @IsString()
   cancelledByUserId?: string;
+
+  @IsOptional()
+  isPaid?: boolean;
 }

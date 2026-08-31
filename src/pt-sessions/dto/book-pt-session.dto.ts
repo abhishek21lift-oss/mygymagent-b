@@ -6,7 +6,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { PtSessionType } from '../pt-session.entity';
+import { PtSessionType } from '@prisma/client';
 
 export class BookPtSessionDto {
   @IsString()
