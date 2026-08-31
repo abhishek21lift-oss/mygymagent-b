@@ -8,17 +8,15 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
-import { CurrentUser as CurrentUserType } from '../common/types/authenticated-user';
+import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PtSessionsService } from './pt-sessions.service';
 import { BookPtSessionDto } from './dto/book-pt-session.dto';
 import { UpdatePtSessionDto } from './dto/update-pt-session.dto';
 
-@ApiTags('pt-sessions')
 @Controller('pt-sessions')
 @UseInterceptors(AuditInterceptor)
 export class PtSessionsController {
@@ -28,12 +26,12 @@ export class PtSessionsController {
   @RequirePermissions('pt-sessions.read')
   async list(
     @Query() query: PaginationQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('memberId') memberId?: string,
     @Query('trainerId') trainerId?: string,
     @Query('branchId') branchId?: string,
     @Query('startFrom') startFrom?: string,
     @Query('endTo') endTo?: string,
-    @CurrentUser() user: CurrentUserType,
   ) {
     return this.ptSessionsService.list(
       user.organizationId,
@@ -48,16 +46,13 @@ export class PtSessionsController {
 
   @Get(':id')
   @RequirePermissions('pt-sessions.read')
-  async getOne(@Param('id') id: string, @CurrentUser() user: CurrentUserType) {
+  async getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.ptSessionsService.getOne(user.organizationId, id);
   }
 
   @Post()
   @RequirePermissions('pt-sessions.create')
-  async book(
-    @Body() dto: BookPtSessionDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
+  async book(@Body() dto: BookPtSessionDto, @CurrentUser() user: AuthenticatedUser) {
     return this.ptSessionsService.book(user.organizationId, dto, user.id);
   }
 
@@ -66,17 +61,14 @@ export class PtSessionsController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePtSessionDto,
-    @CurrentUser() user: CurrentUserType,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.ptSessionsService.update(user.organizationId, id, dto, user.id);
   }
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
-  async complete(
-    @Param('id') id: string,
-    @CurrentUser() user: CurrentUserType,
-  ) {
+  async complete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.ptSessionsService.complete(user.organizationId, id, user.id);
   }
 
@@ -84,23 +76,15 @@ export class PtSessionsController {
   @RequirePermissions('pt-sessions.update')
   async cancel(
     @Param('id') id: string,
-    @CurrentUser() user: CurrentUserType,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('reason') cancellationReason?: string,
   ) {
-    return this.ptSessionsService.cancel(
-      user.organizationId,
-      id,
-      user.id,
-      cancellationReason,
-    );
+    return this.ptSessionsService.cancel(user.organizationId, id, user.id, cancellationReason);
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
-  async markNoShow(
-    @Param('id') id: string,
-    @CurrentUser() user: CurrentUserType,
-  ) {
+  async markNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.ptSessionsService.markNoShow(user.organizationId, id, user.id);
   }
 }
