@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
@@ -9,6 +10,8 @@ import { CreatePtPackageDto } from './dto/create-pt-package.dto';
 
 @Injectable()
 export class PtPackagesService {
+  private readonly logger = new Logger(PtPackagesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string, memberId?: string) {
@@ -140,8 +143,15 @@ export class PtPackagesService {
       sessionStartTime,
     );
     const pkg = packages[0];
-    if (!pkg)
+    if (!pkg) {
       return { consumed: false, packageId: null, alreadyConsumed: false };
+    }
+
+    // Guard against consuming a package that is no longer ACTIVE (e.g., already COMPLETED by another transaction)
+    if (pkg.status && pkg.status !== 'ACTIVE') {
+      this.logger.warn(`Package ${pkg.id} status is ${pkg.status} – treating as already consumed`);
+      return { consumed: false, packageId: pkg.id, alreadyConsumed: true };
+    }
 
     const consumptionId = crypto.randomUUID();
     await tx.$executeRawUnsafe(

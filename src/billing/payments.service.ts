@@ -117,12 +117,12 @@ export class PaymentsService {
       data: {
         organizationId,
         branchId,
-        memberId,
+        memberId: memberId as string,
         membershipId,
         amount,
         currency,
         method: 'CARD', // Assuming Stripe payments are card payments
-        status,
+        status: status as 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED',
         stripePaymentIntentId,
         recordedByUserId,
       },
@@ -182,7 +182,7 @@ export class PaymentsService {
 
     const payload: PaymentRecordedEvent = {
       organizationId,
-      branchId: payment.branchId,
+      branchId: payment.branchId ?? '',
       paymentId: payment.id,
       memberId: payment.memberId,
       membershipId: payment.membershipId ?? undefined,

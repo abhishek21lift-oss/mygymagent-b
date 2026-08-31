@@ -1,5 +1,5 @@
+import { BadRequestException } from '@nestjs/common';
 import {
-  BadRequestException,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -105,7 +105,9 @@ export class FileStorageService {
     }
 
     // Validate MIME type
-    if (!FileStorageService.ALLOWED_MIME_TYPES.includes(input.mimeType)) {
+    if (
+      !FileStorageService.ALLOWED_MIME_TYPES.includes(input.mimeType as any)
+    ) {
       throw new BadRequestException(
         `Unsupported file type "${input.mimeType}". Allowed: ${FileStorageService.ALLOWED_MIME_TYPES.join(', ')}`,
       );
@@ -119,8 +121,8 @@ export class FileStorageService {
         Bucket: this.bucket,
         Key: key,
         Body: input.buffer,
-        ContentType: input.mimeType,
-      }),
+        ContentType: input.mimeType as any,
+      } as any),
     );
 
     return { key, sizeBytes: input.buffer.length };

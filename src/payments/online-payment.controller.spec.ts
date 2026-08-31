@@ -42,20 +42,19 @@ describe('OnlinePaymentController', () => {
   });
 
   describe('createPaymentIntent', () => {
-    const mockUser: AuthenticatedUser = {
+    const mockUser = {
       id: 'user_1',
       organizationId: 'org_1',
       email: 'test@example.com',
       firstName: 'Test',
       lastName: 'User',
-      phone: '1234567890',
       status: 'ACTIVE',
       emailVerifiedAt: new Date(),
       lastLoginAt: new Date(),
       failedLoginAttempts: 0,
       lockedUntil: null,
       primaryBranchId: 'branch_1',
-    };
+    } as any as AuthenticatedUser;
 
     const mockDto: CreateOnlinePaymentIntentDto = {
       amount: 1000,
@@ -84,7 +83,7 @@ describe('OnlinePaymentController', () => {
         );
         return;
       }
-      expect.fail('Expected UnauthorizedException');
+      throw new Error('Expected UnauthorizedException');
     });
 
     it('should throw BadRequestException if neither memberId nor membershipId is provided', async () => {
@@ -110,7 +109,7 @@ describe('OnlinePaymentController', () => {
         );
         return;
       }
-      expect.fail('Expected BadRequestException');
+      throw new Error('Expected BadRequestException');
     });
 
     it('should create a payment intent and return clientSecret and id', async () => {
@@ -119,7 +118,9 @@ describe('OnlinePaymentController', () => {
         client_secret: 'secret_123',
         id: 'pi_123',
       };
-      stripeService.createPaymentIntent.mockResolvedValue(mockPaymentIntent);
+      (stripeService.createPaymentIntent as jest.Mock).mockResolvedValue(
+        mockPaymentIntent,
+      );
 
       // Act
       const result = await controller.createPaymentIntent(
@@ -154,7 +155,9 @@ describe('OnlinePaymentController', () => {
         client_secret: 'secret_123',
         id: 'pi_123',
       };
-      stripeService.createPaymentIntent.mockResolvedValue(mockPaymentIntent);
+      (stripeService.createPaymentIntent as jest.Mock).mockResolvedValue(
+        mockPaymentIntent,
+      );
 
       // Act
       await controller.createPaymentIntent(
@@ -180,7 +183,7 @@ describe('OnlinePaymentController', () => {
 
     it('should log error and throw InternalServerErrorException when Stripe fails', async () => {
       // Arrange
-      stripeService.createPaymentIntent.mockRejectedValue(
+      (stripeService.createPaymentIntent as jest.Mock).mockRejectedValue(
         new Error('Stripe error'),
       );
 
@@ -199,7 +202,7 @@ describe('OnlinePaymentController', () => {
         expect(error.message).toBe('Failed to create payment intent');
         return;
       }
-      expect.fail('Expected InternalServerErrorException');
+      throw new Error('Expected InternalServerErrorException');
     });
   });
 });

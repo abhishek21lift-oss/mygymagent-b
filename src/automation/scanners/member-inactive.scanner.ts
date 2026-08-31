@@ -67,7 +67,7 @@ export class MemberInactiveScanner {
           this.communications.sendInactiveMemberRecovery(
             member.organizationId,
             member.id,
-            member.email,
+            member.email || '',
             { firstName: member.firstName, daysInactive: String(daysInactive) },
           ),
         { daysInactive },

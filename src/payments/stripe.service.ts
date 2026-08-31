@@ -13,7 +13,7 @@ export class StripeService {
       this.logger.error('Stripe secret key not configured');
       throw new Error('STRIPE_SECRET_KEY is required');
     }
-    this.stripe = new Stripe(secretKey, { apiVersion: '2022-11-15' });
+    this.stripe = new Stripe(secretKey, { apiVersion: '2022-11-15' as any });
   }
 
   /** Create a payment intent for a given amount (in cents) and currency */

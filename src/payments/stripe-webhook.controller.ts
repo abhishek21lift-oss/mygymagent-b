@@ -40,7 +40,7 @@ export class StripeWebhookController {
     }
 
     try {
-      const event = this.stripeService.constructEvent(
+      const event = await this.stripeService.constructEvent(
         Buffer.from(JSON.stringify(body)),
         signature,
         webhookSecret,

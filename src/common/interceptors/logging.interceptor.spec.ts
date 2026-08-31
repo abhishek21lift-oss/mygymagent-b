@@ -35,7 +35,7 @@ describe('LoggingInterceptor', () => {
 
   it('should log successful requests', async () => {
     const mockResponse = { statusCode: 200, data: 'test' };
-    mockCallHandler.handle.mockReturnValue(of(mockResponse));
+    (mockCallHandler.handle as jest.Mock).mockReturnValue(of(mockResponse));
 
     // Spy on logger
     const logSpy = jest.spyOn(interceptor['logger'], 'log');
@@ -53,7 +53,9 @@ describe('LoggingInterceptor', () => {
 
   it('should log failed requests', async () => {
     const mockError = new Error('Test error');
-    mockCallHandler.handle.mockReturnValue(throwError(() => mockError));
+    (mockCallHandler.handle as jest.Mock).mockReturnValue(
+      throwError(() => mockError),
+    );
 
     // Spy on logger
     const logSpy = jest.spyOn(interceptor['logger'], 'log');

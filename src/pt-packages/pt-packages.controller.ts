@@ -12,18 +12,18 @@ export class PtPackagesController {
   @Get()
   @RequirePermissions('pt-packages.read')
   list(@CurrentUser() user: AuthenticatedUser, @Query('memberId') memberId?: string) {
-    return this.service.list(user.organizationId, memberId);
+    return this.service.list(user.organizationId ?? '', memberId ?? undefined);
   }
 
   @Get(':id')
   @RequirePermissions('pt-packages.read')
   getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.getOne(user.organizationId, id);
+    return this.service.getOne(user.organizationId ?? '', id);
   }
 
   @Post()
   @RequirePermissions('pt-packages.create')
   create(@Body() dto: CreatePtPackageDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.create(user.organizationId, dto, user.id);
+    return this.service.create(user.organizationId ?? '', dto, user.id);
   }
 }

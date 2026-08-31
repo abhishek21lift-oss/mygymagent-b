@@ -63,25 +63,27 @@ export class GlobalAiCommandService {
           {
             organizationId: request.organizationId,
             userId: request.userId,
-            requestedBranchId: request.context && typeof request.context === 'object' && 'branchId' in request.context
-              ? String(request.context['branchId'])
-              : undefined,
+            requestedBranchId:
+              request.context &&
+              typeof request.context === 'object' &&
+              'branchId' in request.context
+                ? String(request.context['branchId'])
+                : undefined,
           },
           request.userId, // The user requesting the action is also the approver for self-service
         );
       } else {
         // For read-only commands, execute directly
-        result = await this.supervisor.execute(
-          toolName,
-          args,
-          {
-            organizationId: request.organizationId,
-            userId: request.userId,
-            requestedBranchId: request.context && typeof request.context === 'object' && 'branchId' in request.context
+        result = await this.supervisor.execute(toolName, args, {
+          organizationId: request.organizationId,
+          userId: request.userId,
+          requestedBranchId:
+            request.context &&
+            typeof request.context === 'object' &&
+            'branchId' in request.context
               ? String(request.context['branchId'])
               : undefined,
-          },
-        );
+        });
       }
 
       // Log the successful interaction
@@ -163,7 +165,7 @@ export class GlobalAiCommandService {
       cmdLower.includes('member') &&
       (cmdLower.includes('inactive') ||
         cmdLower.includes('not visited') ||
-        cmdLower.includes('haven\'t visited')) &&
+        cmdLower.includes("haven't visited")) &&
       (cmdLower.includes('recently') || cmdLower.includes('lately'))
     ) {
       // Similar issue - need member ID
@@ -186,10 +188,7 @@ export class GlobalAiCommandService {
       };
     }
 
-    if (
-      cmdLower.includes('revenue') &&
-      cmdLower.includes('this month')
-    ) {
+    if (cmdLower.includes('revenue') && cmdLower.includes('this month')) {
       return {
         toolName: 'get_revenue_summary',
         args: {},
@@ -209,10 +208,7 @@ export class GlobalAiCommandService {
       };
     }
 
-    if (
-      cmdLower.includes('sales funnel') ||
-      cmdLower.includes('funnel')
-    ) {
+    if (cmdLower.includes('sales funnel') || cmdLower.includes('funnel')) {
       return {
         toolName: 'get_sales_funnel',
         args: {},
@@ -222,8 +218,7 @@ export class GlobalAiCommandService {
 
     if (
       cmdLower.includes('trainer workload') ||
-      cmdLower.includes('workload') &&
-      cmdLower.includes('trainer')
+      (cmdLower.includes('workload') && cmdLower.includes('trainer'))
     ) {
       return {
         toolName: 'get_trainer_workload',
@@ -306,11 +301,7 @@ export class GlobalAiCommandService {
           )
           .join('\n')}`;
       case 'get_sales_funnel':
-        return `Here's your sales funnel:\n${JSON.stringify(
-          result,
-          null,
-          2,
-        )}`;
+        return `Here's your sales funnel:\n${JSON.stringify(result, null, 2)}`;
       case 'get_trainer_workload':
         return `Here's your trainer workload:\n${JSON.stringify(
           result,
@@ -335,10 +326,7 @@ export class GlobalAiCommandService {
   /**
    * Get a description of what the action will do for approval requests
    */
-  private getActionDescription(
-    toolName: AiToolName,
-    args: unknown,
-  ): string {
+  private getActionDescription(toolName: AiToolName, args: unknown): string {
     switch (toolName) {
       case 'create_followup':
         return `create a follow-up task`;

@@ -58,7 +58,7 @@ describe('PaymentsService', () => {
   describe('getOneByStripeIntentId', () => {
     it('should return a payment if found', async () => {
       const mockPayment = { id: 'payment_1', stripePaymentIntentId: 'pi_123' };
-      prisma.payment.findFirst.mockResolvedValue(mockPayment);
+      (prisma.payment.findFirst as jest.Mock).mockResolvedValue(mockPayment);
 
       const result = await service.getOneByStripeIntentId('pi_123');
 
@@ -74,7 +74,7 @@ describe('PaymentsService', () => {
     });
 
     it('should return null if no payment found', async () => {
-      prisma.payment.findFirst.mockResolvedValue(null);
+      (prisma.payment.findFirst as jest.Mock).mockResolvedValue(null);
 
       const result = await service.getOneByStripeIntentId('pi_nonexistent');
 
@@ -85,7 +85,7 @@ describe('PaymentsService', () => {
   describe('createStripePayment', () => {
     it('should create a payment record with correct data', async () => {
       const mockPayment = { id: 'payment_1' };
-      prisma.payment.create.mockResolvedValue(mockPayment);
+      (prisma.payment.create as jest.Mock).mockResolvedValue(mockPayment);
 
       const result = await service.createStripePayment(
         'org_1',
@@ -118,8 +118,10 @@ describe('PaymentsService', () => {
     it('should determine branchId from membership when provided', async () => {
       const mockPayment = { id: 'payment_1' };
       const mockMembership = { branchId: 'branch_1' };
-      prisma.membership.findFirst.mockResolvedValue(mockMembership);
-      prisma.payment.create.mockResolvedValue(mockPayment);
+      (prisma.membership.findFirst as jest.Mock).mockResolvedValue(
+        mockMembership,
+      );
+      (prisma.payment.create as jest.Mock).mockResolvedValue(mockPayment);
 
       await service.createStripePayment(
         'org_1',
@@ -141,8 +143,8 @@ describe('PaymentsService', () => {
     it('should determine branchId from member when membership not provided', async () => {
       const mockPayment = { id: 'payment_1' };
       const mockMember = { primaryBranchId: 'branch_2' };
-      prisma.member.findFirst.mockResolvedValue(mockMember);
-      prisma.payment.create.mockResolvedValue(mockPayment);
+      (prisma.member.findFirst as jest.Mock).mockResolvedValue(mockMember);
+      (prisma.payment.create as jest.Mock).mockResolvedValue(mockPayment);
 
       await service.createStripePayment(
         'org_1',
@@ -163,9 +165,9 @@ describe('PaymentsService', () => {
 
     it('should set branchId to null when neither member nor membership provided', async () => {
       const mockPayment = { id: 'payment_1' };
-      prisma.member.findFirst.mockResolvedValue(null);
-      prisma.membership.findFirst.mockResolvedValue(null);
-      prisma.payment.create.mockResolvedValue(mockPayment);
+      (prisma.member.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.membership.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.payment.create as jest.Mock).mockResolvedValue(mockPayment);
 
       await service.createStripePayment(
         'org_1',

@@ -46,19 +46,30 @@ export class AiSupervisorService {
     if (!payload.memberId || !payload.planId) {
       throw new Error('Approval tool requires memberId and planId');
     }
+    const required: {
+      memberId: string;
+      planId: string;
+      startDate?: string;
+      notes?: string;
+    } = {
+      memberId: payload.memberId,
+      planId: payload.planId,
+      ...(payload.startDate ? { startDate: payload.startDate } : {}),
+      ...(payload.notes ? { notes: payload.notes } : {}),
+    };
 
     const proposal = name === 'propose_assign_workout_plan'
       ? await this.aiActions.proposeAssignPlan(
           context.organizationId,
           context.userId,
           'ASSIGN_WORKOUT_PLAN',
-          payload,
+          required,
         )
       : await this.aiActions.proposeAssignPlan(
           context.organizationId,
           context.userId,
           'ASSIGN_DIET_PLAN',
-          payload,
+          required,
         );
 
     return this.aiActions.approve(
