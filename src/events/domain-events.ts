@@ -1,13 +1,6 @@
 /**
- * Domain event catalog. Emitted via EventEmitter2 (registered globally by
- * EventEmitterModule.forRoot() in AppModule) so future modules -- the
- * Notifications engine, AI Retention Agent, analytics aggregation jobs --
- * can subscribe without the emitting module knowing they exist. See
- * docs/ARCHITECTURE.md#event-architecture.
- *
- * Only events actually emitted today are listed with a payload type; the
- * rest of the catalog described in the product blueprint (InventoryLow,
- * ...) will be added by the module that produces them.
+ * Domain event catalog. Emitted via EventEmitter2 so modules can subscribe
+ * without the emitting module knowing their implementation details.
  */
 export const DomainEvent = {
   MemberCreated: 'member.created',
@@ -20,16 +13,15 @@ export const DomainEvent = {
   LeadConverted: 'lead.converted',
   DietAssigned: 'diet.assigned',
   InventoryLow: 'inventory.low',
+  PtSessionBooked: 'pt.session.booked',
+  PtSessionCompleted: 'pt.session.completed',
+  PtSessionCancelled: 'pt.session.cancelled',
 } as const;
 
 export interface MemberCreatedEvent {
   organizationId: string;
   branchId: string;
   memberId: string;
-  /// Included so a listener (e.g. the welcome-email job) doesn't need its
-  /// own DB round-trip just to get what MembersService.create() already
-  /// had in hand. Undefined when the member has no email/name on file --
-  /// listeners that need one must check, not assume.
   email?: string;
   firstName?: string;
 }
@@ -103,4 +95,35 @@ export interface InventoryLowEvent {
   name: string;
   quantityOnHand: number;
   reorderLevel: number;
+}
+
+export interface PtSessionBookedEvent {
+  organizationId: string;
+  ptSessionId: string;
+  memberId: string;
+  trainerId?: string;
+  branchId: string;
+  startTime: Date;
+  endTime: Date;
+  bookedByUserId: string;
+}
+
+export interface PtSessionCompletedEvent {
+  organizationId: string;
+  ptSessionId: string;
+  memberId: string;
+  trainerId?: string;
+  branchId: string;
+  completedByUserId: string;
+  actualEndTime: Date;
+}
+
+export interface PtSessionCancelledEvent {
+  organizationId: string;
+  ptSessionId: string;
+  memberId: string;
+  trainerId?: string;
+  branchId: string;
+  cancelledByUserId: string;
+  cancellationReason?: string;
 }
