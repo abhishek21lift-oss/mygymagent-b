@@ -30,8 +30,6 @@ export const envSchema = z.object({
   for (const origin of config.CORS_ORIGIN.split(',').map((v) => v.trim())) { try { if (new URL(origin).protocol !== 'https:') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CORS_ORIGIN'], message: 'Production CORS_ORIGIN entries must use HTTPS' }); } catch { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CORS_ORIGIN'], message: 'Production CORS_ORIGIN must contain valid absolute URLs' }); } }
   try { if (new URL(config.FRONTEND_URL).protocol !== 'https:') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['FRONTEND_URL'], message: 'Production FRONTEND_URL must use HTTPS' }); } catch { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['FRONTEND_URL'], message: 'Production FRONTEND_URL must be a valid absolute URL' }); }
   if (isLocalhost(config.REDIS_URL)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['REDIS_URL'], message: 'Production REDIS_URL must not point to localhost' });
-  if (!config.WHATSAPP_ENCRYPTION_KEY) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['WHATSAPP_ENCRYPTION_KEY'], message: 'Production WhatsApp encryption key is required' });
-  if (!config.WHATSAPP_VERIFY_TOKEN) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['WHATSAPP_VERIFY_TOKEN'], message: 'Production WhatsApp webhook verify token is required' });
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
