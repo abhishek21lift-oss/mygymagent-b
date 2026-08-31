@@ -19,11 +19,7 @@ async function bootstrap() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          styleSrc: [
-            "'self'",
-            "'unsafe-inline'",
-            'https://cdnjs.cloudflare.com',
-          ],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
           scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
           imgSrc: ["'self'", 'data:', 'https:'],
           fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
@@ -34,16 +30,15 @@ async function bootstrap() {
           formAction: ["'self'"],
         },
       },
-      // Additional security headers
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
       crossOriginEmbedderPolicy: { policy: 'require-corp' },
       crossOriginOpenerPolicy: { policy: 'same-origin' },
       crossOriginResourcePolicy: { policy: 'same-origin' },
       dnsPrefetchControl: { allow: false },
       frameguard: { action: 'deny' },
-      hidePoweredBy: { setTo: 'MyGymAgent' },
+      hidePoweredBy: true,
       hsts: {
-        maxAge: 31536000, // 1 year
+        maxAge: 31536000,
         includeSubDomains: true,
         preload: true,
       },
@@ -60,7 +55,6 @@ async function bootstrap() {
   if (!corsOrigin) {
     const logger = new Logger('Main');
     logger.warn('CORS_ORIGIN is not configured - CORS will be disabled');
-    // CORS will not be enabled if origin is not configured
   } else {
     app.enableCors({
       origin: corsOrigin.split(','),
