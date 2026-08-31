@@ -9,11 +9,6 @@ export interface SpecialistToolCallContext {
   requestedBranchId?: string;
 }
 
-/**
- * Common base for AI specialist agents.
- * All tool execution remains centralized in ToolExecutorService so the
- * existing tenant scoping, RBAC and audit guarantees are preserved.
- */
 @Injectable()
 export abstract class BaseSpecialistService {
   protected readonly logger: Logger;
@@ -25,7 +20,7 @@ export abstract class BaseSpecialistService {
     this.logger = new Logger(this.constructor.name);
   }
 
-  protected async executeTool(
+  async executeTool(
     name: AiToolName,
     rawArgs: unknown,
     context: SpecialistToolCallContext,
