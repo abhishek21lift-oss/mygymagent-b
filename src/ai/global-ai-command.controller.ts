@@ -3,7 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { GlobalAiCommandService } from './global-ai-command.service';
-import {
+import type {
   GlobalCommandRequest,
   GlobalCommandResponse,
 } from './global-ai-command.service';

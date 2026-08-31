@@ -16,6 +16,8 @@ import { AiConversationsService } from './conversations/ai-conversations.service
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
+import { GlobalAiCommandController } from './global-ai-command.controller';
+import { GlobalAiCommandService } from './global-ai-command.service';
 
 /**
  * v1 AI: a single tool-calling chat endpoint over OpenRouter, restricted

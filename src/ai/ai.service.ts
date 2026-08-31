@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AiUsageService } from './ai-usage.service';
 import { AiConversationsService } from './conversations/ai-conversations.service';
+import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import type { ChatDto } from './dto/chat.dto';
 import {
   OpenRouterProvider,
