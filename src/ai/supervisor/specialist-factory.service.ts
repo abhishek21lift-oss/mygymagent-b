@@ -6,8 +6,8 @@ import { AnalyticsSpecialistService } from '../specialists/analytics-specialist.
 import { CrmSpecialistService } from '../specialists/crm-specialist.service';
 import { ActionsSpecialistService } from '../specialists/actions-specialist.service';
 import { BriefingSpecialistService } from '../specialists/briefing-specialist.service';
-import { BaseSpecialistService } from './base-specialist.service';
-import { AiToolName } from '../../tools/tool-definitions';
+import { BaseSpecialistService } from '../specialists/base-specialist.service';
+import { AiToolName } from '../tools/tool-definitions';
 
 @Injectable()
 export class SpecialistFactoryService {
@@ -23,8 +23,6 @@ export class SpecialistFactoryService {
     briefingSpecialist: BriefingSpecialistService,
   ) {
     this.specialists = new Map();
-
-    // Register all specialists and map their tools
     this.registerSpecialist(memberSpecialist);
     this.registerSpecialist(workoutSpecialist);
     this.registerSpecialist(nutritionSpecialist);
@@ -40,28 +38,16 @@ export class SpecialistFactoryService {
     }
   }
 
-  /**
-   * Get the appropriate specialist for a given tool
-   * Throws an error if no specialist handles the tool
-   */
   getSpecialistForTool(tool: AiToolName): BaseSpecialistService {
     const specialist = this.specialists.get(tool);
-    if (!specialist) {
-      throw new Error(`No specialist found for tool: ${tool}`);
-    }
+    if (!specialist) throw new Error(`No specialist found for tool: ${tool}`);
     return specialist;
   }
 
-  /**
-   * Check if a tool is handled by any specialist
-   */
   handlesTool(tool: AiToolName): boolean {
     return this.specialists.has(tool);
   }
 
-  /**
-   * Get all handled tools
-   */
   getAllHandledTools(): AiToolName[] {
     return Array.from(this.specialists.keys());
   }
