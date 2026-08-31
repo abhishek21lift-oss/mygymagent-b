@@ -6,7 +6,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { PtSessionStatus, PtSessionType } from '../pt-session.entity';
+import { PtSessionStatus, PtSessionType } from '@prisma/client';
 
 export class UpdatePtSessionDto {
   @IsString()
@@ -45,4 +45,16 @@ export class UpdatePtSessionDto {
   @IsOptional()
   @MaxLength(1000)
   notes?: string;
+
+  @IsOptional()
+  @IsDate()
+  completedAt?: Date;
+
+  @IsOptional()
+  @IsString()
+  completedByUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  cancelledByUserId?: string;
 }
