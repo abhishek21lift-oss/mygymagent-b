@@ -35,6 +35,30 @@ Or via Docker Compose (Postgres + Redis + API, no local Node/Postgres/Redis inst
 docker compose up
 ```
 
+### Full stack in one command (API + web app + Postgres + Redis + S3 + SMTP)
+
+The fastest way to try the **entire product**: API *and* web app, with real object storage
+(MinIO), a real mail server (MailHog), migrations applied and the demo org seeded, all in one
+compose file:
+
+```bash
+docker compose -f docker-compose.fullstack.yml up --build
+```
+
+Open **http://localhost:3000** and log in with the demo accounts (password `DemoPass123!`, e.g.
+`owner@demogym.test`, `manager@demogym.test`, `trainer1@demogym.test`, `sales@demogym.test` —
+the seed prints the full list on boot). The demo org, **Demo Fitness Club**, ships with real data
+across every domain: members + memberships + attendance, the workout engine (exercise library,
+plans, assignments, session execution), nutrition plans, inventory, CRM leads, payments/refunds,
+PT sessions, and Member 360. Emails (e.g. the welcome email on member creation) appear in the
+MailHog inbox at **http://localhost:8025** instead of being dropped.
+
+Requirements: Docker 20.10+ (the api service maps `localhost` to the host via `host-gateway` so
+the API and browser share one S3 endpoint). `docker-compose.fullstack.yml` is a superset of the
+development stack above — same services, plus object storage, SMTP, and the frontend.
+
+### Standalone API in Docker
+
 The API listens on `PORT` (default `4000`). `GET /health` is a liveness check (process up, no
 dependency checks); `GET /ready` additionally checks DB connectivity and returns `503` if the
 database is unreachable — see `docs/deployment/overview.md`.
@@ -52,7 +76,9 @@ won't run without it.
 `src/files/` needs an S3-compatible endpoint. In production this is Cloudflare R2; locally and in
 CI it's [`s3rver`](https://github.com/jamhall/s3rver) (an npm devDependency, real S3-protocol
 requests, not a mock) run as a background process — there's no official Docker image for it, so
-it's not part of `docker-compose.yml`:
+it's not part of `docker-compose.yml`. (The full-stack compose file above uses **MinIO** instead,
+with the same `S3RVER`/`S3RVER` credentials and an init container that creates the bucket, so no
+manual setup):
 
 ```bash
 npx s3rver -d /tmp/s3rver-data -a 0.0.0.0 -p 4568 --allow-mismatched-signatures &

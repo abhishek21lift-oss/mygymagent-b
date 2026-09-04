@@ -70,7 +70,9 @@ driver-adapter generator). `prisma/schema.prisma` is organized in sections:
 - **Core gym domain**: `Member`, `MembershipPlan`, `Membership`, `Attendance`.
 - **Billing**: `Payment`, `Refund` (gym-side; platform SaaS billing is still unmodeled — see
   `docs/saas/billing-separation.md`).
-- **Workouts**: `Exercise`, `WorkoutPlan`, `WorkoutAssignment`.
+- **Workouts**: `Exercise`, `WorkoutPlan`, `WorkoutAssignment`, plus the
+  execution layer `WorkoutSession`/`WorkoutSessionSet` (start an assigned
+  plan, log sets, complete — see `src/workout-sessions/`).
 - **Nutrition**: `FoodItem`, `DietPlan`, `DietAssignment`.
 - **CRM**: `Lead`, `LeadFollowUp`.
 - **Inventory**: `Product`, `StockMovement`.
