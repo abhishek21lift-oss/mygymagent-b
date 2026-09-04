@@ -4,10 +4,10 @@ import { AiConversationsService } from './conversations/ai-conversations.service
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import type { ChatDto } from './dto/chat.dto';
 import {
-  FreeLLMApiProvider,
+  OpenRouterProvider,
   type ChatMessage,
-  type FreeLLMApiUsage,
-} from './providers/freellmapi.provider';
+  type OpenRouterUsage,
+} from './providers/openrouter.provider';
 import { AI_TOOL_DEFINITIONS, type AiToolName } from './tools/tool-definitions';
 import { ToolExecutorService } from './tools/tool-executor.service';
 
@@ -50,7 +50,7 @@ interface UsageTotals {
 
 function addUsage(
   totals: UsageTotals,
-  usage: FreeLLMApiUsage | undefined,
+  usage: OpenRouterUsage | undefined,
 ): void {
   if (!usage) return;
   totals.promptTokens += usage.promptTokens ?? 0;
@@ -65,7 +65,7 @@ function addUsage(
 @Injectable()
 export class AiService {
   constructor(
-    private readonly provider: FreeLLMApiProvider,
+    private readonly provider: OpenRouterProvider,
     private readonly toolExecutor: ToolExecutorService,
     private readonly usageService: AiUsageService,
     private readonly conversations: AiConversationsService,
@@ -207,7 +207,7 @@ export class AiService {
       organizationId,
       userId,
       feature: 'chat',
-      provider: 'freellmapi',
+      provider: 'openrouter',
       model: entry.model,
       promptTokens: entry.usageTotals.promptTokens || undefined,
       completionTokens: entry.usageTotals.completionTokens || undefined,
