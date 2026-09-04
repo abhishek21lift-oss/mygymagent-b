@@ -13,15 +13,14 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { AiConversationsController } from './conversations/ai-conversations.controller';
 import { AiConversationsService } from './conversations/ai-conversations.service';
-import { FreeLLMApiProvider } from './providers/freellmapi.provider';
+import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import { GlobalAiCommandController } from './global-ai-command.controller';
 import { GlobalAiCommandService } from './global-ai-command.service';
 
 /**
- * v1 AI: tool-calling chat over the deployment's OpenAI-compatible
- * FreeLLMAPI gateway, restricted to the explicit tool allowlist.
+ * v1 AI: tool-calling chat over OpenRouter, restricted to the explicit tool allowlist.
  */
 @Module({
   imports: [
@@ -42,7 +41,7 @@ import { GlobalAiCommandService } from './global-ai-command.service';
   ],
   providers: [
     AiService,
-    FreeLLMApiProvider,
+    OpenRouterProvider,
     ToolExecutorService,
     AiUsageService,
     AiConversationsService,
