@@ -27,6 +27,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { PlatformModule } from './platform/platform.module';
 import { BillingModule } from './billing/billing.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
 import { CrmModule } from './crm/crm.module';
 import { AiModule } from './ai/ai.module';
 import { AiActionsModule } from './ai-actions/ai-actions.module';
@@ -83,6 +84,7 @@ import { BriefingModule } from './briefing/briefing.module';
     PlatformModule,
     BillingModule,
     WorkoutsModule,
+    WorkoutSessionsModule,
     CrmModule,
     AiModule,
     AiActionsModule,

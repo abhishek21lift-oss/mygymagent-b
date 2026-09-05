@@ -10,6 +10,8 @@ export const DomainEvent = {
   PaymentRecorded: 'payment.recorded',
   PaymentRefunded: 'payment.refunded',
   WorkoutAssigned: 'workout.assigned',
+  WorkoutSessionStarted: 'workout.session_started',
+  WorkoutSessionCompleted: 'workout.session_completed',
   LeadConverted: 'lead.converted',
   DietAssigned: 'diet.assigned',
   InventoryLow: 'inventory.low',
@@ -72,6 +74,25 @@ export interface WorkoutAssignedEvent {
   workoutPlanId: string;
   memberId: string;
   assignedByUserId?: string;
+}
+
+export interface WorkoutSessionStartedEvent {
+  organizationId: string;
+  branchId: string;
+  workoutSessionId: string;
+  workoutAssignmentId: string;
+  memberId: string;
+  startedByUserId: string;
+}
+
+export interface WorkoutSessionCompletedEvent {
+  organizationId: string;
+  branchId: string;
+  workoutSessionId: string;
+  workoutAssignmentId: string;
+  memberId: string;
+  completedByUserId: string;
+  completedAt: Date;
 }
 
 export interface LeadConvertedEvent {
