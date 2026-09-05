@@ -36,7 +36,10 @@ export default tseslint.config(
       // Keep ESLint non-type-aware; TypeScript typecheck is the CI type-safety gate.
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { ignoreRestSiblings: true, argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },

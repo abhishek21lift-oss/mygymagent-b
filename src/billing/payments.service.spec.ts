@@ -2,14 +2,11 @@ import { Test } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { NotFoundException } from '@nestjs/common';
-import type { CreatePaymentDto } from './dto/create-payment.dto';
-import type { RefundPaymentDto } from './dto/refund-payment.dto';
 
 describe('PaymentsService', () => {
   let service: PaymentsService;
   let prisma: PrismaService;
-  let events: EventEmitter2;
+  let _events: EventEmitter2;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -52,7 +49,7 @@ describe('PaymentsService', () => {
 
     service = moduleRef.get<PaymentsService>(PaymentsService);
     prisma = moduleRef.get<PrismaService>(PrismaService);
-    events = moduleRef.get<EventEmitter2>(EventEmitter2);
+    _events = moduleRef.get<EventEmitter2>(EventEmitter2);
   });
 
   describe('getOneByStripeIntentId', () => {

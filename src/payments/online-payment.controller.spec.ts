@@ -13,7 +13,7 @@ import { CreateOnlinePaymentIntentDto } from './dto/create-online-payment-intent
 describe('OnlinePaymentController', () => {
   let controller: OnlinePaymentController;
   let stripeService: StripeService;
-  let configService: ConfigService;
+  let _configService: ConfigService;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -38,7 +38,7 @@ describe('OnlinePaymentController', () => {
       OnlinePaymentController,
     );
     stripeService = moduleRef.get<StripeService>(StripeService);
-    configService = moduleRef.get<ConfigService>(ConfigService);
+    _configService = moduleRef.get<ConfigService>(ConfigService);
   });
 
   describe('createPaymentIntent', () => {

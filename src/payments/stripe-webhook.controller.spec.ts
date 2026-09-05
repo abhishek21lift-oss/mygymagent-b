@@ -15,7 +15,7 @@ describe('StripeWebhookController', () => {
   let stripeService: StripeService;
   let paymentsService: PaymentsService;
   let configService: ConfigService;
-  let logger: Logger;
+  let _logger: Logger;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -56,7 +56,7 @@ describe('StripeWebhookController', () => {
     stripeService = moduleRef.get<StripeService>(StripeService);
     paymentsService = moduleRef.get<PaymentsService>(PaymentsService);
     configService = moduleRef.get<ConfigService>(ConfigService);
-    logger = moduleRef.get<Logger>(Logger);
+    _logger = moduleRef.get<Logger>(Logger);
   });
 
   describe('handleWebhook', () => {
