@@ -33,8 +33,9 @@ export default tseslint.config(
   {
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
+      // Keep ESLint non-type-aware; TypeScript typecheck is the CI type-safety gate.
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
