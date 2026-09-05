@@ -58,19 +58,20 @@ export class AiSupervisorService {
       ...(payload.notes ? { notes: payload.notes } : {}),
     };
 
-    const proposal = name === 'propose_assign_workout_plan'
-      ? await this.aiActions.proposeAssignPlan(
-          context.organizationId,
-          context.userId,
-          'ASSIGN_WORKOUT_PLAN',
-          required,
-        )
-      : await this.aiActions.proposeAssignPlan(
-          context.organizationId,
-          context.userId,
-          'ASSIGN_DIET_PLAN',
-          required,
-        );
+    const proposal =
+      name === 'propose_assign_workout_plan'
+        ? await this.aiActions.proposeAssignPlan(
+            context.organizationId,
+            context.userId,
+            'ASSIGN_WORKOUT_PLAN',
+            required,
+          )
+        : await this.aiActions.proposeAssignPlan(
+            context.organizationId,
+            context.userId,
+            'ASSIGN_DIET_PLAN',
+            required,
+          );
 
     return this.aiActions.approve(
       context.organizationId,

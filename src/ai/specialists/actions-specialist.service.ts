@@ -19,9 +19,6 @@ export class ActionsSpecialistService extends BaseSpecialistService {
   }
 
   getHandledTools(): AiToolName[] {
-    return [
-      'propose_assign_workout_plan',
-      'propose_assign_diet_plan',
-    ];
+    return ['propose_assign_workout_plan', 'propose_assign_diet_plan'];
   }
 }

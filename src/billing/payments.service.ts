@@ -123,7 +123,8 @@ export class PaymentsService {
         amount,
         currency,
         method: 'CARD', // Assuming Stripe payments are card payments
-        status: status as 'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
+        status: status as
+          'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
         stripePaymentIntentId,
         recordedByUserId,
       },

@@ -15,34 +15,47 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
 
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
-        scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
-        connectSrc: ["'self'", 'https:', 'http://localhost:3000', 'http://localhost:5173'],
-        frameSrc: ["'none'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: [
+            "'self'",
+            "'unsafe-inline'",
+            'https://cdnjs.cloudflare.com',
+          ],
+          scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
+          connectSrc: [
+            "'self'",
+            'https:',
+            'http://localhost:3000',
+            'http://localhost:5173',
+          ],
+          frameSrc: ["'none'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
+        },
       },
-    },
-    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-    crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-    dnsPrefetchControl: { allow: false },
-    frameguard: { action: 'deny' },
-    hidePoweredBy: true,
-    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
-    ieNoOpen: true,
-    noSniff: true,
-    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
-    xssFilter: true,
-  }));
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      dnsPrefetchControl: { allow: false },
+      frameguard: { action: 'deny' },
+      hidePoweredBy: true,
+      hsts: isProduction
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
+      ieNoOpen: true,
+      noSniff: true,
+      permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+      xssFilter: true,
+    }),
+  );
 
   app.use(compression());
   app.use(cookieParser());
@@ -57,22 +70,32 @@ async function bootstrap() {
     .filter(Boolean);
 
   if (!configuredCors) {
-    new Logger('Main').warn(`CORS_ORIGIN is not configured; using safe fallback: ${origins.join(', ')}`);
+    new Logger('Main').warn(
+      `CORS_ORIGIN is not configured; using safe fallback: ${origins.join(', ')}`,
+    );
   }
 
   app.enableCors({
     origin: origins,
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Name', 'X-Request-Id', 'x-branch-id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Device-Name',
+      'X-Request-Id',
+      'x-branch-id',
+    ],
   });
 
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-    transformOptions: { enableImplicitConversion: true },
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
   app.enableShutdownHooks();

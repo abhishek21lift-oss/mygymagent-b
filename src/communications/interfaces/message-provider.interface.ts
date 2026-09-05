@@ -20,7 +20,6 @@ export interface MessageProvider {
 export class UnimplementedChannelProvider implements MessageProvider {
   constructor(private readonly channelName: string) {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- always throws; no real send to await.
   async send(): Promise<void> {
     throw new ChannelNotConfiguredError(
       `${this.channelName} is not connected on this deployment -- no provider is implemented yet.`,

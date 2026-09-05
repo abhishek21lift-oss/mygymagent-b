@@ -24,49 +24,78 @@ export class DataRetentionScanner {
       };
 
       const auditLogCutoff = new Date();
-      auditLogCutoff.setDate(auditLogCutoff.getDate() - RETENTION_PERIODS.auditLog);
+      auditLogCutoff.setDate(
+        auditLogCutoff.getDate() - RETENTION_PERIODS.auditLog,
+      );
       const deletedAuditLogs = await this.prisma.auditLog.deleteMany({
         where: { createdAt: { lt: auditLogCutoff } },
       });
-      this.logger.log(`Deleted ${deletedAuditLogs.count} audit log records older than ${RETENTION_PERIODS.auditLog} days`);
+      this.logger.log(
+        `Deleted ${deletedAuditLogs.count} audit log records older than ${RETENTION_PERIODS.auditLog} days`,
+      );
 
       const refreshTokenCutoff = new Date();
-      refreshTokenCutoff.setDate(refreshTokenCutoff.getDate() - RETENTION_PERIODS.refreshToken);
+      refreshTokenCutoff.setDate(
+        refreshTokenCutoff.getDate() - RETENTION_PERIODS.refreshToken,
+      );
       const deletedRefreshTokens = await this.prisma.refreshToken.deleteMany({
-        where: { createdAt: { lt: refreshTokenCutoff }, revokedAt: { not: null } },
+        where: {
+          createdAt: { lt: refreshTokenCutoff },
+          revokedAt: { not: null },
+        },
       });
-      this.logger.log(`Deleted ${deletedRefreshTokens.count} refresh token records older than ${RETENTION_PERIODS.refreshToken} days`);
+      this.logger.log(
+        `Deleted ${deletedRefreshTokens.count} refresh token records older than ${RETENTION_PERIODS.refreshToken} days`,
+      );
 
       const passwordResetTokenCutoff = new Date();
-      passwordResetTokenCutoff.setDate(passwordResetTokenCutoff.getDate() - RETENTION_PERIODS.passwordResetToken);
-      const deletedPasswordResetTokens = await this.prisma.passwordResetToken.deleteMany({
-        where: {
-          OR: [
-            { usedAt: { lt: passwordResetTokenCutoff } },
-            { expiresAt: { lt: passwordResetTokenCutoff } },
-          ],
-        },
-      });
-      this.logger.log(`Deleted ${deletedPasswordResetTokens.count} password reset token records older than ${RETENTION_PERIODS.passwordResetToken} days`);
+      passwordResetTokenCutoff.setDate(
+        passwordResetTokenCutoff.getDate() -
+          RETENTION_PERIODS.passwordResetToken,
+      );
+      const deletedPasswordResetTokens =
+        await this.prisma.passwordResetToken.deleteMany({
+          where: {
+            OR: [
+              { usedAt: { lt: passwordResetTokenCutoff } },
+              { expiresAt: { lt: passwordResetTokenCutoff } },
+            ],
+          },
+        });
+      this.logger.log(
+        `Deleted ${deletedPasswordResetTokens.count} password reset token records older than ${RETENTION_PERIODS.passwordResetToken} days`,
+      );
 
       const userPermissionOverrideCutoff = new Date();
-      userPermissionOverrideCutoff.setDate(userPermissionOverrideCutoff.getDate() - RETENTION_PERIODS.userPermissionOverride);
-      const deletedUserPermissionOverrides = await this.prisma.userPermissionOverride.deleteMany({
-        where: { createdAt: { lt: userPermissionOverrideCutoff } },
-      });
-      this.logger.log(`Deleted ${deletedUserPermissionOverrides.count} user permission override records older than ${RETENTION_PERIODS.userPermissionOverride} days`);
+      userPermissionOverrideCutoff.setDate(
+        userPermissionOverrideCutoff.getDate() -
+          RETENTION_PERIODS.userPermissionOverride,
+      );
+      const deletedUserPermissionOverrides =
+        await this.prisma.userPermissionOverride.deleteMany({
+          where: { createdAt: { lt: userPermissionOverrideCutoff } },
+        });
+      this.logger.log(
+        `Deleted ${deletedUserPermissionOverrides.count} user permission override records older than ${RETENTION_PERIODS.userPermissionOverride} days`,
+      );
 
       const emailVerificationTokenCutoff = new Date();
-      emailVerificationTokenCutoff.setDate(emailVerificationTokenCutoff.getDate() - RETENTION_PERIODS.emailVerificationToken);
-      const deletedEmailVerificationTokens = await this.prisma.emailVerificationToken.deleteMany({
-        where: {
-          OR: [
-            { usedAt: { lt: emailVerificationTokenCutoff } },
-            { expiresAt: { lt: emailVerificationTokenCutoff } },
-          ],
-        },
-      });
-      this.logger.log(`Deleted ${deletedEmailVerificationTokens.count} email verification token records older than ${RETENTION_PERIODS.emailVerificationToken} days`);
+      emailVerificationTokenCutoff.setDate(
+        emailVerificationTokenCutoff.getDate() -
+          RETENTION_PERIODS.emailVerificationToken,
+      );
+      const deletedEmailVerificationTokens =
+        await this.prisma.emailVerificationToken.deleteMany({
+          where: {
+            OR: [
+              { usedAt: { lt: emailVerificationTokenCutoff } },
+              { expiresAt: { lt: emailVerificationTokenCutoff } },
+            ],
+          },
+        });
+      this.logger.log(
+        `Deleted ${deletedEmailVerificationTokens.count} email verification token records older than ${RETENTION_PERIODS.emailVerificationToken} days`,
+      );
 
       this.logger.log('Data retention scan completed successfully');
     } catch (error) {

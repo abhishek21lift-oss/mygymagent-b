@@ -92,7 +92,11 @@ export class AiService {
       ...priorHistory,
       { role: 'user', content: dto.message },
     ];
-    await this.conversations.appendMessage(conversation.id, 'USER', dto.message);
+    await this.conversations.appendMessage(
+      conversation.id,
+      'USER',
+      dto.message,
+    );
 
     const toolCallLog: { name: string; args: unknown }[] = [];
     const usageTotals: UsageTotals = {
@@ -126,7 +130,11 @@ export class AiService {
             reply,
             toolCallLog,
           );
-          return { reply, toolCalls: toolCallLog, conversationId: conversation.id };
+          return {
+            reply,
+            toolCalls: toolCallLog,
+            conversationId: conversation.id,
+          };
         }
 
         messages.push(response);
@@ -153,7 +161,8 @@ export class AiService {
             resultContent = JSON.stringify(result);
           } catch (error) {
             resultContent = JSON.stringify({
-              error: error instanceof Error ? error.message : 'Tool call failed',
+              error:
+                error instanceof Error ? error.message : 'Tool call failed',
             });
           }
 
@@ -179,7 +188,11 @@ export class AiService {
         timedOutReply,
         toolCallLog,
       );
-      return { reply: timedOutReply, toolCalls: toolCallLog, conversationId: conversation.id };
+      return {
+        reply: timedOutReply,
+        toolCalls: toolCallLog,
+        conversationId: conversation.id,
+      };
     } catch (error) {
       await this.logUsage(organizationId, userId, {
         latencyMs: Date.now() - startedAt,
@@ -212,7 +225,9 @@ export class AiService {
       promptTokens: entry.usageTotals.promptTokens || undefined,
       completionTokens: entry.usageTotals.completionTokens || undefined,
       totalTokens: entry.usageTotals.totalTokens || undefined,
-      costUsd: entry.usageTotals.hasCost ? entry.usageTotals.costUsd : undefined,
+      costUsd: entry.usageTotals.hasCost
+        ? entry.usageTotals.costUsd
+        : undefined,
       latencyMs: entry.latencyMs,
       status: entry.status,
       errorMessage: entry.errorMessage,
