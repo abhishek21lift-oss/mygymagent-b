@@ -88,7 +88,7 @@ export class LeadsService {
     }
     await this.validateReferences(
       organizationId,
-      dto.branchId ?? branchScope,
+      dto.branchId ?? branchScope ?? undefined,
       dto.assignedToUserId,
     );
     return this.prisma.lead.create({
@@ -230,7 +230,7 @@ export class LeadsService {
   private async validateReferences(
     organizationId: string,
     branchId?: string,
-    assignedToUserId?: string,
+    assignedToUserId?: string | null,
   ) {
     if (branchId) {
       const branch = await this.prisma.branch.findFirst({
