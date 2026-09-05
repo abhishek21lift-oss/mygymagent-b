@@ -257,7 +257,7 @@ export class AiActionsService {
     }
     // When an action is approved, the decidedByUserId is set to the approver.
     // We use that to execute the action (the approver is the one who performed the action).
-    let executorUserId = _decidedByUserId;
+    let executorUserId: string | undefined = _decidedByUserId;
     if (!executorUserId) {
       // Fallback - use the database field if the parameter is not set
       // (should not happen in normal flow since the parameter should always be set)
@@ -268,6 +268,6 @@ export class AiActionsService {
         );
       }
     }
-    return this.execute(organizationId, action, executorUserId as string);
+    return this.execute(organizationId, action, executorUserId);
   }
 }
