@@ -76,7 +76,7 @@ export class LeadsService {
     return lead;
   }
 
-  create(
+  async create(
     organizationId: string,
     dto: CreateLeadDto,
     branchScope: string | null = null,
@@ -86,6 +86,11 @@ export class LeadsService {
         'Cannot create a lead outside your assigned branch',
       );
     }
+    await this.validateReferences(
+      organizationId,
+      dto.branchId ?? branchScope,
+      dto.assignedToUserId,
+    );
     return this.prisma.lead.create({
       data: {
         organizationId,
@@ -101,7 +106,7 @@ export class LeadsService {
     dto: UpdateLeadDto,
     branchScope: string | null = null,
   ) {
-    await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(organizationId, id, branchScope);
     if (
       branchScope &&
       dto.branchId !== undefined &&
@@ -111,6 +116,11 @@ export class LeadsService {
         'Cannot move a lead outside your assigned branch',
       );
     }
+    await this.validateReferences(
+      organizationId,
+      dto.branchId ?? existing.branchId ?? branchScope ?? undefined,
+      dto.assignedToUserId,
+    );
     return this.prisma.lead.update({ where: { id }, data: dto });
   }
 
@@ -132,9 +142,7 @@ export class LeadsService {
     });
   }
 
-  /** Creates a real Member from this lead's info and marks the lead WON.
-   * Delegates to MembersService.create() -- the same path the REST /members
-   * endpoint uses -- rather than duplicating member-creation logic here. */
+  /** Creates a real Member from this lead's info and marks the lead WON. */
   async convert(
     organizationId: string,
     id: string,
@@ -152,9 +160,6 @@ export class LeadsService {
       );
     }
 
-    // MembersService.create() re-checks branchScope itself -- passing it
-    // through means a branch-scoped caller can't launder a cross-branch
-    // member creation through the lead-conversion path.
     const member = await this.membersService.create(
       organizationId,
       {
@@ -211,8 +216,6 @@ export class LeadsService {
     followUpId: string,
     branchScope: string | null = null,
   ) {
-    // Confirms the parent lead is both in this org and within branchScope
-    // (leadFollowUp itself carries no branchId to filter by directly).
     await this.getOne(organizationId, leadId, branchScope);
     const followUp = await this.prisma.leadFollowUp.findFirst({
       where: { id: followUpId, leadId, organizationId },
@@ -222,5 +225,45 @@ export class LeadsService {
       where: { id: followUpId },
       data: { completedAt: new Date() },
     });
+  }
+
+  private async validateReferences(
+    organizationId: string,
+    branchId?: string,
+    assignedToUserId?: string,
+  ) {
+    if (branchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: {
+          id: branchId,
+          organizationId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!branch) {
+        throw new BadRequestException(
+          'Branch does not belong to this organization',
+        );
+      }
+    }
+
+    if (assignedToUserId) {
+      const user = await this.prisma.user.findFirst({
+        where: {
+          id: assignedToUserId,
+          organizationId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!user) {
+        throw new BadRequestException(
+          'Assigned user does not belong to this organization',
+        );
+      }
+    }
   }
 }
