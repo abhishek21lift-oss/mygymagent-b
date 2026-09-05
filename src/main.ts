@@ -13,6 +13,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
+  const isProduction = config.get('NODE_ENV') === 'production';
 
   app.use(helmet({
     contentSecurityPolicy: {
@@ -36,7 +37,7 @@ async function bootstrap() {
     dnsPrefetchControl: { allow: false },
     frameguard: { action: 'deny' },
     hidePoweredBy: true,
-    hsts: config.get('NODE_ENV') === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
     ieNoOpen: true,
     noSniff: true,
     permittedCrossDomainPolicies: { permittedPolicies: 'none' },
@@ -46,18 +47,25 @@ async function bootstrap() {
   app.use(compression());
   app.use(cookieParser());
 
-  const corsOrigin = config.get<string>('CORS_ORIGIN');
-  if (!corsOrigin) {
-    new Logger('Main').warn('CORS_ORIGIN is not configured - CORS will be disabled');
-  } else {
-    const origins = corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean);
-    app.enableCors({
-      origin: origins,
-      credentials: true,
-      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Name', 'X-Request-Id'],
-    });
+  const configuredCors = config.get<string>('CORS_ORIGIN');
+  const fallbackCors = isProduction
+    ? 'https://mygymagent-f.vercel.app'
+    : 'http://localhost:3000,http://localhost:5173';
+  const origins = (configuredCors || fallbackCors)
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  if (!configuredCors) {
+    new Logger('Main').warn(`CORS_ORIGIN is not configured; using safe fallback: ${origins.join(', ')}`);
   }
+
+  app.enableCors({
+    origin: origins,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Name', 'X-Request-Id', 'x-branch-id'],
+  });
 
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
