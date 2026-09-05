@@ -87,6 +87,8 @@ model Organization {
   exercises               Exercise[]
   workoutPlans            WorkoutPlan[]
   workoutAssignments      WorkoutAssignment[]
+  workoutSessions         WorkoutSession[]
+  workoutSessionSets      WorkoutSessionSet[]
   leads                   Lead[]
   leadFollowUps           LeadFollowUp[]
   foodItems               FoodItem[]
@@ -156,6 +158,7 @@ model Branch {
   userRoles               UserRole[]
   payments                Payment[]
   ptSessions              PtSession[] @relation("PtSession")
+  workoutSessions         WorkoutSession[]
   leads                   Lead[]
   primaryUsers            User[]                @relation("UserPrimaryBranch")
   primaryMembers          Member[]              @relation("MemberPrimaryBranch")
@@ -229,6 +232,7 @@ model User {
   refundsRecorded          Refund[]                  @relation("RefundRecordedBy")
   workoutPlansCreated      WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
   workoutAssignmentsMade   WorkoutAssignment[]       @relation("WorkoutAssignedBy")
+  workoutSessionsCreated   WorkoutSession[]          @relation("WorkoutSessionCreatedBy")
   leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
   leadFollowUpsCreated     LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
   dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
@@ -522,6 +526,7 @@ model Member {
   attendances        Attendance[]
   payments           Payment[]
   workoutAssignments WorkoutAssignment[]
+  workoutSessions    WorkoutSession[]
   dietAssignments    DietAssignment[]
   ptSessions         PtSession[]   @relation("PtSession")
   /// Set if this member originated from a converted Lead -- the opposite
@@ -1091,10 +1096,88 @@ model WorkoutAssignment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  sessions WorkoutSession[]
+
   @@index([organizationId])
   @@index([memberId])
   @@index([workoutPlanId])
   @@map("workout_assignments")
+}
+
+enum WorkoutSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// Execution record for an assigned workout plan: one row per time a
+/// member actually runs a workout. The plan's exercises are snapshotted
+/// into `exercises` (JSON) at start time so later edits to the plan never
+/// rewrite execution history, and logged sets are appended per exercise.
+/// This is the "execution layer" the WorkoutPlan/WorkoutAssignment shape
+/// (above) deliberately deferred -- see workouts/README.md.
+model WorkoutSession {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignmentId   String
+  assignment     WorkoutAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  sessionDate DateTime              @default(now())
+  status      WorkoutSessionStatus  @default(IN_PROGRESS)
+  startedAt   DateTime              @default(now())
+  completedAt DateTime?
+  notes       String?
+
+  /// Snapshot of the assigned plan's exercises at start time
+  /// (`[{id, exerciseId, name, setsTarget, repsTarget, restSeconds,
+  /// displayOrder, notes}]` -- `id` is a per-snapshot uuid, the key sets
+  /// reference). Same denormalized-JSON reasoning as WorkoutPlan.exercises.
+  exercises Json @default("[]")
+
+  createdByUserId String?
+  createdByUser   User?   @relation("WorkoutSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sets WorkoutSessionSet[]
+
+  @@index([organizationId, branchId, sessionDate])
+  @@index([assignmentId])
+  @@index([memberId, sessionDate])
+  @@map("workout_sessions")
+}
+
+/// One logged set within a workout session execution. Append-only: a set
+/// is written once per (session, exercise, setNumber) -- re-logging the
+/// same set number overwrites the values in place rather than creating a
+/// second row, so the frontend's "log set N" retries stay idempotent.
+model WorkoutSessionSet {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// Which snapshot entry of WorkoutSession.exercises this set belongs to
+  /// (the per-snapshot `id` above, surfaced to clients as
+  /// sessionExerciseId).
+  exerciseId String
+  setNumber  Int
+
+  weightKg Decimal? @db.Decimal(6, 2)
+  reps     Int?
+  rpe      Decimal? @db.Decimal(3, 1)
+  notes    String?
+
+  completedAt DateTime @default(now())
+
+  @@unique([sessionId, exerciseId, setNumber])
+  @@index([organizationId, sessionId])
+  @@map("workout_session_sets")
 }
 
 // ----------------------------------------------------------------------------
