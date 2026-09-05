@@ -114,20 +114,41 @@ export class WorkoutPlansService {
     dto: AssignWorkoutPlanDto,
     assignedByUserId: string,
   ) {
-    const [plan, member] = await Promise.all([
+    const [plan, member, assignedBy] = await Promise.all([
       this.getOne(organizationId, workoutPlanId),
       this.prisma.member.findFirst({
         where: { id: dto.memberId, organizationId, deletedAt: null },
       }),
+      this.prisma.user.findFirst({
+        where: {
+          id: assignedByUserId,
+          organizationId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: { id: true, primaryBranchId: true },
+      }),
     ]);
     if (!member) throw new NotFoundException('Member not found');
+    if (!assignedBy) {
+      throw new NotFoundException('Assigning user not found or inactive');
+    }
+
+    // Branch-scoped staff/trainers may only assign workouts to members
+    // belonging to their own primary branch. Organization/platform-level
+    // users have no primaryBranchId and remain organization-wide.
+    if (assignedBy.primaryBranchId && member.primaryBranchId !== assignedBy.primaryBranchId) {
+      throw new BadRequestException(
+        'Cannot assign a workout to a member outside your assigned branch',
+      );
+    }
 
     const assignment = await this.prisma.workoutAssignment.create({
       data: {
         organizationId,
         workoutPlanId: plan.id,
         memberId: member.id,
-        assignedByUserId,
+        assignedByUserId: assignedBy.id,
         startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
         notes: dto.notes,
       },
@@ -138,7 +159,7 @@ export class WorkoutPlansService {
       workoutAssignmentId: assignment.id,
       workoutPlanId: plan.id,
       memberId: member.id,
-      assignedByUserId,
+      assignedByUserId: assignedBy.id,
     };
     this.events.emit(DomainEvent.WorkoutAssigned, payload);
     return assignment;
