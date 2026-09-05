@@ -261,13 +261,13 @@ export class AiActionsService {
     if (!executorUserId) {
       // Fallback - use the database field if the parameter is not set
       // (should not happen in normal flow since the parameter should always be set)
-      executorUserId = action.decidedByUserId;
+      executorUserId = action.decidedByUserId ?? undefined;
       if (!executorUserId) {
         throw new BadRequestException(
           `Approved action missing decidedByUserId`,
         );
       }
     }
-    return this.execute(organizationId, action, executorUserId);
+    return this.execute(organizationId, action, executorUserId as string);
   }
 }
