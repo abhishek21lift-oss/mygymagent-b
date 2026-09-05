@@ -18,7 +18,6 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePaymentDto } from './dto/create-payment.dto';
 import type { RefundPaymentDto } from './dto/refund-payment.dto';
-import type { PaymentStatus } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {

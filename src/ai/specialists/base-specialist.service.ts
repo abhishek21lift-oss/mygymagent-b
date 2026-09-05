@@ -1,9 +1,8 @@
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ToolExecutorService } from '../../ai/tools/tool-executor.service';
 import { AiActionsService } from '../../ai-actions/ai-actions.service';
 import { AiToolName } from '../tools/tool-definitions';
 import { validateToolArgs } from '../../ai/tools/validate-tool-args';
-import type { Prisma } from '@prisma/client';
 
 export interface SpecialistToolCallContext {
   organizationId: string;

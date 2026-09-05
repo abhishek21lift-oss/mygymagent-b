@@ -1,14 +1,8 @@
-import {
-  Injectable,
-  Logger,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import { AiToolName } from './tools/tool-definitions';
-import { validateToolArgs } from './tools/validate-tool-args';
-import type { Prisma } from '@prisma/client';
+import type {} from '@prisma/client';
 
 export interface GlobalCommandRequest {
   organizationId: string;
@@ -136,10 +130,7 @@ export class GlobalAiCommandService {
    * Parse the command to determine which tool to use and extract arguments
    * Uses pattern matching to identify user intent
    */
-  private async parseCommand(
-    command: string,
-    context?: Record<string, unknown>,
-  ): Promise<{
+  private async parseCommand(command: string): Promise<{
     toolName: AiToolName;
     args: unknown;
     isActionable: boolean;
@@ -289,7 +280,7 @@ export class GlobalAiCommandService {
           null,
           2,
         )}`;
-      case 'get_at_risk_members':
+      case 'get_at_risk_members': {
         const members = result as Array<any>;
         if (members.length === 0) {
           return 'Great news! There are currently no at-risk members.';
@@ -300,6 +291,7 @@ export class GlobalAiCommandService {
               `${idx + 1}. ${m.memberId}: ${m.daysSinceCheckIn || 'Never checked in'} days`,
           )
           .join('\n')}`;
+      }
       case 'get_sales_funnel':
         return `Here's your sales funnel:\n${JSON.stringify(result, null, 2)}`;
       case 'get_trainer_workload':
@@ -326,7 +318,7 @@ export class GlobalAiCommandService {
   /**
    * Get a description of what the action will do for approval requests
    */
-  private getActionDescription(toolName: AiToolName, args: unknown): string {
+  private getActionDescription(toolName: AiToolName): string {
     switch (toolName) {
       case 'create_followup':
         return `create a follow-up task`;

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { AiActionType, Prisma } from '@prisma/client';
+import type { AiActionType } from '@prisma/client';
 import { validateToolArgs } from '../ai/tools/validate-tool-args';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DietPlansService } from '../nutrition/diet-plans.service';
@@ -247,8 +247,7 @@ export class AiActionsService {
   async executeApprovedAction(
     organizationId: string,
     id: string,
-    approvalResult: any, // approval result from the approval step (not used)
-    decidedByUserId: string, // the user who is requesting the execution (AI user or system)
+    _decidedByUserId: string, // the user who is requesting the execution (AI user or system)
   ): Promise<string> {
     const action = await this.getOne(organizationId, id);
     if (action.status !== 'APPROVED') {
@@ -258,11 +257,16 @@ export class AiActionsService {
     }
     // When an action is approved, the decidedByUserId is set to the approver.
     // We use that to execute the action (the approver is the one who performed the action).
-    const executorUserId = action.decidedByUserId;
+    const executorUserId = _decidedByUserId;
     if (!executorUserId) {
-      // Fallback to the passed decidedByUserId if for some reason it's not set
-      // (should not happen in normal flow)
-      throw new BadRequestException(`Approved action missing decidedByUserId`);
+      // Fallback - use the database field if the parameter is not set
+      // (should not happen in normal flow since the parameter should always be set)
+      executorUserId = action.decidedByUserId;
+      if (!executorUserId) {
+        throw new BadRequestException(
+          `Approved action missing decidedByUserId`,
+        );
+      }
     }
     return this.execute(organizationId, action, executorUserId);
   }
