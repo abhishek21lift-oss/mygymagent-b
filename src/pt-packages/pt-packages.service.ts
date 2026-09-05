@@ -130,7 +130,7 @@ export class PtPackagesService {
       };
 
     const packages = await tx.$queryRawUnsafe<any[]>(
-      `SELECT id, "totalSessions", "usedSessions"
+      `SELECT id, "totalSessions", "usedSessions", "status"
        FROM "pt_packages"
        WHERE "organizationId"=$1 AND "memberId"=$2 AND "status"='ACTIVE'
          AND "startDate" <= $3 AND "endDate" >= $3
