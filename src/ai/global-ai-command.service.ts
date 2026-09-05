@@ -44,7 +44,6 @@ export class GlobalAiCommandService {
       // Parse command to determine intent and extract parameters
       const { toolName, args, isActionable } = await this.parseCommand(
         request.command,
-        request.context,
       );
 
       // Execute the tool via AI Supervisor
@@ -94,7 +93,6 @@ export class GlobalAiCommandService {
           type: 'approval_required',
           content: `I've prepared a proposal to ${this.getActionDescription(
             toolName,
-            args,
           )}. This requires approval before it can be executed.`,
           data: {
             tool: toolName,

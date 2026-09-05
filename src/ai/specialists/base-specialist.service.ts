@@ -100,7 +100,6 @@ export abstract class BaseSpecialistService {
     return this.aiActions.executeApprovedAction(
       context.organizationId,
       proposalId,
-      approvalResult,
       context.userId,
     );
   }
