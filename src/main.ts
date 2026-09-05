@@ -8,76 +8,69 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { AllExceptionsFilter } from './common/filters/all-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
-          scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
-          imgSrc: ["'self'", 'data:', 'https:'],
-          fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
-          connectSrc: ["'self'", 'https://api.mygymagent.com'],
-          frameSrc: ["'none'"],
-          objectSrc: ["'none'"],
-          baseUri: ["'self'"],
-          formAction: ["'self'"],
-        },
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
+        scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
+        connectSrc: ["'self'", 'https:', 'http://localhost:3000', 'http://localhost:5173'],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
       },
-      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-      crossOriginEmbedderPolicy: { policy: 'require-corp' },
-      crossOriginOpenerPolicy: { policy: 'same-origin' },
-      crossOriginResourcePolicy: { policy: 'same-origin' },
-      dnsPrefetchControl: { allow: false },
-      frameguard: { action: 'deny' },
-      hidePoweredBy: true,
-      hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true,
-      },
-      ieNoOpen: true,
-      noSniff: true,
-      permittedCrossDomainPolicies: { permittedPolicies: 'none' },
-      xssFilter: true,
-    }),
-  );
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    dnsPrefetchControl: { allow: false },
+    frameguard: { action: 'deny' },
+    hidePoweredBy: true,
+    hsts: config.get('NODE_ENV') === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    ieNoOpen: true,
+    noSniff: true,
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    xssFilter: true,
+  }));
+
   app.use(compression());
   app.use(cookieParser());
 
   const corsOrigin = config.get<string>('CORS_ORIGIN');
   if (!corsOrigin) {
-    const logger = new Logger('Main');
-    logger.warn('CORS_ORIGIN is not configured - CORS will be disabled');
+    new Logger('Main').warn('CORS_ORIGIN is not configured - CORS will be disabled');
   } else {
+    const origins = corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean);
     app.enableCors({
-      origin: corsOrigin.split(','),
+      origin: origins,
       credentials: true,
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Name', 'X-Request-Id'],
     });
   }
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+    transformOptions: { enableImplicitConversion: true },
+  }));
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
-
   app.enableShutdownHooks();
 
   const port = config.get<number>('PORT', 4000);
   await app.listen(port);
-
   console.log(`MyGymAgent API listening on port ${port}`);
 }
 
