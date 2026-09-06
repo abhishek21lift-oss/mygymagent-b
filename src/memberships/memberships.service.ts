@@ -112,8 +112,8 @@ export class MembershipsService {
       ? new Prisma.Decimal(dto.initialPayment)
       : null;
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const membership = await tx.membership.create({
+    const membership = await this.prisma.$transaction(async (tx) => {
+      const newMembership = await tx.membership.create({
         data: {
           organizationId,
           branchId,
@@ -129,24 +129,12 @@ export class MembershipsService {
         },
       });
 
-      let payment: {
-        id: string;
-        organizationId: string;
-        branchId: string | null;
-        memberId: string;
-        membershipId: string | null;
-        amount: Prisma.Decimal;
-        currency: string;
-        status: PaymentStatus;
-        method: string;
-        createdAt: Date;
-      } | null = null;
       if (initialPayment && initialPayment.gt(0)) {
-        payment = await tx.payment.create({
+        await tx.payment.create({
           data: {
             organizationId,
             memberId: member.id,
-            membershipId: membership.id,
+            membershipId: newMembership.id,
             amount: initialPayment,
             currency: plan.currency,
             method: dto.paymentMethod ?? 'CASH',
@@ -155,40 +143,18 @@ export class MembershipsService {
         });
       }
 
-      const paidAmount = payment ? initialPayment! : new Prisma.Decimal(0);
-      const refundedAmount = new Prisma.Decimal(0);
-      const outstandingAmount = finalPrice.sub(paidAmount);
-      const paymentStatus = outstandingAmount.lte(0)
-        ? 'PAID'
-        : outstandingAmount.sub(refundedAmount).gte(finalPrice)
-          ? 'UNPAID'
-          : 'PARTIALLY_PAID';
-
-      return {
-        membership,
-        payment,
-        financial: {
-          grossAmount: plan.price,
-          discount: discount ?? new Prisma.Decimal(0),
-          finalAmount: finalPrice,
-          paidAmount,
-          refundedAmount,
-          outstandingAmount,
-          paymentStatus,
-        },
-      };
+      return newMembership;
     });
 
     const payload: MembershipStartedEvent = {
       organizationId,
-      branchId: result.membership.branchId,
-      membershipId: result.membership.id,
-      memberId: result.membership.memberId,
-      membershipPlanId: result.membership.membershipPlanId,
+      branchId: membership.branchId,
+      membershipId: membership.id,
+      memberId: membership.memberId,
+      membershipPlanId: membership.membershipPlanId,
     };
     this.events.emit(DomainEvent.MembershipStarted, payload);
-
-    return result;
+    return membership;
   }
 
   async freeze(
