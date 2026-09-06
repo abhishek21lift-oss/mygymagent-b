@@ -127,7 +127,7 @@ export class PaymentsService {
 
     const branchId = membership?.branchId ?? member.primaryBranchId;
 
-    const payment = await this.prisma.payment.create({
+    return this.prisma.payment.create({
       data: {
         organizationId,
         branchId,
@@ -145,8 +145,6 @@ export class PaymentsService {
         recordedByUserId,
       },
     });
-
-    return payment;
   }
 
   async create(
@@ -226,51 +224,58 @@ export class PaymentsService {
     const refund = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
 
-      const existingRefunds = await tx.refund.findMany({
+      const refunds = await tx.refund.findMany({
         where: { paymentId: payment.id },
+        select: { amount: true },
       });
-      const refundedAmount = existingRefunds.reduce(
-        (sum, item) => sum + Number(item.amount),
-        0,
+      const alreadyRefunded = refunds.reduce(
+        (sum, r) => sum.plus(r.amount),
+        new Prisma.Decimal(0),
       );
-      const remainingAmount = Number(payment.amount) - refundedAmount;
-      if (dto.amount > remainingAmount) {
+      const remaining = new Prisma.Decimal(payment.amount).minus(
+        alreadyRefunded,
+      );
+      const refundAmount = dto.amount
+        ? new Prisma.Decimal(dto.amount)
+        : remaining;
+
+      if (refundAmount.lte(0)) {
         throw new BadRequestException(
-          `Refund amount cannot exceed remaining payment amount of ${remainingAmount.toFixed(2)}`,
+          'Refund amount must be greater than zero',
+        );
+      }
+      if (refundAmount.gt(remaining)) {
+        throw new BadRequestException(
+          `Refund amount exceeds the remaining refundable balance of ${remaining.toString()}`,
         );
       }
 
-      const createdRefund = await tx.refund.create({
+      const newStatus = refundAmount.equals(remaining)
+        ? 'REFUNDED'
+        : 'PARTIALLY_REFUNDED';
+
+      const created = await tx.refund.create({
         data: {
           organizationId,
           paymentId: payment.id,
-          amount: dto.amount,
+          amount: refundAmount,
           reason: dto.reason,
           recordedByUserId,
         },
       });
-
-      const newRefundedAmount = refundedAmount + dto.amount;
-      const status =
-        newRefundedAmount >= Number(payment.amount)
-          ? 'REFUNDED'
-          : 'PARTIALLY_REFUNDED';
       await tx.payment.update({
         where: { id: payment.id },
-        data: { status },
+        data: { status: newStatus },
       });
-
-      return createdRefund;
+      return created;
     });
 
     const payload: PaymentRefundedEvent = {
       organizationId,
-      branchId: payment.branchId ?? '',
       paymentId: payment.id,
       refundId: refund.id,
       memberId: payment.memberId,
       amount: refund.amount.toString(),
-      currency: payment.currency,
     };
     this.events.emit(DomainEvent.PaymentRefunded, payload);
     return refund;
