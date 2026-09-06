@@ -80,7 +80,10 @@ export const envSchema = z
     SMTP_PASSWORD: z.string().optional(),
     SMTP_FROM_ADDRESS: z.string().optional(),
 
-    // WhatsApp Business API (src/whatsapp/) -- optional, required in production.
+    // WhatsApp Business API (src/whatsapp/) -- optional integration.
+    // Missing credentials disable WhatsApp functionality at call time;
+    // they must not prevent the core API (including authentication) from
+    // booting.
     WHATSAPP_ENCRYPTION_KEY: z
       .string()
       .min(16, 'WHATSAPP_ENCRYPTION_KEY must be at least 16 characters')
@@ -128,8 +131,7 @@ export const envSchema = z
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ['CORS_ORIGIN'],
-              message:
-                'Production CORS_ORIGIN entries must use HTTPS',
+              message: 'Production CORS_ORIGIN entries must use HTTPS',
             });
           }
         } catch {
@@ -165,23 +167,6 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['REDIS_URL'],
         message: 'Production REDIS_URL must not point to localhost',
-      });
-    }
-
-    if (!config.WHATSAPP_ENCRYPTION_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['WHATSAPP_ENCRYPTION_KEY'],
-        message:
-          'Production WhatsApp encryption key is required',
-      });
-    }
-    if (!config.WHATSAPP_VERIFY_TOKEN) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['WHATSAPP_VERIFY_TOKEN'],
-        message:
-          'Production WhatsApp webhook verify token is required',
       });
     }
   });
