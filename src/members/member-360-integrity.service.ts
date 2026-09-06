@@ -28,12 +28,7 @@ export class Member360IntegrityService extends Member360Service {
 
     const memberships = await this.integrityPrisma.membership.findMany({
       where: { organizationId, memberId },
-      select: {
-        id: true,
-        price: true,
-        status: true,
-        membershipPlan: { select: { name: true } },
-      },
+      select: { id: true, price: true, status: true },
     });
     const membershipIds = memberships.map((membership) => membership.id);
     const payments = membershipIds.length
@@ -42,7 +37,9 @@ export class Member360IntegrityService extends Member360Service {
             organizationId,
             memberId,
             membershipId: { in: membershipIds },
-            status: { in: [PaymentStatus.COMPLETED, PaymentStatus.PARTIALLY_REFUNDED] },
+            status: {
+              in: [PaymentStatus.COMPLETED, PaymentStatus.PARTIALLY_REFUNDED],
+            },
           },
           select: { id: true, membershipId: true, amount: true },
         })
@@ -56,10 +53,10 @@ export class Member360IntegrityService extends Member360Service {
           select: { paymentId: true, amount: true },
         })
       : [];
-    const pendingPayments = await this.integrityPrisma.payment.count({
-      where: { organizationId, memberId, status: PaymentStatus.PENDING },
-    });
 
+    // PaymentStatus has no PENDING state. Keep the response field stable
+    // without misclassifying completed payments as pending.
+    const pendingPayments = 0;
     const totalDue = memberships.reduce(
       (sum, membership) => sum.plus(membership.price),
       new Prisma.Decimal(0),
@@ -74,7 +71,9 @@ export class Member360IntegrityService extends Member360Service {
     );
     const outstandingBalance = totalDue.sub(totalPaid).add(totalRefunded);
 
-    const activeMembership = memberships.find((membership) => membership.status === 'ACTIVE');
+    const activeMembership = memberships.find(
+      (membership) => membership.status === 'ACTIVE',
+    );
     const activePayments = activeMembership
       ? payments.filter((payment) => payment.membershipId === activeMembership.id)
       : [];
