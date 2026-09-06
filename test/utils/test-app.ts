@@ -10,6 +10,8 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
+process.env.TEST_MODE = 'true';
+
 class MockThrottlerGuard implements CanActivate {
   canActivate(_context: ExecutionContext): boolean {
     return true;
