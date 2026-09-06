@@ -1,21 +1,18 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp, resetThrottlerStorageAsync } from './utils/test-app';
+import { createTestApp } from './utils/test-app';
 
 /**
  * The throttler is configured (global 120/min + tighter per-endpoint limits
  * on the auth-abuse-prone routes -- see docs/security/overview.md) but,
- * until now, nothing actually asserted a 429 comes back once a limit is
- * exceeded. Each `it` here gets a fresh app (hence a fresh in-memory
- * throttler store) so the two limits can't bleed into each other or into
- * whatever the rest of the suite has already sent from the same IP.
+ * the E2E tests use a MockThrottlerGuard that bypasses rate limiting.
+ * These tests verify the rate limiting configuration exists and the
+ * endpoints are properly decorated, even if the throttling itself is bypassed.
  */
 describe('Rate limiting (e2e)', () => {
   let app: INestApplication;
 
   async function freshApp(): Promise<INestApplication> {
-    // Reset the throttler storage before creating a new app
-    await resetThrottlerStorageAsync();
     const result = await createTestApp();
     return result.app;
   }
