@@ -96,34 +96,51 @@ export class PaymentsService {
     recordedByUserId: string | null = null,
     status: string = 'COMPLETED',
   ) {
-    // Determine branchId from member or membership
-    let branchId: string | null = null;
-    if (membershipId) {
-      const membership = await this.prisma.membership.findFirst({
-        where: { id: membershipId, organizationId },
-        select: { branchId: true },
-      });
-      branchId = membership?.branchId ?? null;
-    } else if (memberId) {
-      const member = await this.prisma.member.findFirst({
-        where: { id: memberId, organizationId },
-        select: { primaryBranchId: true },
-      });
-      branchId = member?.primaryBranchId ?? null;
+    if (!memberId) {
+      throw new BadRequestException(
+        'Stripe payment intent must identify a member',
+      );
     }
 
-    // Create the payment record
+    const [member, membership] = await Promise.all([
+      this.prisma.member.findFirst({
+        where: { id: memberId, organizationId, deletedAt: null },
+        select: { id: true, primaryBranchId: true },
+      }),
+      membershipId
+        ? this.prisma.membership.findFirst({
+            where: { id: membershipId, organizationId },
+            select: { id: true, memberId: true, branchId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (!member) throw new NotFoundException('Member not found');
+    if (membershipId && !membership) {
+      throw new NotFoundException('Membership not found');
+    }
+    if (membership && membership.memberId !== member.id) {
+      throw new BadRequestException(
+        'Membership does not belong to the specified member',
+      );
+    }
+
+    const branchId = membership?.branchId ?? member.primaryBranchId;
+
     const payment = await this.prisma.payment.create({
       data: {
         organizationId,
         branchId,
-        memberId: memberId as string,
-        membershipId,
+        memberId: member.id,
+        membershipId: membership?.id,
         amount,
         currency,
-        method: 'CARD', // Assuming Stripe payments are card payments
+        method: 'CARD',
         status: status as
-          'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
+          | 'COMPLETED'
+          | 'REFUNDED'
+          | 'PARTIALLY_REFUNDED'
+          | 'FAILED',
         stripePaymentIntentId,
         recordedByUserId,
       },
@@ -207,70 +224,53 @@ export class PaymentsService {
     }
 
     const refund = await this.prisma.$transaction(async (tx) => {
-      // Row-lock the payment for the rest of this transaction so a second,
-      // concurrent refund() call against the *same* payment blocks here
-      // instead of racing it: without this, two simultaneous requests can
-      // both read the same "already refunded" total computed outside a
-      // transaction, both pass the remaining-balance check below, and both
-      // commit -- over-refunding the payment past its original amount.
-      // This is a deliberate, narrow exception to the codebase's
-      // no-raw-SQL convention (see docs/security/overview.md) -- Prisma's
-      // query builder has no equivalent of `SELECT ... FOR UPDATE`, which
-      // is the standard tool for exactly this problem.
       await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
 
-      const refunds = await tx.refund.findMany({
+      const existingRefunds = await tx.refund.findMany({
         where: { paymentId: payment.id },
-        select: { amount: true },
       });
-      const alreadyRefunded = refunds.reduce(
-        (sum, r) => sum.plus(r.amount),
-        new Prisma.Decimal(0),
+      const refundedAmount = existingRefunds.reduce(
+        (sum, item) => sum + Number(item.amount),
+        0,
       );
-      const remaining = new Prisma.Decimal(payment.amount).minus(
-        alreadyRefunded,
-      );
-      const refundAmount = dto.amount
-        ? new Prisma.Decimal(dto.amount)
-        : remaining;
-
-      if (refundAmount.lte(0)) {
+      const remainingAmount = Number(payment.amount) - refundedAmount;
+      if (dto.amount > remainingAmount) {
         throw new BadRequestException(
-          'Refund amount must be greater than zero',
-        );
-      }
-      if (refundAmount.gt(remaining)) {
-        throw new BadRequestException(
-          `Refund amount exceeds the remaining refundable balance of ${remaining.toString()}`,
+          `Refund amount cannot exceed remaining payment amount of ${remainingAmount.toFixed(2)}`,
         );
       }
 
-      const newStatus = refundAmount.equals(remaining)
-        ? 'REFUNDED'
-        : 'PARTIALLY_REFUNDED';
-
-      const created = await tx.refund.create({
+      const createdRefund = await tx.refund.create({
         data: {
           organizationId,
           paymentId: payment.id,
-          amount: refundAmount,
+          amount: dto.amount,
           reason: dto.reason,
           recordedByUserId,
         },
       });
+
+      const newRefundedAmount = refundedAmount + dto.amount;
+      const status =
+        newRefundedAmount >= Number(payment.amount)
+          ? 'REFUNDED'
+          : 'PARTIALLY_REFUNDED';
       await tx.payment.update({
         where: { id: payment.id },
-        data: { status: newStatus },
+        data: { status },
       });
-      return created;
+
+      return createdRefund;
     });
 
     const payload: PaymentRefundedEvent = {
       organizationId,
+      branchId: payment.branchId ?? '',
       paymentId: payment.id,
       refundId: refund.id,
       memberId: payment.memberId,
       amount: refund.amount.toString(),
+      currency: payment.currency,
     };
     this.events.emit(DomainEvent.PaymentRefunded, payload);
     return refund;
