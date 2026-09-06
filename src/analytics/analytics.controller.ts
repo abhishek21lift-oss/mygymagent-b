@@ -15,9 +15,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
 /// Every route here is guarded by `reports.view` -- these are all
 /// read-only reporting/intelligence endpoints, the same permission tier
-/// as GET /analytics/revenue (P1), not the resource-specific
-/// members.read/leads.read/etc. permissions those resources' own CRUD
-/// routes use.
+/// as the resource-specific reporting surfaces.
 @Controller('analytics')
 @Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AnalyticsController {
@@ -36,11 +34,7 @@ export class AnalyticsController {
     @Query() query: GetRevenueSummaryQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.finance.getRevenueSummary(
-      user.organizationId!,
-      query,
-      branchScope,
-    );
+    return this.finance.getRevenueSummary(user.organizationId!, query, branchScope);
   }
 
   @Get('revenue/trend')
@@ -63,10 +57,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.memberIntelligence.getAtRiskMembers(
-      user.organizationId!,
-      branchScope,
-    );
+    return this.memberIntelligence.getAtRiskMembers(user.organizationId!, branchScope);
   }
 
   @Get('members/status-breakdown')
@@ -75,10 +66,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.memberIntelligence.getStatusBreakdown(
-      user.organizationId!,
-      branchScope,
-    );
+    return this.memberIntelligence.getStatusBreakdown(user.organizationId!, branchScope);
   }
 
   @Get('sales/funnel')
@@ -88,7 +76,17 @@ export class AnalyticsController {
     @Query() query: GetSalesFunnelQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.salesIntelligence.getFunnel(
+    return this.salesIntelligence.getFunnel(user.organizationId!, branchScope, query);
+  }
+
+  @Get('sales/sources')
+  @RequirePermissions('reports.view')
+  getSalesSources(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getSourcePerformance(
       user.organizationId!,
       branchScope,
       query,
@@ -101,10 +99,7 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.trainerIntelligence.getWorkload(
-      user.organizationId!,
-      branchScope,
-    );
+    return this.trainerIntelligence.getWorkload(user.organizationId!, branchScope);
   }
 
   @Get('inventory/forecast')

@@ -5,4 +5,9 @@ export class ConvertLeadDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  /** Optional trainer assignment copied onto the newly created member. */
+  @IsOptional()
+  @IsString()
+  assignedTrainerId?: string;
 }

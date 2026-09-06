@@ -160,6 +160,8 @@ export class LeadsService {
       );
     }
 
+    await this.validateReferences(organizationId, branchId, dto.assignedTrainerId);
+
     const member = await this.membersService.create(
       organizationId,
       {
@@ -168,6 +170,9 @@ export class LeadsService {
         lastName: lead.lastName,
         email: lead.email ?? undefined,
         phone: lead.phone ?? undefined,
+        assignedTrainerId: dto.assignedTrainerId ?? undefined,
+        leadSource: lead.source ?? undefined,
+        notes: lead.notes ?? undefined,
       },
       branchScope,
     );
