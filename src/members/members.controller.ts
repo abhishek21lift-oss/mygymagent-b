@@ -4,6 +4,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -295,6 +297,7 @@ export class MembersController {
   }
 
   @Post('bulk/status')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member', action: 'bulk_status_change' })
   bulkStatusChange(
@@ -313,6 +316,7 @@ export class MembersController {
   }
 
   @Post('bulk/tags')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member', action: 'bulk_tag_assignment' })
   bulkTagAssignment(
@@ -331,19 +335,62 @@ export class MembersController {
   }
 
   @Post('bulk/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.read')
-  bulkExport(
+  async bulkExport(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkExportDto,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.membersService.bulkExport(
+    const result = await this.membersService.bulkExport(
       user.organizationId!,
       dto.memberIds,
       branchScope,
       assignmentScope,
     );
+
+    const headers = [
+      'Member Code',
+      'First Name',
+      'Last Name',
+      'Email',
+      'Phone',
+      'Status',
+      'Member Type',
+      'Branch',
+      'Trainer',
+      'Joined At',
+      'Tags',
+    ];
+
+    const escapeCsv = (value: unknown) => {
+      const text = value == null ? '' : String(value);
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+
+    const csv = [
+      headers.join(','),
+      ...result.members.map((member) =>
+        [
+          member.memberCode,
+          member.firstName,
+          member.lastName,
+          member.email,
+          member.phone,
+          member.status,
+          member.memberType,
+          member.branch,
+          member.trainer,
+          member.joinedAt,
+          member.tags,
+        ]
+          .map(escapeCsv)
+          .join(','),
+      ),
+    ].join('\r\n');
+
+    return csv;
   }
 
   @Delete(':id')

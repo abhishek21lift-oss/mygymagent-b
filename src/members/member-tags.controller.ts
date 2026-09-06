@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -96,6 +98,7 @@ export class MemberTagsController {
   }
 
   @Post(':memberId/tags')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member_tag_assignment', action: 'assign' })
   assignTags(
