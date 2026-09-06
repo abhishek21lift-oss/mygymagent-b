@@ -154,7 +154,7 @@ export class PaymentsService {
     if (dto.membershipId && !membership) {
       throw new NotFoundException('Membership not found');
     }
-    if (membership && membership.memberId !== member.id) {
+    if (membership && membership.memberId !== dto.memberId) {
       throw new BadRequestException(
         'Membership does not belong to the specified member',
       );
