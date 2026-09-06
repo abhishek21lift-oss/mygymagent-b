@@ -1,10 +1,12 @@
 import {
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
 } from 'class-validator';
+import { PaymentMethod } from '@prisma/client';
 
 export class CreateMembershipDto {
   @IsString()
@@ -24,4 +26,12 @@ export class CreateMembershipDto {
   @IsOptional()
   @IsNumber()
   discount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  initialPayment?: number;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import {
   DomainEvent,
@@ -386,5 +387,121 @@ export class WorkoutSessionsService {
         completedAt: set.completedAt,
       })),
     };
+  }
+
+  async getMemberHistory(
+    organizationId: string,
+    memberId: string,
+    limit: number,
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ) {
+    const where: Record<string, unknown> = {
+      organizationId,
+      memberId,
+    };
+    if (branchScope) {
+      where.branchId = branchScope;
+    }
+    if (assignmentScope) {
+      where.assignment = { member: { assignedTrainerId: assignmentScope } };
+    }
+
+    const sessions = await this.prisma.workoutSession.findMany({
+      where,
+      take: limit,
+      orderBy: { sessionDate: 'desc' },
+      include: {
+        assignment: { include: { workoutPlan: { select: { name: true } } } },
+        sets: true,
+      },
+    });
+
+    return sessions.map((session) => {
+      const totalVolume = session.sets.reduce(
+        (sum, set) => sum.plus(set.weightKg ?? 0),
+        new Prisma.Decimal(0),
+      );
+      return {
+        id: session.id,
+        sessionDate: session.sessionDate,
+        status: session.status,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt,
+        workoutPlanName: session.assignment.workoutPlan.name,
+        volumeKg: totalVolume.toNumber(),
+        setsLogged: session.sets.length,
+      };
+    });
+  }
+
+  async getMemberExerciseHistory(
+    organizationId: string,
+    memberId: string,
+    exerciseId: string,
+    limit: number,
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ) {
+    const where: Record<string, unknown> = {
+      organizationId,
+      memberId,
+    };
+    if (branchScope) {
+      where.branchId = branchScope;
+    }
+    if (assignmentScope) {
+      where.assignment = { member: { assignedTrainerId: assignmentScope } };
+    }
+
+    const sessions = await this.prisma.workoutSession.findMany({
+      where,
+      take: limit,
+      orderBy: { sessionDate: 'desc' },
+      include: {
+        sets: true,
+      },
+    });
+
+    const results: Array<{
+      exerciseId: string;
+      sessionDate: Date;
+      exerciseName: string;
+      setNumber: number;
+      weightKg: number | null;
+      reps: number | null;
+      rpe: number | string | null;
+      completedAt: Date | null;
+    }> = [];
+
+    for (const session of sessions) {
+      const exercises = Array.isArray(session.exercises)
+        ? (session.exercises as unknown as Array<{
+            id: string;
+            exerciseId: string;
+            name: string;
+          }>)
+        : [];
+
+      const exerciseEntry = exercises.find((e) => e.exerciseId === exerciseId);
+      const exerciseName = exerciseEntry?.name ?? 'Exercise';
+
+      for (const set of session.sets) {
+        if (set.exerciseId === exerciseId) {
+          results.push({
+            exerciseId,
+            sessionDate: session.sessionDate,
+            exerciseName,
+            setNumber: set.setNumber,
+            weightKg: set.weightKg?.toNumber() ?? null,
+            reps: set.reps ?? null,
+            rpe: set.rpe?.toNumber() ?? null,
+            completedAt: set.completedAt ?? null,
+          });
+        }
+      }
+    }
+
+    return results.slice(0, limit);
   }
 }

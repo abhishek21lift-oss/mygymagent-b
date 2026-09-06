@@ -1,6 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
   RequireAnyPermission,
@@ -95,6 +104,44 @@ export class WorkoutSessionsController {
       user.organizationId!,
       id,
       user.id,
+      assignmentScope,
+    );
+  }
+
+  @Get('member/:memberId/history')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
+  getMemberHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Query('limit') limit?: string,
+    @CurrentBranchScope() branchScope: string | null = null,
+    @CurrentAssignmentScope() assignmentScope: string | null = null,
+  ) {
+    return this.workoutSessionsService.getMemberHistory(
+      user.organizationId!,
+      memberId,
+      limit ? parseInt(limit, 10) : 30,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get('member/:memberId/exercise/:exerciseId/history')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
+  getMemberExerciseHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('exerciseId') exerciseId: string,
+    @Query('limit') limit?: string,
+    @CurrentBranchScope() branchScope: string | null = null,
+    @CurrentAssignmentScope() assignmentScope: string | null = null,
+  ) {
+    return this.workoutSessionsService.getMemberExerciseHistory(
+      user.organizationId!,
+      memberId,
+      exerciseId,
+      limit ? parseInt(limit, 10) : 20,
+      branchScope,
       assignmentScope,
     );
   }

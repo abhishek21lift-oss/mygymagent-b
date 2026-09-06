@@ -364,32 +364,61 @@ export class MembersService {
       orderBy: { createdAt: 'desc' },
       include: { membershipPlan: true },
     });
-    const payments = await this.prisma.payment.findMany({
-      where: { organizationId, memberId, status: 'COMPLETED' },
-      select: { amount: true, membershipId: true },
-    });
     const membershipIds = new Set(memberships.map((m) => m.id));
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId,
+        memberId,
+        status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+      },
+      select: { id: true, amount: true, membershipId: true },
+    });
+
+    const refunds = await this.prisma.refund.findMany({
+      where: {
+        organizationId,
+        payment: {
+          memberId,
+          membershipId: { not: null },
+        },
+      },
+      select: { amount: true, paymentId: true },
+    });
+
+    const paymentIdsForMemberships = new Set(
+      payments
+        .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
+        .map((p) => p.id),
+    );
+
     const totalPaid = payments
       .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
       .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
+
+    const totalRefunded = refunds
+      .filter((r) => paymentIdsForMemberships.has(r.paymentId))
+      .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
+
     const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price),
+      (sum, m) => sum.plus(m.price.sub(m.discount ?? new Prisma.Decimal(0))),
       new Prisma.Decimal(0),
     );
-    const outstandingBalance = totalDue.sub(totalPaid);
+    const outstandingBalance = totalDue.sub(totalPaid).add(totalRefunded);
     return {
       memberships: memberships.map((m) => ({
         id: m.id,
         planName: m.membershipPlan.name,
         price: m.price,
         discount: m.discount,
-        finalPrice: m.price,
+        finalPrice: m.price.sub(m.discount ?? new Prisma.Decimal(0)),
         startDate: m.startDate,
         endDate: m.endDate,
         status: m.status,
       })),
       totalDue,
       totalPaid,
+      totalRefunded,
       outstandingBalance,
     };
   }

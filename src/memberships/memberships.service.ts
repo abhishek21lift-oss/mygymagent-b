@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { PaymentStatus, Prisma } from '@prisma/client';
 import {
   BadRequestException,
   Injectable,
@@ -108,30 +108,87 @@ export class MembershipsService {
     );
     const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
     const finalPrice = discount ? plan.price.sub(discount) : plan.price;
-    const membership = await this.prisma.membership.create({
-      data: {
-        organizationId,
-        branchId,
-        memberId: member.id,
-        membershipPlanId: plan.id,
-        status: 'ACTIVE',
-        startDate,
-        endDate,
-        price: finalPrice,
-        discount,
-        currency: plan.currency,
-        autoRenew: dto.autoRenew ?? false,
-      },
+    const initialPayment = dto.initialPayment
+      ? new Prisma.Decimal(dto.initialPayment)
+      : null;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const membership = await tx.membership.create({
+        data: {
+          organizationId,
+          branchId,
+          memberId: member.id,
+          membershipPlanId: plan.id,
+          status: 'ACTIVE',
+          startDate,
+          endDate,
+          price: finalPrice,
+          discount,
+          currency: plan.currency,
+          autoRenew: dto.autoRenew ?? false,
+        },
+      });
+
+      let payment: {
+        id: string;
+        organizationId: string;
+        branchId: string | null;
+        memberId: string;
+        membershipId: string | null;
+        amount: Prisma.Decimal;
+        currency: string;
+        status: PaymentStatus;
+        method: string;
+        createdAt: Date;
+      } | null = null;
+      if (initialPayment && initialPayment.gt(0)) {
+        payment = await tx.payment.create({
+          data: {
+            organizationId,
+            memberId: member.id,
+            membershipId: membership.id,
+            amount: initialPayment,
+            currency: plan.currency,
+            method: dto.paymentMethod ?? 'CASH',
+            status: PaymentStatus.COMPLETED,
+          },
+        });
+      }
+
+      const paidAmount = payment ? initialPayment! : new Prisma.Decimal(0);
+      const refundedAmount = new Prisma.Decimal(0);
+      const outstandingAmount = finalPrice.sub(paidAmount);
+      const paymentStatus = outstandingAmount.lte(0)
+        ? 'PAID'
+        : outstandingAmount.sub(refundedAmount).gte(finalPrice)
+          ? 'UNPAID'
+          : 'PARTIALLY_PAID';
+
+      return {
+        membership,
+        payment,
+        financial: {
+          grossAmount: plan.price,
+          discount: discount ?? new Prisma.Decimal(0),
+          finalAmount: finalPrice,
+          paidAmount,
+          refundedAmount,
+          outstandingAmount,
+          paymentStatus,
+        },
+      };
     });
+
     const payload: MembershipStartedEvent = {
       organizationId,
-      branchId: membership.branchId,
-      membershipId: membership.id,
-      memberId: membership.memberId,
-      membershipPlanId: membership.membershipPlanId,
+      branchId: result.membership.branchId,
+      membershipId: result.membership.id,
+      memberId: result.membership.memberId,
+      membershipPlanId: result.membership.membershipPlanId,
     };
     this.events.emit(DomainEvent.MembershipStarted, payload);
-    return membership;
+
+    return result;
   }
 
   async freeze(
