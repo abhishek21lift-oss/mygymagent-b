@@ -69,6 +69,10 @@ export async function createTestApp(): Promise<{
   app: INestApplication;
   close: () => Promise<void>;
 }> {
+  // Reset throttler storage BEFORE creating a new app to ensure test isolation.
+  // The throttler is a singleton that persists across app instances in the same process.
+  await resetThrottlerStorageAsync();
+
   let app: INestApplication | undefined;
 
   const close = async () => {
