@@ -69,10 +69,6 @@ export async function createTestApp(): Promise<{
   app: INestApplication;
   close: () => Promise<void>;
 }> {
-  // Reset throttler storage BEFORE creating a new app to ensure test isolation.
-  // The throttler is a singleton that persists across app instances in the same process.
-  await resetThrottlerStorageAsync();
-
   let app: INestApplication | undefined;
 
   const close = async () => {
@@ -91,6 +87,37 @@ export async function createTestApp(): Promise<{
     }).compile();
     app = moduleRef.createNestApplication();
 
+    // Capture the storage reference BEFORE init, so we can reset it
+    let capturedStorage: ThrottlerStorage | null = null;
+    try {
+      capturedStorage = app.get(ThrottlerStorage, { strict: false });
+    } catch {
+      // ThrottlerStorage not available
+    }
+
+    // If we have a storage reference, reset it BEFORE the app processes any requests
+    if (capturedStorage) {
+      globalThrottlerStorage = capturedStorage;
+      const storage = capturedStorage as unknown as {
+        storage?: Map<string, unknown>;
+        _storage?: Map<string, unknown>;
+        timeoutIds?: Map<string, NodeJS.Timeout[]>;
+      };
+      try {
+        if (storage._storage) storage._storage.clear();
+      } catch {
+        // Ignore
+      }
+      try {
+        if (storage.timeoutIds) {
+          storage.timeoutIds.forEach((t) => t.forEach(clearTimeout));
+          storage.timeoutIds.clear();
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
     app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
@@ -103,14 +130,6 @@ export async function createTestApp(): Promise<{
     app.useGlobalFilters(new AllExceptionsFilter());
 
     await app.init();
-
-    if (!globalThrottlerStorage) {
-      try {
-        globalThrottlerStorage = app.get(ThrottlerStorage, { strict: false });
-      } catch {
-        // ThrottlerStorage not available
-      }
-    }
 
     return { app, close };
   } catch (error) {
