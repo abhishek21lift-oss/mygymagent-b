@@ -3,6 +3,7 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { StripeService } from '../payments/stripe.service';
 import { StripeWebhookController } from '../payments/stripe-webhook.controller';
+import { OnlinePaymentController } from '../payments/online-payment.controller';
 
 /**
  * Gym operational billing (member payments and refunds) -- NOT platform
@@ -11,13 +12,14 @@ import { StripeWebhookController } from '../payments/stripe-webhook.controller';
  *
  * Invoices, discounts, taxes, and trainer payouts/commissions described in
  * docs/ARCHITECTURE.md are still not implemented -- this module covers
- * recording a payment and issuing a refund against it, the two actions the
- * existing ACCOUNTANT/SALES_EXECUTIVE/BRANCH_MANAGER role grants
- * (`payments.read`/`payments.create`/`payments.refund`) were already
- * written against.
+ * recording a payment, issuing refunds, and the Stripe payment-intent flow.
  */
 @Module({
-  controllers: [PaymentsController, StripeWebhookController],
+  controllers: [
+    PaymentsController,
+    OnlinePaymentController,
+    StripeWebhookController,
+  ],
   providers: [PaymentsService, StripeService],
   exports: [PaymentsService],
 })
