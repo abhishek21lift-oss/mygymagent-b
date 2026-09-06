@@ -40,7 +40,8 @@ describe('Nutrition (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Nutrition Test Gym');
 
     const foodItem = await authed(org.accessToken)(
@@ -61,7 +62,9 @@ describe('Nutrition (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('rejects a duplicate food item name within the same org', async () => {

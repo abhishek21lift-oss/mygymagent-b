@@ -55,7 +55,8 @@ describe('AI conversations / memory (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     conversations = app.get(AiConversationsService);
     orgA = await registerOrg('Conversations Test Gym A');
@@ -63,7 +64,9 @@ describe('AI conversations / memory (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it("persists the user's message and creates a conversation even though the provider call fails", async () => {
@@ -144,11 +147,15 @@ describe('AI conversations / memory (e2e)', () => {
       orgA.userId,
     );
     await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
       created.id,
       'USER',
       'What is my revenue this month?',
     );
     await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
       created.id,
       'ASSISTANT',
       'Here is your revenue summary.',
@@ -203,7 +210,13 @@ describe('AI conversations / memory (e2e)', () => {
       orgA.organizationId,
       orgA.userId,
     );
-    await conversations.appendMessage(created.id, 'USER', 'delete me later');
+    await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
+      created.id,
+      'USER',
+      'delete me later',
+    );
 
     await authed(orgA.accessToken)(
       request(app.getHttpServer()).delete(`/ai/conversations/${created.id}`),

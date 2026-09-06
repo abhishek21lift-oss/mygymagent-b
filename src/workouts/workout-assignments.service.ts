@@ -6,7 +6,6 @@ import {
 } from '../common/dto/pagination-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateWorkoutAssignmentStatusDto } from './dto/update-workout-assignment-status.dto';
-import type { WorkoutAssignmentStatus } from '@prisma/client';
 
 @Injectable()
 export class WorkoutAssignmentsService {
@@ -16,12 +15,17 @@ export class WorkoutAssignmentsService {
     organizationId: string,
     query: PaginationQueryDto,
     memberId?: string,
-    status?: WorkoutAssignmentStatus,
+    assignmentScope: string | null = null,
+    branchScope: string | null = null,
   ) {
+    const memberWhere = {
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
     const where = {
       organizationId,
       ...(memberId ? { memberId } : {}),
-      ...(status ? { status } : {}),
+      ...(Object.keys(memberWhere).length > 0 ? { member: memberWhere } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.workoutAssignment.findMany({
@@ -30,7 +34,14 @@ export class WorkoutAssignmentsService {
         orderBy: { createdAt: query.order ?? 'desc' },
         include: {
           workoutPlan: { select: { id: true, name: true } },
-          member: { select: { id: true, firstName: true, lastName: true } },
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              assignedTrainerId: true,
+            },
+          },
         },
       }),
       this.prisma.workoutAssignment.count({ where }),

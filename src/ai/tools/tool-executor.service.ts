@@ -30,38 +30,11 @@ import { validateToolArgs } from './validate-tool-args';
 export interface ToolCallContext {
   organizationId: string;
   userId: string;
-  /** Raw `x-branch-id` request header, if the caller sent one -- an
-   * unverified claim, exactly like `@RequestedBranchId()` elsewhere in this
-   * codebase (see branch-id.decorator.ts). Never used as the sole access
-   * gate: every tool call reconciles it against the caller's actual
-   * permission grants via `resolveAccess()` below before it can restrict
-   * (or fail to restrict) anything -- mirroring PermissionsGuard's own
-   * branchScope resolution, see that guard's class comment. */
   requestedBranchId?: string;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/**
- * Executes one named tool call. Every branch below calls into the exact
- * same organizationId-scoped domain service the REST API uses -- there is
- * no separate "AI data access" path. `context.organizationId` always
- * comes from the authenticated caller's JWT (see AiService), never from
- * anything the model itself said, the same invariant every other service
- * in this codebase already enforces.
- *
- * Unlike organizationId, role/branch/assignment scoping is NOT implicit
- * just because the caller holds `ai.generate` -- that permission only
- * gates the /ai/chat endpoint itself, the same way `members.read` gates
- * `GET /members` but says nothing about `payments.read`. Each tool below
- * therefore re-derives its own REST-equivalent permission and scope via
- * `resolveAccess()` before touching a domain service, exactly as if the
- * model's request had arrived as that resource's own REST call. This
- * closes a previously-real gap: a TRAINER limited to
- * `members.read_assigned` could otherwise ask the assistant to look up any
- * member in the org and get a real answer, bypassing the same restriction
- * `GET /members/:id` enforces.
- */
 @Injectable()
 export class ToolExecutorService {
   constructor(
@@ -82,22 +55,12 @@ export class ToolExecutorService {
     private readonly dailyBriefingService: DailyBriefingService,
   ) {}
 
-  /**
-   * Re-implements PermissionsGuard's branch-scope resolution (see that
-   * guard's class comment) for a single tool call: checks each candidate
-   * permission key against the caller's actual grants (role + per-user
-   * override), in order, and returns as soon as one matches. Throws the
-   * same 403 shape a REST route would if none match. `branchScope` is
-   * `null` when the matched grant is org-wide, otherwise the one branch
-   * `requestedBranchId` was reconciled against -- safe to fold directly
-   * into a service's `where` clause, exactly like `@CurrentBranchScope()`.
-   */
   private async resolveAccess(
     userId: string,
     organizationId: string,
     requestedBranchId: string | undefined,
     keys: readonly string[],
-  ): Promise<{ branchScope: string | null; matchedKey: string }> {
+  ) {
     for (const key of keys) {
       const allowed = await this.permissions.hasPermission(
         userId,
@@ -106,7 +69,6 @@ export class ToolExecutorService {
         requestedBranchId,
       );
       if (!allowed) continue;
-
       const orgWide = await this.permissions.hasPermission(
         userId,
         organizationId,
@@ -182,8 +144,6 @@ export class ToolExecutorService {
       branchScope,
       assignmentScope,
     );
-    // Deliberately a narrow operational subset, not the raw row -- see
-    // docs/database/data-ownership.md's AI-access column for Member.
     return {
       id: member.id,
       firstName: member.firstName,
@@ -205,17 +165,20 @@ export class ToolExecutorService {
     { organizationId, userId, requestedBranchId }: ToolCallContext,
   ) {
     const { memberId } = validateToolArgs(MemberIdArgsDto, rawArgs);
-    // workouts.read has no branch-scoping model today -- neither does the
-    // REST route it mirrors (GET /workout-assignments), see the audit's
-    // F-05 finding. This check at least closes the role gap: a caller with
-    // no workouts.read grant at all can no longer reach this tool.
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'workouts.read',
-    ]);
+    const { branchScope, matchedKey } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['workouts.read', 'workouts.read_assigned'],
+    );
+    const assignmentScope =
+      matchedKey === 'workouts.read_assigned' ? userId : null;
     const assignments = await this.workoutAssignmentsService.list(
       organizationId,
       { page: 1, pageSize: 20 },
       memberId,
+      branchScope,
+      assignmentScope,
     );
     return assignments.items.map((a) => ({
       planName: a.workoutPlan.name,
@@ -235,10 +198,6 @@ export class ToolExecutorService {
       requestedBranchId,
       ['attendance.read'],
     );
-    // Summarized, not a raw dump -- see docs/database/data-ownership.md.
-    // One page covers both the "5 most recent" and the 30-day count
-    // (visit frequency rarely exceeds 50 in 30 days); a dedicated count
-    // query is the natural upgrade once this tool sees real usage.
     const page = await this.attendanceService.list(
       organizationId,
       { page: 1, pageSize: 50, order: 'desc' },
@@ -276,7 +235,6 @@ export class ToolExecutorService {
     });
     return { id: plan.id, name: plan.name };
   }
-
   private async createDietDraft(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -300,7 +258,6 @@ export class ToolExecutorService {
     });
     return { id: plan.id, name: plan.name };
   }
-
   private async createFollowup(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -332,7 +289,6 @@ export class ToolExecutorService {
     });
     return { id: followUp.id, dueAt: followUp.dueAt };
   }
-
   private async getRevenueSummary(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -350,7 +306,6 @@ export class ToolExecutorService {
       branchScope,
     );
   }
-
   private async getAtRiskMembers(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -367,7 +322,6 @@ export class ToolExecutorService {
       branchScope,
     );
   }
-
   private async getSalesFunnel(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -381,7 +335,6 @@ export class ToolExecutorService {
     );
     return this.salesIntelligence.getFunnel(organizationId, branchScope, {});
   }
-
   private async getTrainerWorkload(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -395,21 +348,16 @@ export class ToolExecutorService {
     );
     return this.trainerIntelligence.getWorkload(organizationId, branchScope);
   }
-
   private async getInventoryForecast(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
   ) {
     validateToolArgs(EmptyArgsDto, rawArgs);
-    // Permission-gate only, matching readWorkoutHistory's comment --
-    // Product has no branch-scoping model in this schema either (see
-    // that model's comment), so there is no branchScope to derive here.
     await this.resolveAccess(userId, organizationId, requestedBranchId, [
       'reports.view',
     ]);
     return this.inventoryIntelligence.getStockForecast(organizationId);
   }
-
   private async getDailyBriefing(
     rawArgs: unknown,
     { organizationId, userId, requestedBranchId }: ToolCallContext,
@@ -426,58 +374,40 @@ export class ToolExecutorService {
       branchScope,
     );
   }
-
   private async proposeAssignWorkoutPlan(
     rawArgs: unknown,
-    { organizationId, userId, requestedBranchId }: ToolCallContext,
+    context: ToolCallContext,
   ) {
-    const { memberId, planId, startDate, notes } = validateToolArgs(
-      AssignPlanPayloadDto,
-      rawArgs,
+    await this.resolveAccess(
+      context.userId,
+      context.organizationId,
+      context.requestedBranchId,
+      ['workouts.assign'],
     );
-    // Same permission the REST equivalent (POST /workout-plans/:id/assign)
-    // requires -- proposing is gated the same as doing, even though the
-    // proposal itself has no effect until a human approves it. Branch
-    // scope isn't derived/enforced here, matching createWorkoutDraft's
-    // comment: workouts has no branch-scoping model at the REST layer
-    // either (audit F-05).
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'workouts.assign',
-    ]);
-    const action = await this.aiActionsService.proposeAssignPlan(
-      organizationId,
-      userId,
+    const payload = validateToolArgs(AssignPlanPayloadDto, rawArgs);
+    return this.aiActionsService.proposeAssignPlan(
+      context.organizationId,
+      context.userId,
       'ASSIGN_WORKOUT_PLAN',
-      { memberId, planId, startDate, notes },
+      payload,
     );
-    return {
-      actionId: action.id,
-      status: action.status,
-      reasoning: action.reasoning,
-    };
   }
-
   private async proposeAssignDietPlan(
     rawArgs: unknown,
-    { organizationId, userId, requestedBranchId }: ToolCallContext,
+    context: ToolCallContext,
   ) {
-    const { memberId, planId, startDate, notes } = validateToolArgs(
-      AssignPlanPayloadDto,
-      rawArgs,
+    await this.resolveAccess(
+      context.userId,
+      context.organizationId,
+      context.requestedBranchId,
+      ['nutrition.assign'],
     );
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'nutrition.assign',
-    ]);
-    const action = await this.aiActionsService.proposeAssignPlan(
-      organizationId,
-      userId,
+    const payload = validateToolArgs(AssignPlanPayloadDto, rawArgs);
+    return this.aiActionsService.proposeAssignPlan(
+      context.organizationId,
+      context.userId,
       'ASSIGN_DIET_PLAN',
-      { memberId, planId, startDate, notes },
+      payload,
     );
-    return {
-      actionId: action.id,
-      status: action.status,
-      reasoning: action.reasoning,
-    };
   }
 }

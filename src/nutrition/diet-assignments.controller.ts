@@ -2,12 +2,14 @@ import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { DietAssignmentsService } from './diet-assignments.service';
 import { ListDietAssignmentsQueryDto } from './dto/list-diet-assignments-query.dto';
 import { UpdateDietAssignmentStatusDto } from './dto/update-diet-assignment-status.dto';
 
 @Controller('diet-assignments')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class DietAssignmentsController {
   constructor(
     private readonly dietAssignmentsService: DietAssignmentsService,

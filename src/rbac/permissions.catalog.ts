@@ -1,15 +1,5 @@
 /**
  * Canonical `resource.action` permission catalog for the platform.
- *
- * This is data, not code branches: every permission listed here is a row
- * seeded into the `permissions` table (see prisma/seed.ts) and referenced
- * by key from route decorators (`@RequirePermissions('members.read')`).
- *
- * Permissions for domains not yet implemented (billing, workouts,
- * nutrition, inventory, crm, ai, notifications, analytics) are included so
- * role definitions and the frontend nav can be written against a stable
- * key set now, without a data migration when those modules land. No route
- * in this phase currently requires them.
  */
 export interface PermissionDefinition {
   key: string;
@@ -31,7 +21,6 @@ function resource(
 }
 
 export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
-  // Platform / org administration -------------------------------------------------
   ...resource('organizations', {
     read: 'View organization profile and settings',
     update: 'Update organization profile and settings',
@@ -53,14 +42,8 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     read: 'View roles and permissions',
     manage: 'Create/update custom roles and their permission grants',
   }),
-  ...resource('audit', {
-    read: 'View audit log entries',
-  }),
-  ...resource('settings', {
-    manage: 'Manage organization-wide settings',
-  }),
-
-  // Core gym domain ------------------------------------------------------------
+  ...resource('audit', { read: 'View audit log entries' }),
+  ...resource('settings', { manage: 'Manage organization-wide settings' }),
   ...resource('members', {
     read: 'View member profiles',
     read_assigned:
@@ -78,15 +61,16 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   }),
   ...resource('memberships', {
     read: 'View member subscriptions',
+    read_assigned: 'View subscriptions for members assigned to you',
     create: 'Sell/create a membership',
     update: 'Update a membership (freeze/extend/upgrade/cancel)',
   }),
   ...resource('attendance', {
     read: 'View attendance records',
+    read_assigned: 'View attendance for members assigned to you',
     create: 'Record a check-in/check-out',
+    create_assigned: 'Record attendance for members assigned to you',
   }),
-
-  // Deferred domains (permission keys reserved for future modules) --------------
   ...resource('payments', {
     read: 'View payments and invoices',
     create: 'Record a payment',
@@ -101,7 +85,8 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     manage: 'Manage leads and follow-ups',
   }),
   ...resource('workouts', {
-    read: 'View workout programs',
+    read: 'View workout programs and assignments',
+    read_assigned: 'View workout assignments for members assigned to you',
     create: 'Create a workout program/draft',
     assign: 'Assign a workout program to a member',
   }),
@@ -110,9 +95,19 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     create: 'Create a diet plan/draft',
     assign: 'Assign a diet plan to a member',
   }),
-  ...resource('reports', {
-    view: 'View analytics and business reports',
+  ...resource('pt-sessions', {
+    read: 'View PT sessions',
+    read_assigned: 'View PT sessions for assigned clients',
+    create: 'Book a PT session',
+    update: 'Update, complete, cancel, or mark a PT session no-show',
   }),
+  ...resource('pt-packages', {
+    read: 'View PT packages',
+    read_assigned: 'View PT packages for assigned clients',
+    create: 'Create/sell a PT package',
+    update: 'Update a PT package',
+  }),
+  ...resource('reports', { view: 'View analytics and business reports' }),
   ...resource('ai', {
     generate: 'Invoke AI generation features',
     approve: 'Approve AI-proposed changes before they are committed',

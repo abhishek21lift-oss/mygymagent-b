@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -9,6 +10,7 @@ import { DailyBriefingService } from './daily-briefing.service';
 /// of data already visible under that permission, not a new access
 /// grant.
 @Controller('briefing')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class DailyBriefingController {
   constructor(private readonly dailyBriefing: DailyBriefingService) {}
 

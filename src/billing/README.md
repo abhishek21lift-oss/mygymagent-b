@@ -30,10 +30,7 @@ Every query/mutation is scoped by `organizationId` taken from
 
 ## What's still missing
 
-- No payment gateway integration — payments are staff-recorded (cash/card/
-  UPI/bank transfer logged after the fact), not processed through Razorpay/
-  Stripe/etc. That's `docs/integrations/overview.md`'s `PaymentProcessor`
-  adapter, not built yet.
+- No payment gateway integration — payments are staff‑recorded (cash/card/UPI/bank transfer) and **Stripe** is now available via `StripeService` for future online processing.
 - No invoices, discounts, or tax handling.
 - No trainer payout/commission calculation (`StaffProfile.commissionRate`
   exists on the schema but nothing computes against it yet).

@@ -8,5 +8,6 @@
   },
   "globalSetup": "<rootDir>/global-setup.ts",
   "globalTeardown": "<rootDir>/global-teardown.ts",
+  "setupFilesAfterEnv": ["<rootDir>/throttler-setup.ts"],
   "testTimeout": 15000
 }

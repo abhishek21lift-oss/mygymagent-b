@@ -40,7 +40,8 @@ describe('Member documents (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Files Test Gym');
     orgB = await registerOrg('Files Test Gym B');
 
@@ -55,7 +56,9 @@ describe('Member documents (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('uploads a document, lists it with a working signed URL, and deletes it', async () => {

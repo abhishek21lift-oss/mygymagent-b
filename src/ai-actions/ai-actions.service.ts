@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { AiActionType, Prisma } from '@prisma/client';
+import type { AiActionType } from '@prisma/client';
 import { validateToolArgs } from '../ai/tools/validate-tool-args';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DietPlansService } from '../nutrition/diet-plans.service';
@@ -209,7 +209,7 @@ export class AiActionsService {
    * the AI only drafted a suggestion. */
   private async execute(
     organizationId: string,
-    action: { type: AiActionType; payload: Prisma.JsonValue },
+    action: { type: AiActionType; payload: any },
     decidedByUserId: string,
   ): Promise<string> {
     const payload = validateToolArgs(AssignPlanPayloadDto, action.payload);
@@ -238,5 +238,36 @@ export class AiActionsService {
         return assignment.id;
       }
     }
+  }
+
+  /**
+   * Execute an already approved action.
+   * Used by the AI Supervisor when executing approved Action Center tools.
+   */
+  async executeApprovedAction(
+    organizationId: string,
+    id: string,
+    _decidedByUserId: string, // the user who is requesting the execution (AI user or system)
+  ): Promise<string> {
+    const action = await this.getOne(organizationId, id);
+    if (action.status !== 'APPROVED') {
+      throw new BadRequestException(
+        `Cannot execute an action with status ${action.status}`,
+      );
+    }
+    // When an action is approved, the decidedByUserId is set to the approver.
+    // We use that to execute the action (the approver is the one who performed the action).
+    let executorUserId: string | undefined = _decidedByUserId;
+    if (!executorUserId) {
+      // Fallback - use the database field if the parameter is not set
+      // (should not happen in normal flow since the parameter should always be set)
+      executorUserId = action.decidedByUserId ?? undefined;
+      if (!executorUserId) {
+        throw new BadRequestException(
+          `Approved action missing decidedByUserId`,
+        );
+      }
+    }
+    return this.execute(organizationId, action, executorUserId);
   }
 }

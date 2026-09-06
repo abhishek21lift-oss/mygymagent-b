@@ -92,19 +92,23 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
+    emergencyContactRelationship?: string,
+    waiverConsent?: boolean,
+    fitnessGoal?: string,
+    injuries?: string,
+    allergies?: string,
+    medicalNotes?: string,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
         'Cannot create a member outside your assigned branch',
       );
     }
-
-    await this.validateMemberReferences(
+    await this.validateReferences(
       organizationId,
       dto.primaryBranchId,
       dto.assignedTrainerId,
     );
-
     const memberCode = await this.generateMemberCode(organizationId);
     const member = await this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
@@ -144,6 +148,48 @@ export class MembersService {
           },
         });
       }
+      // Create emergency contact with relationship if provided
+      if (dto.emergencyContactName || dto.emergencyContactPhone) {
+        await tx.memberEmergencyContact.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            name: dto.emergencyContactName || '',
+            phone: dto.emergencyContactPhone || '',
+            relationship: emergencyContactRelationship || null,
+            isPrimary: true,
+          },
+        });
+      }
+      // Create waiver consent if provided
+      if (waiverConsent !== undefined) {
+        await tx.memberConsent.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            type: 'WAIVER',
+            granted: waiverConsent,
+            note:
+              injuries || allergies
+                ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
+                : undefined,
+            recordedByUserId: createdByUserId,
+          },
+        });
+      }
+      // Create fitness goal if provided
+      if (fitnessGoal) {
+        await tx.memberGoal.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            title: fitnessGoal,
+            category: 'GENERAL_FITNESS',
+            description: medicalNotes || undefined,
+            startDate: new Date(),
+          },
+        });
+      }
       return created;
     });
     const payload: MemberCreatedEvent = {
@@ -174,15 +220,11 @@ export class MembersService {
         'Cannot move a member outside your assigned branch',
       );
     }
-
-    await this.validateMemberReferences(
+    await this.validateReferences(
       organizationId,
-      dto.primaryBranchId ?? before.primaryBranchId,
-      dto.assignedTrainerId === undefined
-        ? before.assignedTrainerId
-        : dto.assignedTrainerId,
+      dto.primaryBranchId,
+      dto.assignedTrainerId,
     );
-
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.member.update({
         where: { id },
@@ -304,42 +346,109 @@ export class MembersService {
     });
   }
 
-  private async validateMemberReferences(
+  async getMembershipBilling(
     organizationId: string,
-    primaryBranchId: string,
-    assignedTrainerId: string | null | undefined,
-  ): Promise<void> {
-    const [branch, trainer] = await Promise.all([
-      this.prisma.branch.findFirst({
-        where: {
-          id: primaryBranchId,
-          organizationId,
-          deletedAt: null,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
+    const where: Prisma.MemberWhereInput = {
+      id: memberId,
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
+    const member = await this.prisma.member.findFirst({ where });
+    if (!member) throw new NotFoundException('Member not found');
+    const memberships = await this.prisma.membership.findMany({
+      where: { organizationId, memberId },
+      orderBy: { createdAt: 'desc' },
+      include: { membershipPlan: true },
+    });
+    const membershipIds = new Set(memberships.map((m) => m.id));
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId,
+        memberId,
+        status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+      },
+      select: { id: true, amount: true, membershipId: true },
+    });
+
+    const refunds = await this.prisma.refund.findMany({
+      where: {
+        organizationId,
+        payment: {
+          memberId,
+          membershipId: { not: null },
         },
+      },
+      select: { amount: true, paymentId: true },
+    });
+
+    const paymentIdsForMemberships = new Set(
+      payments
+        .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
+        .map((p) => p.id),
+    );
+
+    const totalPaid = payments
+      .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
+      .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
+
+    const totalRefunded = refunds
+      .filter((r) => paymentIdsForMemberships.has(r.paymentId))
+      .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
+
+    const totalDue = memberships.reduce(
+      (sum, m) => sum.plus(m.price.sub(m.discount ?? new Prisma.Decimal(0))),
+      new Prisma.Decimal(0),
+    );
+    const outstandingBalance = totalDue.sub(totalPaid).add(totalRefunded);
+    return {
+      memberships: memberships.map((m) => ({
+        id: m.id,
+        planName: m.membershipPlan.name,
+        price: m.price,
+        discount: m.discount,
+        finalPrice: m.price.sub(m.discount ?? new Prisma.Decimal(0)),
+        startDate: m.startDate,
+        endDate: m.endDate,
+        status: m.status,
+      })),
+      totalDue,
+      totalPaid,
+      totalRefunded,
+      outstandingBalance,
+    };
+  }
+
+  private async validateReferences(
+    organizationId: string,
+    primaryBranchId?: string,
+    assignedTrainerId?: string | null,
+  ) {
+    if (primaryBranchId) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: primaryBranchId, organizationId, deletedAt: null },
         select: { id: true },
-      }),
-      assignedTrainerId
-        ? this.prisma.user.findFirst({
-            where: {
-              id: assignedTrainerId,
-              organizationId,
-              deletedAt: null,
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
-    ]);
-
-    if (!branch) {
-      throw new BadRequestException(
-        'Primary branch does not belong to the current organization',
-      );
+      });
+      if (!branch) {
+        throw new BadRequestException(
+          'Branch does not belong to this organization',
+        );
+      }
     }
-
-    if (assignedTrainerId && !trainer) {
-      throw new BadRequestException(
-        'Assigned trainer does not belong to the current organization',
-      );
+    if (assignedTrainerId) {
+      const trainer = await this.prisma.user.findFirst({
+        where: { id: assignedTrainerId, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!trainer) {
+        throw new BadRequestException(
+          'Trainer does not belong to this organization',
+        );
+      }
     }
   }
 

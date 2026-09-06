@@ -33,20 +33,36 @@ import IORedis from 'ioredis';
 @Injectable()
 export class QueueConnection implements OnApplicationShutdown {
   readonly client: IORedis;
+  private isShuttingDown = false;
 
   constructor(config: ConfigService) {
     this.client = new IORedis(
       config.get<string>('REDIS_URL', 'redis://localhost:6379'),
       {
-        // Required by BullMQ -- it manages its own retry/backoff for
-        // blocking commands; letting ioredis also retry them breaks that.
         maxRetriesPerRequest: null,
+        lazyConnect: true,
+        retryStrategy: (times: number) => {
+          if (this.isShuttingDown || times > 3) {
+            return null;
+          }
+          return Math.min(times * 100, 1000);
+        },
       },
     );
   }
 
   async onApplicationShutdown(): Promise<void> {
-    await this.client.quit();
+    this.isShuttingDown = true;
+    try {
+      this.client.disconnect(false);
+    } catch {
+      // Ignore disconnect errors
+    }
+    try {
+      await this.client.quit().catch(() => {});
+    } catch {
+      // Ignore quit errors
+    }
   }
 }
 

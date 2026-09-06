@@ -1,31 +1,69 @@
-import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ValidationPipe,
+  type INestApplication,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
+process.env.TEST_MODE = 'true';
+
+class MockThrottlerGuard implements CanActivate {
+  canActivate(_context: ExecutionContext): boolean {
+    return true;
+  }
+}
+
 /** Builds a fully-wired Nest application (same global pipes/filters/
- * middleware as main.ts) for supertest to exercise, without binding to a
- * real port. */
-export async function createTestApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
-  const app = moduleRef.createNestApplication();
+ * middleware as main.ts) for supertest to exercise, without binding to a real
+ * port. Returns an object with the app and a safe close method. */
+export async function createTestApp(): Promise<{
+  app: INestApplication;
+  close: () => Promise<void>;
+}> {
+  let app: INestApplication | undefined;
 
-  app.use(cookieParser());
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
-  app.useGlobalFilters(new AllExceptionsFilter());
+  const close = async () => {
+    if (app) {
+      try {
+        await app.close();
+      } catch {
+        // Ignore errors during cleanup
+      }
+    }
+  };
 
-  await app.init();
-  return app;
+  try {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useClass(MockThrottlerGuard)
+      .compile();
+    app = moduleRef.createNestApplication();
+
+    app.use(cookieParser());
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+      }),
+    );
+    app.useGlobalFilters(new AllExceptionsFilter());
+
+    await app.init();
+
+    return { app, close };
+  } catch (error) {
+    await close();
+    throw error;
+  }
 }
 
 export interface RegisteredAccount {

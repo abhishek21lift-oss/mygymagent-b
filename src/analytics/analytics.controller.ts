@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { GetRevenueSummaryQueryDto } from './dto/get-revenue-summary-query.dto';
 import { GetRevenueTrendQueryDto } from './dto/get-revenue-trend-query.dto';
@@ -18,6 +19,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
 /// members.read/leads.read/etc. permissions those resources' own CRUD
 /// routes use.
 @Controller('analytics')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AnalyticsController {
   constructor(
     private readonly finance: FinanceService,

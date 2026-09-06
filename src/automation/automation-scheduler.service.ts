@@ -7,7 +7,7 @@ import {
   QUEUE_NAMES,
 } from '../queue/queue.constants';
 
-/** Fixed UTC hour every daily scan runs at. Same time for all four scans
+/** Fixed UTC hour every daily scan runs at. Same time for all five scans
  * today (they're independent and cheap enough to not need staggering at
  * current scale) -- a per-org schedule isn't something this data model
  * or the master prompt's P1 scope asks for. */
@@ -55,10 +55,15 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { pattern },
         { name: JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE },
       ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_DATA_RETENTION,
+        { pattern },
+        { name: JOB_NAMES.SCAN_DATA_RETENTION },
+      ),
     ]);
 
     this.logger.log(
-      `Registered 4 daily automation scan schedulers (${pattern} UTC)`,
+      `Registered 5 daily automation scan schedulers (${pattern} UTC)`,
     );
   }
 }

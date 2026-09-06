@@ -11,6 +11,7 @@ import {
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMembershipPlanDto } from './dto/create-membership-plan.dto';
@@ -18,6 +19,7 @@ import { UpdateMembershipPlanDto } from './dto/update-membership-plan.dto';
 import { MembershipPlansService } from './membership-plans.service';
 
 @Controller('membership-plans')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class MembershipPlansController {
   constructor(private readonly plansService: MembershipPlansService) {}
 

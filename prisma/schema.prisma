@@ -87,6 +87,8 @@ model Organization {
   exercises               Exercise[]
   workoutPlans            WorkoutPlan[]
   workoutAssignments      WorkoutAssignment[]
+  workoutSessions         WorkoutSession[]
+  workoutSessionSets      WorkoutSessionSet[]
   leads                   Lead[]
   leadFollowUps           LeadFollowUp[]
   foodItems               FoodItem[]
@@ -115,6 +117,7 @@ model Organization {
   automationRuns          AutomationRun[]
   aiActions               AiAction[]
   aiConversations         AiConversation[]
+  ptSessions            PtSession[]   @relation("PtSession")
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -154,6 +157,8 @@ model Branch {
   attendances             Attendance[]
   userRoles               UserRole[]
   payments                Payment[]
+  ptSessions              PtSession[] @relation("PtSession")
+  workoutSessions         WorkoutSession[]
   leads                   Lead[]
   primaryUsers            User[]                @relation("UserPrimaryBranch")
   primaryMembers          Member[]              @relation("MemberPrimaryBranch")
@@ -227,6 +232,7 @@ model User {
   refundsRecorded          Refund[]                  @relation("RefundRecordedBy")
   workoutPlansCreated      WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
   workoutAssignmentsMade   WorkoutAssignment[]       @relation("WorkoutAssignedBy")
+  workoutSessionsCreated   WorkoutSession[]          @relation("WorkoutSessionCreatedBy")
   leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
   leadFollowUpsCreated     LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
   dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
@@ -277,6 +283,8 @@ model StaffProfile {
   @@index([organizationId])
   @@index([branchId])
   @@map("staff_profiles")
+
+  ptSessions PtSession[] @relation("PtSession")
 }
 
 /// Permission catalog, e.g. "members.read", "payments.refund". Global, not
@@ -470,6 +478,12 @@ enum MemberStatus {
   EXPIRED
 }
 
+enum MemberType {
+  GYM
+  PT
+  GYM_PT
+}
+
 model Member {
   id              String       @id @default(uuid())
   organizationId  String
@@ -497,6 +511,9 @@ model Member {
   emergencyContactName  String?
   emergencyContactPhone String?
 
+  memberType MemberType?
+  leadSource String?
+
   profilePhotoUrl String?
   status          MemberStatus @default(ACTIVE)
 
@@ -518,7 +535,9 @@ model Member {
   attendances        Attendance[]
   payments           Payment[]
   workoutAssignments WorkoutAssignment[]
+  workoutSessions    WorkoutSession[]
   dietAssignments    DietAssignment[]
+  ptSessions         PtSession[]   @relation("PtSession")
   /// Set if this member originated from a converted Lead -- the opposite
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
@@ -797,6 +816,7 @@ model Membership {
   totalFreezeDaysUsed Int       @default(0)
 
   price     Decimal @db.Decimal(10, 2)
+  discount  Decimal? @db.Decimal(10, 2)
   currency  String  @default("USD")
   autoRenew Boolean @default(false)
 
@@ -873,6 +893,7 @@ enum PaymentStatus {
   COMPLETED
   REFUNDED
   PARTIALLY_REFUNDED
+  FAILED
 }
 
 /// A member paying the gym (membership fee, PT session, product, ...).
@@ -880,17 +901,19 @@ enum PaymentStatus {
 /// a refund is a new linked Refund row, never a mutation of this row. See
 /// docs/database/data-retention.md's financial-records section.
 model Payment {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  memberId       String
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  id                     String       @id @default(uuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId               String?
+  branch                 Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberId               String
+  member                 Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
   /// Nullable: a payment can be a one-off (PT session, product) not tied to
   /// a membership purchase/renewal.
-  membershipId   String?
-  membership     Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  membershipId           String?
+  membership             Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  /// Stripe Payment Intent ID for idempotency and linking to Stripe
+  stripePaymentIntentId  String?      @unique
 
   amount   Decimal       @db.Decimal(10, 2)
   currency String        @default("USD")
@@ -905,9 +928,10 @@ model Payment {
 
   refunds Refund[]
 
+  @@index([organizationId, createdAt])
+  @@index([organizationId, memberId, createdAt])
+  @@index([organizationId, membershipId])
   @@index([organizationId, branchId, createdAt])
-  @@index([memberId, createdAt])
-  @@index([membershipId])
   @@map("payments")
 }
 
@@ -933,6 +957,62 @@ model Refund {
   @@index([organizationId, createdAt])
   @@index([paymentId])
   @@map("refunds")
+}
+
+/// Personal training sessions booked between members and trainers
+model PtSession {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation("PtSession", fields: [organizationId], references: [id], onDelete: Cascade)
+
+  memberId       String
+  member         Member       @relation("PtSession", fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// Optional trainer - if null, session is unassigned or self-guided
+  trainerId      String?
+  trainer        StaffProfile? @relation("PtSession", fields: [trainerId], references: [id])
+
+  branchId       String
+  branch         Branch       @relation("PtSession", fields: [branchId], references: [id], onDelete: Cascade)
+
+  startTime      DateTime
+  endTime        DateTime
+
+  /// Type of session: personal, partner, or small group training
+  type           PtSessionType  @default(PERSONAL_TRAINING)
+
+  /// Current status of the session
+  status         PtSessionStatus @default(SCHEDULED)
+
+  /// Price charged for this session (nullable for comp/internal sessions)
+  price          Decimal?     @db.Decimal(10, 2)
+
+  /// Whether payment has been collected for this session
+  isPaid         Boolean      @default(false)
+
+  /// Trainer notes for the session
+  notes          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([organizationId, branchId, startTime])
+  @@index([memberId, startTime])
+  @@index([trainerId, startTime])
+  @@map("pt_sessions")
+}
+
+enum PtSessionType {
+  PERSONAL_TRAINING
+  PARTNER_TRAINING
+  SMALL_GROUP
+}
+
+enum PtSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
 }
 
 // ----------------------------------------------------------------------------
@@ -1026,10 +1106,88 @@ model WorkoutAssignment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  sessions WorkoutSession[]
+
   @@index([organizationId])
   @@index([memberId])
   @@index([workoutPlanId])
   @@map("workout_assignments")
+}
+
+enum WorkoutSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// Execution record for an assigned workout plan: one row per time a
+/// member actually runs a workout. The plan's exercises are snapshotted
+/// into `exercises` (JSON) at start time so later edits to the plan never
+/// rewrite execution history, and logged sets are appended per exercise.
+/// This is the "execution layer" the WorkoutPlan/WorkoutAssignment shape
+/// (above) deliberately deferred -- see workouts/README.md.
+model WorkoutSession {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignmentId   String
+  assignment     WorkoutAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  sessionDate DateTime              @default(now())
+  status      WorkoutSessionStatus  @default(IN_PROGRESS)
+  startedAt   DateTime              @default(now())
+  completedAt DateTime?
+  notes       String?
+
+  /// Snapshot of the assigned plan's exercises at start time
+  /// (`[{id, exerciseId, name, setsTarget, repsTarget, restSeconds,
+  /// displayOrder, notes}]` -- `id` is a per-snapshot uuid, the key sets
+  /// reference). Same denormalized-JSON reasoning as WorkoutPlan.exercises.
+  exercises Json @default("[]")
+
+  createdByUserId String?
+  createdByUser   User?   @relation("WorkoutSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sets WorkoutSessionSet[]
+
+  @@index([organizationId, branchId, sessionDate])
+  @@index([assignmentId])
+  @@index([memberId, sessionDate])
+  @@map("workout_sessions")
+}
+
+/// One logged set within a workout session execution. Append-only: a set
+/// is written once per (session, exercise, setNumber) -- re-logging the
+/// same set number overwrites the values in place rather than creating a
+/// second row, so the frontend's "log set N" retries stay idempotent.
+model WorkoutSessionSet {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// Which snapshot entry of WorkoutSession.exercises this set belongs to
+  /// (the per-snapshot `id` above, surfaced to clients as
+  /// sessionExerciseId).
+  exerciseId String
+  setNumber  Int
+
+  weightKg Decimal? @db.Decimal(6, 2)
+  reps     Int?
+  rpe      Decimal? @db.Decimal(3, 1)
+  notes    String?
+
+  completedAt DateTime @default(now())
+
+  @@unique([sessionId, exerciseId, setNumber])
+  @@index([organizationId, sessionId])
+  @@map("workout_session_sets")
 }
 
 // ----------------------------------------------------------------------------

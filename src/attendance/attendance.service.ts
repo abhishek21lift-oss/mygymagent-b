@@ -26,16 +26,34 @@ export class AttendanceService {
   async list(
     organizationId: string,
     query: PaginationQueryDto,
-    filters: { branchId?: string; memberId?: string },
+    filters: {
+      branchId?: string;
+      memberId?: string;
+      assignmentScope?: string | null;
+    },
   ) {
-    const where = { organizationId, ...filters };
+    const where = {
+      organizationId,
+      ...(filters.branchId ? { branchId: filters.branchId } : {}),
+      ...(filters.memberId ? { memberId: filters.memberId } : {}),
+      ...(filters.assignmentScope
+        ? { member: { assignedTrainerId: filters.assignmentScope } }
+        : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.attendance.findMany({
         where,
         ...skipTake(query),
         orderBy: { checkInAt: query.order ?? 'desc' },
         include: {
-          member: { select: { id: true, firstName: true, lastName: true } },
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              assignedTrainerId: true,
+            },
+          },
           staffUser: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
@@ -49,6 +67,7 @@ export class AttendanceService {
     recordedByUserId: string,
     dto: CheckInDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (branchScope && dto.branchId !== branchScope) {
       throw new BadRequestException(
@@ -68,10 +87,20 @@ export class AttendanceService {
 
     if (dto.memberId) {
       const member = await this.prisma.member.findFirst({
-        where: { id: dto.memberId, organizationId, deletedAt: null },
+        where: {
+          id: dto.memberId,
+          organizationId,
+          deletedAt: null,
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+        },
       });
       if (!member) throw new NotFoundException('Member not found');
     } else if (dto.staffUserId) {
+      if (assignmentScope) {
+        throw new BadRequestException(
+          'Assigned trainers can only record attendance for their assigned members',
+        );
+      }
       const staff = await this.prisma.user.findFirst({
         where: { id: dto.staffUserId, organizationId, deletedAt: null },
       });
@@ -108,17 +137,20 @@ export class AttendanceService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const record = await this.prisma.attendance.findFirst({
       where: {
         id,
         organizationId,
         ...(branchScope ? { branchId: branchScope } : {}),
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
       },
     });
     if (!record) throw new NotFoundException('Attendance record not found');
     if (record.checkOutAt) throw new BadRequestException('Already checked out');
-
     return this.prisma.attendance.update({
       where: { id },
       data: { checkOutAt: new Date() },

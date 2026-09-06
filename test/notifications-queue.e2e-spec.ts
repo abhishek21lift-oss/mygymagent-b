@@ -54,13 +54,16 @@ describe('Notifications queue (e2e)', () => {
   }
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     queue = app.get<Queue>(getQueueToken(QUEUE_NAMES.NOTIFICATIONS));
     org = await registerOrg('Queue Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('enqueues and processes a welcome-email job when a member with an email is created', async () => {

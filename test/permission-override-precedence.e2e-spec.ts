@@ -32,7 +32,8 @@ describe('Permission override precedence (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     permissions = app.get(PermissionsService);
 
@@ -61,7 +62,9 @@ describe('Permission override precedence (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('a branch-specific DENY override beats an org-wide role-derived ALLOW for the same permission', async () => {

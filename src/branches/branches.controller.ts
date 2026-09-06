@@ -11,6 +11,7 @@ import {
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BranchesService } from './branches.service';
@@ -18,6 +19,7 @@ import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 
 @Controller('branches')
+@Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 

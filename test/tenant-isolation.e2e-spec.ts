@@ -41,13 +41,16 @@ describe('Tenant isolation (e2e)', () => {
   }
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     orgA = await registerOrg('Tenant A Gym');
     orgB = await registerOrg('Tenant B Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   const authed = (token: string) => (req: request.Test) =>

@@ -40,7 +40,8 @@ describe('Member 360 (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Member 360 Test Gym');
     orgB = await registerOrg('Member 360 Test Gym B');
 
@@ -55,7 +56,9 @@ describe('Member 360 (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   describe('addresses', () => {

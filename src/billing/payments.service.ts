@@ -75,10 +75,67 @@ export class PaymentsService {
     return payment;
   }
 
+  async getOneByStripeIntentId(stripePaymentIntentId: string) {
+    return this.prisma.payment.findFirst({
+      where: { stripePaymentIntentId },
+      include: {
+        member: { select: { id: true, firstName: true, lastName: true } },
+        membership: { include: { membershipPlan: true } },
+        refunds: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+  }
+
+  async createStripePayment(
+    organizationId: string,
+    amount: number,
+    currency: string,
+    memberId?: string,
+    membershipId?: string,
+    stripePaymentIntentId?: string,
+    recordedByUserId: string | null = null,
+    status: string = 'COMPLETED',
+  ) {
+    // Determine branchId from member or membership
+    let branchId: string | null = null;
+    if (membershipId) {
+      const membership = await this.prisma.membership.findFirst({
+        where: { id: membershipId, organizationId },
+        select: { branchId: true },
+      });
+      branchId = membership?.branchId ?? null;
+    } else if (memberId) {
+      const member = await this.prisma.member.findFirst({
+        where: { id: memberId, organizationId },
+        select: { primaryBranchId: true },
+      });
+      branchId = member?.primaryBranchId ?? null;
+    }
+
+    // Create the payment record
+    const payment = await this.prisma.payment.create({
+      data: {
+        organizationId,
+        branchId,
+        memberId: memberId as string,
+        membershipId,
+        amount,
+        currency,
+        method: 'CARD', // Assuming Stripe payments are card payments
+        status: status as
+          'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
+        stripePaymentIntentId,
+        recordedByUserId,
+      },
+    });
+
+    return payment;
+  }
+
   async create(
     organizationId: string,
     dto: CreatePaymentDto,
-    recordedByUserId: string,
+    recordedByUserId: string | null = null,
     branchScope: string | null = null,
   ) {
     const [organization, member, membership] = await Promise.all([
@@ -97,7 +154,7 @@ export class PaymentsService {
     if (dto.membershipId && !membership) {
       throw new NotFoundException('Membership not found');
     }
-    if (membership && membership.memberId !== member.id) {
+    if (membership && membership.memberId !== dto.memberId) {
       throw new BadRequestException(
         'Membership does not belong to the specified member',
       );
@@ -126,7 +183,7 @@ export class PaymentsService {
 
     const payload: PaymentRecordedEvent = {
       organizationId,
-      branchId: payment.branchId,
+      branchId: payment.branchId ?? '',
       paymentId: payment.id,
       memberId: payment.memberId,
       membershipId: payment.membershipId ?? undefined,

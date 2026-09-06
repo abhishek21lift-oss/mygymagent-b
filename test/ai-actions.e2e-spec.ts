@@ -54,7 +54,8 @@ describe('AI Actions / Action Center (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     toolExecutor = app.get(ToolExecutorService);
     org = await registerOrg('Action Center Test Gym');
@@ -114,7 +115,9 @@ describe('AI Actions / Action Center (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('propose_assign_workout_plan drafts a proposal with zero real effect until approved', async () => {
@@ -122,7 +125,7 @@ describe('AI Actions / Action Center (e2e)', () => {
       'propose_assign_workout_plan',
       { memberId, planId: workoutPlanId },
       { organizationId: org.organizationId, userId: org.userId },
-    )) as { actionId: string; status: string; reasoning: string };
+    )) as { id: string; status: string; reasoning: string };
 
     expect(result.status).toBe('PENDING_APPROVAL');
     expect(result.reasoning).toContain('Action Center Plan');
@@ -135,9 +138,7 @@ describe('AI Actions / Action Center (e2e)', () => {
     expect(assignments.body.data.items).toHaveLength(0);
 
     const approved = await authed(org.accessToken)(
-      request(app.getHttpServer()).patch(
-        `/ai-actions/${result.actionId}/approve`,
-      ),
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(200);
     expect(approved.body.data.status).toBe('EXECUTED');
     expect(approved.body.data.resultResourceId).toBeTruthy();
@@ -158,12 +159,12 @@ describe('AI Actions / Action Center (e2e)', () => {
       'propose_assign_diet_plan',
       { memberId, planId: dietPlanId },
       { organizationId: org.organizationId, userId: org.userId },
-    )) as { actionId: string; status: string };
+    )) as { id: string; status: string };
     expect(result.status).toBe('PENDING_APPROVAL');
 
     const rejected = await authed(org.accessToken)(
       request(app.getHttpServer())
-        .patch(`/ai-actions/${result.actionId}/reject`)
+        .patch(`/ai-actions/${result.id}/reject`)
         .send({ reason: 'Not the right plan for this member' }),
     ).expect(200);
     expect(rejected.body.data.status).toBe('REJECTED');
@@ -182,23 +183,17 @@ describe('AI Actions / Action Center (e2e)', () => {
       'propose_assign_workout_plan',
       { memberId, planId: workoutPlanId },
       { organizationId: org.organizationId, userId: org.userId },
-    )) as { actionId: string };
+    )) as { id: string };
 
     await authed(org.accessToken)(
-      request(app.getHttpServer()).patch(
-        `/ai-actions/${result.actionId}/approve`,
-      ),
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(200);
 
     await authed(org.accessToken)(
-      request(app.getHttpServer()).patch(
-        `/ai-actions/${result.actionId}/approve`,
-      ),
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(400);
     await authed(org.accessToken)(
-      request(app.getHttpServer()).patch(
-        `/ai-actions/${result.actionId}/reject`,
-      ),
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/reject`),
     ).expect(400);
   });
 
@@ -235,7 +230,7 @@ describe('AI Actions / Action Center (e2e)', () => {
       'propose_assign_workout_plan',
       { memberId, planId: workoutPlanId },
       { organizationId: org.organizationId, userId: org.userId },
-    )) as { actionId: string };
+    )) as { id: string };
 
     // An ACCOUNTANT who's been granted ai.approve directly (an override,
     // not via role -- ACCOUNTANT doesn't have it by default) but still
@@ -276,14 +271,14 @@ describe('AI Actions / Action Center (e2e)', () => {
     await expect(
       aiActionsService.approve(
         org.organizationId,
-        result.actionId,
+        result.id,
         restrictedApproverId,
       ),
     ).rejects.toThrow(/requires workouts.assign/);
 
     const stillPending = await aiActionsService.getOne(
       org.organizationId,
-      result.actionId,
+      result.id,
     );
     expect(stillPending.status).toBe('PENDING_APPROVAL');
   });

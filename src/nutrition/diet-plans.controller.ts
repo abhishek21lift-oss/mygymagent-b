@@ -10,6 +10,7 @@ import {
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AssignDietPlanDto } from './dto/assign-diet-plan.dto';
@@ -18,6 +19,7 @@ import { UpdateDietPlanDto } from './dto/update-diet-plan.dto';
 import { DietPlansService } from './diet-plans.service';
 
 @Controller('diet-plans')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class DietPlansController {
   constructor(private readonly dietPlansService: DietPlansService) {}
 

@@ -15,8 +15,21 @@ import { AiConversationsController } from './conversations/ai-conversations.cont
 import { AiConversationsService } from './conversations/ai-conversations.service';
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
-import { IntelligenceToolExecutorService } from './tools/intelligence-tool-executor.service';
+import { AiSupervisorService } from './supervisor/ai-supervisor.service';
+import { SpecialistFactoryService } from './supervisor/specialist-factory.service';
+import { MemberSpecialistService } from './specialists/member-specialist.service';
+import { WorkoutSpecialistService } from './specialists/workout-specialist.service';
+import { NutritionSpecialistService } from './specialists/nutrition-specialist.service';
+import { AnalyticsSpecialistService } from './specialists/analytics-specialist.service';
+import { CrmSpecialistService } from './specialists/crm-specialist.service';
+import { ActionsSpecialistService } from './specialists/actions-specialist.service';
+import { BriefingSpecialistService } from './specialists/briefing-specialist.service';
+import { GlobalAiCommandController } from './global-ai-command.controller';
+import { GlobalAiCommandService } from './global-ai-command.service';
 
+/**
+ * v1 AI: tool-calling chat over OpenRouter, restricted to the explicit tool allowlist.
+ */
 @Module({
   imports: [
     MembersModule,
@@ -29,14 +42,27 @@ import { IntelligenceToolExecutorService } from './tools/intelligence-tool-execu
     AiActionsModule,
     BriefingModule,
   ],
-  controllers: [AiController, AiConversationsController],
+  controllers: [
+    AiController,
+    AiConversationsController,
+    GlobalAiCommandController,
+  ],
   providers: [
     AiService,
     OpenRouterProvider,
     ToolExecutorService,
-    IntelligenceToolExecutorService,
     AiUsageService,
     AiConversationsService,
+    AiSupervisorService,
+    SpecialistFactoryService,
+    MemberSpecialistService,
+    WorkoutSpecialistService,
+    NutritionSpecialistService,
+    AnalyticsSpecialistService,
+    CrmSpecialistService,
+    ActionsSpecialistService,
+    BriefingSpecialistService,
+    GlobalAiCommandService,
   ],
 })
 export class AiModule {}

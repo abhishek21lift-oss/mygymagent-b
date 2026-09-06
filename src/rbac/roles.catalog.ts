@@ -6,20 +6,9 @@ export interface RoleDefinition {
   description: string;
   permissions: string[];
 }
-
 const ALL_PERMISSIONS = PERMISSION_KEYS;
-
 const perms = (...keys: string[]) => keys;
 
-/**
- * System-seeded roles, available to every organization out of the box.
- * Organizations may additionally define custom roles (see Role.organizationId).
- *
- * Grants here cover permissions for both implemented and not-yet-implemented
- * domains -- a role like "Accountant" already lists `payments.*` even though
- * the payments module doesn't exist yet, so the role doesn't need to be
- * redefined when it lands.
- */
 export const ROLES_CATALOG: RoleDefinition[] = [
   {
     key: 'PLATFORM_OWNER',
@@ -71,6 +60,12 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'leads.manage',
       'reports.view',
       'audit.read',
+      'pt-sessions.read',
+      'pt-sessions.create',
+      'pt-sessions.update',
+      'pt-packages.read',
+      'pt-packages.create',
+      'pt-packages.update',
     ),
   },
   {
@@ -92,6 +87,12 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'reports.view',
       'ai.generate',
       'ai.approve',
+      'pt-sessions.read',
+      'pt-sessions.create',
+      'pt-sessions.update',
+      'pt-packages.read',
+      'pt-packages.create',
+      'pt-packages.update',
     ),
   },
   {
@@ -100,25 +101,22 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     description: 'Manages assigned clients: training, progress and attendance.',
     permissions: perms(
       'members.read_assigned',
-      'memberships.read',
-      'attendance.read',
-      'attendance.create',
-      'workouts.read',
+      'memberships.read_assigned',
+      'attendance.read_assigned',
+      'attendance.create_assigned',
+      'workouts.read_assigned',
       'workouts.create',
       'workouts.assign',
       'ai.generate',
+      'pt-sessions.read_assigned',
+      'pt-sessions.create',
+      'pt-sessions.update',
+      'pt-packages.read_assigned',
     ),
   },
   {
     key: 'NUTRITIONIST',
     name: 'Nutritionist',
-    // Kept on the broad `members.read`, not `members.read_assigned`: "assigned"
-    // for a nutritionist means "has an active DietAssignment I created" (see
-    // DietAssignment.assignedByUserId), a different relationship than
-    // Member.assignedTrainerId -- the field `members.read_assigned` filters
-    // by. Scoping this role correctly needs a join against DietAssignment,
-    // not a reuse of the trainer-assignment field; left as a documented gap
-    // (see docs/security/overview.md) rather than silently mis-scoping it.
     description: 'Manages nutrition and diet plans for assigned clients.',
     permissions: perms(
       'members.read',
@@ -140,6 +138,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'attendance.read',
       'attendance.create',
       'leads.read',
+      'pt-sessions.read',
+      'pt-sessions.create',
+      'pt-packages.read',
+      'pt-packages.create',
     ),
   },
   {
@@ -156,6 +158,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'leads.manage',
       'payments.read',
       'payments.create',
+      'pt-packages.read',
+      'pt-packages.create',
     ),
   },
   {
@@ -170,6 +174,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'payments.refund',
       'reports.view',
       'audit.read',
+      'pt-packages.read',
     ),
   },
   {

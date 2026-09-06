@@ -2,7 +2,8 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { TestableThrottlerGuard } from './common/guards/testable-throttler.guard';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
@@ -27,22 +28,88 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { PlatformModule } from './platform/platform.module';
 import { BillingModule } from './billing/billing.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
 import { CrmModule } from './crm/crm.module';
 import { AiModule } from './ai/ai.module';
 import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { PtSessionsModule } from './pt-sessions/pt-sessions.module';
+import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
-import { CommunicationsModule } from './communications/communications.module';
-import { WhatsAppModule } from './whatsapp/whatsapp.module';
-import { Client360Module } from './client-360/client-360.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }), EventEmitterModule.forRoot(), ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 120 }] }), PrismaModule, QueueModule, FilesModule, AuditModule, RbacModule, AuthModule, HealthModule, OrganizationsModule, BranchesModule, UsersModule, MembersModule, MembershipPlansModule, MembershipsModule, AttendanceModule, BillingModule, WorkoutsModule, CrmModule, AiModule, AiActionsModule, NutritionModule, InventoryModule, PlatformModule, NotificationsModule, SearchModule, AnalyticsModule, AutomationModule, BriefingModule, WhatsAppModule, CommunicationsModule, Client360Module],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: PermissionsGuard }, { provide: APP_GUARD, useClass: PlatformRoleGuard }, { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor }, { provide: APP_INTERCEPTOR, useClass: AuditInterceptor }],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    EventEmitterModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 120, // Default limit for general endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 20, // Strict limit for auth endpoints (already set in controllers)
+      },
+      {
+        ttl: 60_000,
+        limit: 30, // Limit for analytics endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 40, // Limit for member endpoints
+      },
+      {
+        ttl: 60_000,
+        limit: 50, // Limit for billing endpoints
+      },
+    ]),
+    PrismaModule,
+    QueueModule,
+    FilesModule,
+    AuditModule,
+    RbacModule,
+    AuthModule,
+    HealthModule,
+    OrganizationsModule,
+    BranchesModule,
+    UsersModule,
+    MembersModule,
+    MembershipsModule,
+    MembershipPlansModule,
+    AttendanceModule,
+    PlatformModule,
+    BillingModule,
+    WorkoutsModule,
+    WorkoutSessionsModule,
+    CrmModule,
+    AiModule,
+    AiActionsModule,
+    NutritionModule,
+    InventoryModule,
+    PtSessionsModule,
+    PtPackagesModule,
+    NotificationsModule,
+    SearchModule,
+    AnalyticsModule,
+    AutomationModule,
+    BriefingModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: TestableThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: PlatformRoleGuard },
+    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+  ],
 })
-export class AppModule implements NestModule { configure(consumer: MiddlewareConsumer): void { consumer.apply(RequestIdMiddleware).forRoutes('*'); } }
+export class AppModule implements NestModule {
+  configure(reader: MiddlewareConsumer) {
+    reader.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}

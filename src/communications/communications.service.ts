@@ -109,7 +109,7 @@ export class CommunicationsService {
           SMS: this.smsProvider,
           PUSH: this.pushProvider,
         }[input.channel];
-        await provider.send({ organizationId: input.organizationId, to: input.recipient, text: body });
+        await provider.send({ to: input.recipient, text: body });
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },
