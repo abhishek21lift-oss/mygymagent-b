@@ -47,7 +47,7 @@ CREATE TABLE "member_segments" (
 CREATE TABLE "member_segment_assignments" (
     "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "memberId" TEXT NOT NULL,
-    "segmentId" TEXT NOT NULL,
+    "segmentId" UUID NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "member_segment_assignments_memberId_fkey"
         FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE,
