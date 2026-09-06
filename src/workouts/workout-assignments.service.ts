@@ -53,9 +53,22 @@ export class WorkoutAssignmentsService {
     organizationId: string,
     id: string,
     dto: UpdateWorkoutAssignmentStatusDto,
+    assignmentScope: string | null = null,
+    branchScope: string | null = null,
   ) {
     const assignment = await this.prisma.workoutAssignment.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(assignmentScope || branchScope
+          ? {
+              member: {
+                ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+                ...(branchScope ? { primaryBranchId: branchScope } : {}),
+              },
+            }
+          : {}),
+      },
     });
     if (!assignment)
       throw new NotFoundException('Workout assignment not found');

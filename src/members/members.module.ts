@@ -3,25 +3,32 @@ import { MemberAssessmentsController } from './member-assessments.controller';
 import { MemberAssessmentsService } from './member-assessments.service';
 import { MemberCommunicationsController } from './member-communications.controller';
 import { MemberCommunicationsService } from './member-communications.service';
+import { MemberCommunicationsIntegrityService } from './member-communications-integrity.service';
 import { MemberDetailsController } from './member-details.controller';
 import { MemberDetailsService } from './member-details.service';
 import { MemberDocumentsController } from './member-documents.controller';
 import { MemberDocumentsService } from './member-documents.service';
+import { MemberDocumentsIntegrityService } from './member-documents-integrity.service';
 import { MemberDuplicateService } from './member-duplicate.service';
 import { MemberFollowUpsController } from './member-follow-ups.controller';
 import { MemberFollowUpsService } from './member-follow-ups.service';
+import { MemberFollowUpsIntegrityService } from './member-follow-ups-integrity.service';
 import { MemberGoalsController } from './member-goals.controller';
 import { MemberGoalsService } from './member-goals.service';
 import { Member360Service } from './member-360.service';
+import { Member360IntegrityService } from './member-360-integrity.service';
+import { MemberBulkTagsController } from './member-bulk-tags.controller';
 import { MemberTagsController } from './member-tags.controller';
 import { MemberTagsService } from './member-tags.service';
 import { MembersController } from './members.controller';
 import { MembersService } from './members.service';
+import { MemberIntegrityService } from './member-integrity.service';
 import { CommunicationsModule } from '../communications/communications.module';
 
 @Module({
   imports: [CommunicationsModule],
   controllers: [
+    MemberBulkTagsController,
     // Register static /members/tags routes before the dynamic /members/:id routes.
     MemberTagsController,
     MembersController,
@@ -33,16 +40,16 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberCommunicationsController,
   ],
   providers: [
-    MembersService,
+    { provide: MembersService, useClass: MemberIntegrityService },
     MemberDetailsService,
     MemberAssessmentsService,
     MemberGoalsService,
-    MemberDocumentsService,
-    Member360Service,
+    { provide: MemberDocumentsService, useClass: MemberDocumentsIntegrityService },
+    { provide: Member360Service, useClass: Member360IntegrityService },
     MemberDuplicateService,
-    MemberFollowUpsService,
+    { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
     MemberTagsService,
-    MemberCommunicationsService,
+    { provide: MemberCommunicationsService, useClass: MemberCommunicationsIntegrityService },
   ],
   exports: [
     MembersService,

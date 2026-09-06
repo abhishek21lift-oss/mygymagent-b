@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
@@ -20,11 +22,15 @@ export class DietAssignmentsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListDietAssignmentsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.dietAssignmentsService.list(
       user.organizationId!,
       query,
       query.memberId,
+      branchScope,
+      assignmentScope,
     );
   }
 
@@ -35,11 +41,15 @@ export class DietAssignmentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateDietAssignmentStatusDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.dietAssignmentsService.updateStatus(
       user.organizationId!,
       id,
       dto,
+      branchScope,
+      assignmentScope,
     );
   }
 }

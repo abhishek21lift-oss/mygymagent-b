@@ -106,11 +106,17 @@ export class MembershipsService {
     const endDate = new Date(
       startDate.getTime() + plan.durationDays * MS_PER_DAY,
     );
-    const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
-    const finalPrice = discount ? plan.price.sub(discount) : plan.price;
+    const discount = dto.discount ? new Prisma.Decimal(dto.discount) : new Prisma.Decimal(0);
+    if (discount.lt(0) || discount.gt(plan.price)) {
+      throw new BadRequestException('Discount must be between 0 and the plan price');
+    }
+    const finalPrice = plan.price.sub(discount);
     const initialPayment = dto.initialPayment
       ? new Prisma.Decimal(dto.initialPayment)
       : null;
+    if (initialPayment && (initialPayment.lt(0) || initialPayment.gt(finalPrice))) {
+      throw new BadRequestException('Initial payment must be between 0 and the membership price');
+    }
 
     const membership = await this.prisma.$transaction(async (tx) => {
       const newMembership = await tx.membership.create({
@@ -123,7 +129,7 @@ export class MembershipsService {
           startDate,
           endDate,
           price: finalPrice,
-          discount,
+          discount: discount.gt(0) ? discount : null,
           currency: plan.currency,
           autoRenew: dto.autoRenew ?? false,
         },
@@ -163,24 +169,44 @@ export class MembershipsService {
     dto: FreezeMembershipDto,
     branchScope: string | null = null,
   ) {
-    const membership = await this.getOne(organizationId, id, branchScope);
-    if (membership.status !== 'ACTIVE')
-      throw new BadRequestException('Only an active membership can be frozen');
-    const remainingFreezeDays =
-      membership.membershipPlan.maxFreezeDays - membership.totalFreezeDaysUsed;
-    if (dto.days > remainingFreezeDays) {
-      throw new BadRequestException(
-        `Requested freeze of ${dto.days} days exceeds the ${remainingFreezeDays} remaining freeze days on this plan`,
-      );
+    if (dto.days <= 0) {
+      throw new BadRequestException('Freeze days must be greater than zero');
     }
-    const freezeStartDate = new Date();
-    const freezeEndDate = new Date(
-      freezeStartDate.getTime() + dto.days * MS_PER_DAY,
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const membership = await tx.membership.findFirst({
+          where: {
+            id,
+            organizationId,
+            ...(branchScope ? { branchId: branchScope } : {}),
+          },
+          include: { membershipPlan: true },
+        });
+        if (!membership) throw new NotFoundException('Membership not found');
+        if (membership.status !== 'ACTIVE') {
+          throw new BadRequestException('Only an active membership can be frozen');
+        }
+
+        const remainingFreezeDays =
+          membership.membershipPlan.maxFreezeDays - membership.totalFreezeDaysUsed;
+        if (dto.days > remainingFreezeDays) {
+          throw new BadRequestException(
+            `Requested freeze of ${dto.days} days exceeds the ${remainingFreezeDays} remaining freeze days on this plan`,
+          );
+        }
+
+        const freezeStartDate = new Date();
+        const freezeEndDate = new Date(
+          freezeStartDate.getTime() + dto.days * MS_PER_DAY,
+        );
+        return tx.membership.update({
+          where: { id },
+          data: { status: 'FROZEN', freezeStartDate, freezeEndDate },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-    return this.prisma.membership.update({
-      where: { id },
-      data: { status: 'FROZEN', freezeStartDate, freezeEndDate },
-    });
   }
 
   async resume(
@@ -191,8 +217,16 @@ export class MembershipsService {
     const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status !== 'FROZEN' || !membership.freezeStartDate)
       throw new BadRequestException('Membership is not currently frozen');
-    const frozenDays = Math.ceil(
-      (Date.now() - membership.freezeStartDate.getTime()) / MS_PER_DAY,
+
+    const effectiveResumeAt = membership.freezeEndDate
+      ? new Date(Math.min(Date.now(), membership.freezeEndDate.getTime()))
+      : new Date();
+    const frozenDays = Math.max(
+      0,
+      Math.ceil(
+        (effectiveResumeAt.getTime() - membership.freezeStartDate.getTime()) /
+          MS_PER_DAY,
+      ),
     );
     const extendedEndDate = new Date(
       membership.endDate.getTime() + frozenDays * MS_PER_DAY,
@@ -238,26 +272,40 @@ export class MembershipsService {
   async getOutstandingBalance(organizationId: string, memberId: string) {
     const memberships = await this.prisma.membership.findMany({
       where: { organizationId, memberId },
-      select: { price: true },
+      select: { id: true, price: true },
     });
+    const membershipIds = memberships.map((membership) => membership.id);
     const payments = await this.prisma.payment.findMany({
-      where: { organizationId, memberId, status: 'COMPLETED' },
-      select: { amount: true },
+      where: {
+        organizationId,
+        memberId,
+        membershipId: { in: membershipIds },
+        status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+      },
+      select: { id: true, amount: true },
     });
+    const paymentIds = payments.map((payment) => payment.id);
+    const refunds = paymentIds.length
+      ? await this.prisma.refund.findMany({
+          where: { organizationId, paymentId: { in: paymentIds } },
+          select: { amount: true },
+        })
+      : [];
+
     const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price),
+      (sum, membership) => sum.plus(membership.price),
       new Prisma.Decimal(0),
     );
     const totalPaid = payments.reduce(
-      (sum, p) => sum.plus(p.amount),
+      (sum, payment) => sum.plus(payment.amount),
       new Prisma.Decimal(0),
     );
-    const outstandingBalance = totalDue.sub(totalPaid);
-    return {
-      totalDue,
-      totalPaid,
-      outstandingBalance,
-    };
+    const totalRefunded = refunds.reduce(
+      (sum, refund) => sum.plus(refund.amount),
+      new Prisma.Decimal(0),
+    );
+    const outstandingBalance = totalDue.sub(totalPaid).add(totalRefunded);
+    return { totalDue, totalPaid, totalRefunded, outstandingBalance };
   }
 
   async renew(
@@ -280,8 +328,11 @@ export class MembershipsService {
     }
     const plan = membership.membershipPlan;
     if (isExpiredOrCancelled) {
-      const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
-      const finalPrice = discount ? plan.price.sub(discount) : plan.price;
+      const discount = dto.discount ? new Prisma.Decimal(dto.discount) : new Prisma.Decimal(0);
+      if (discount.lt(0) || discount.gt(plan.price)) {
+        throw new BadRequestException('Discount must be between 0 and the plan price');
+      }
+      const finalPrice = plan.price.sub(discount);
       const newMembership = await this.prisma.membership.create({
         data: {
           organizationId,
@@ -292,12 +343,19 @@ export class MembershipsService {
           startDate: new Date(),
           endDate: new Date(Date.now() + plan.durationDays * MS_PER_DAY),
           price: finalPrice,
-          discount,
+          discount: discount.gt(0) ? discount : null,
           currency: plan.currency,
           autoRenew: membership.autoRenew,
           previousMembershipId: membership.id,
         },
       });
+      this.events.emit(DomainEvent.MembershipStarted, {
+        organizationId,
+        branchId: newMembership.branchId,
+        membershipId: newMembership.id,
+        memberId: newMembership.memberId,
+        membershipPlanId: newMembership.membershipPlanId,
+      } satisfies MembershipStartedEvent);
       return newMembership;
     }
     const extendedEndDate = new Date(
