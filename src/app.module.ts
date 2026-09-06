@@ -153,12 +153,23 @@ class IsolatedThrottlerStorage extends ThrottlerStorage {
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     {
-      provide: ThrottlerStorage,
+      provide: 'THROTTLER_STORAGE',
       useClass: IsolatedThrottlerStorage,
     },
   ],
 })
 export class AppModule implements NestModule {
+  constructor() {
+    // Provide the isolated storage to ThrottlerModule
+    ThrottlerModule.register([
+      {
+        ttl: 60_000,
+        limit: 120,
+        storage: new IsolatedThrottlerStorage(),
+      },
+    ]);
+  }
+
   configure(reader: MiddlewareConsumer) {
     reader.apply(RequestIdMiddleware).forRoutes('*');
   }
