@@ -1,22 +1,42 @@
 import {
   Controller,
   Post,
-  Body,
   Headers,
   HttpCode,
   HttpStatus,
   BadRequestException,
   InternalServerErrorException,
   UnauthorizedException,
+  Logger,
+  Req,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Public } from '../common/decorators/public.decorator';
 import { StripeService } from './stripe.service';
-import { Logger } from '@nestjs/common';
 import { PaymentsService } from '../billing/payments.service';
+
+/** Stripe uses the currency's smallest unit for PaymentIntent amounts. */
+function fromStripeMinorUnit(amount: number, currency: string): number {
+  const normalized = currency.toLowerCase();
+  const zeroDecimalCurrencies = new Set([
+    'bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg',
+    'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf',
+  ]);
+  const threeDecimalCurrencies = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
+  const divisor = zeroDecimalCurrencies.has(normalized)
+    ? 1
+    : threeDecimalCurrencies.has(normalized)
+      ? 1000
+      : 100;
+  return amount / divisor;
+}
 
 @Controller('payments/webhook')
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly stripeService: StripeService,
@@ -24,9 +44,10 @@ export class StripeWebhookController {
   ) {}
 
   @Post()
+  @Public()
   @HttpCode(HttpStatus.OK)
   async handleWebhook(
-    @Body() body: any,
+    @Req() request: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature: string,
   ) {
     const webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
@@ -34,19 +55,30 @@ export class StripeWebhookController {
       this.logger.error('Stripe webhook secret not configured');
       throw new InternalServerErrorException('Webhook secret not configured');
     }
-
     if (!signature) {
       throw new BadRequestException('Missing stripe-signature header');
     }
 
+    const payload = request.rawBody;
+    if (!payload) {
+      this.logger.error('Stripe webhook raw body is unavailable');
+      throw new InternalServerErrorException('Webhook raw body unavailable');
+    }
+
+    let event: Awaited<ReturnType<StripeService['constructEvent']>>;
     try {
-      const event = await this.stripeService.constructEvent(
-        Buffer.from(JSON.stringify(body)),
+      event = await this.stripeService.constructEvent(
+        payload,
         signature,
         webhookSecret,
       );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid signature';
+      this.logger.warn(`Stripe webhook signature verification failed: ${message}`);
+      throw new UnauthorizedException('Invalid Stripe webhook signature');
+    }
 
-      // Handle the event
+    try {
       switch (event.type) {
         case 'payment_intent.succeeded':
           await this.handleSucceededPaymentIntent(event.data.object);
@@ -54,119 +86,70 @@ export class StripeWebhookController {
         case 'payment_intent.payment_failed':
           await this.handleFailedPaymentIntent(event.data.object);
           break;
-        // Add more event types as needed
         default:
           this.logger.log(`Unhandled event type ${event.type}`);
       }
-
       return { received: true };
     } catch (err) {
-      this.logger.error(
-        `Webhook signature verification failed: ${err.message}`,
-      );
-      throw new UnauthorizedException(`Webhook Error: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Webhook processing failed';
+      this.logger.error(`Stripe webhook processing failed: ${message}`);
+      throw new InternalServerErrorException('Webhook processing failed');
     }
   }
 
   private async handleSucceededPaymentIntent(paymentIntent: any) {
-    try {
-      // Check if payment already exists (idempotency)
-      const existingPayment = await this.paymentsService.getOneByStripeIntentId(
-        paymentIntent.id,
-      );
-      if (existingPayment) {
-        this.logger.log(
-          `Payment already exists for stripePaymentIntentId: ${paymentIntent.id}`,
-        );
-        return;
-      }
+    const existingPayment = await this.paymentsService.getOneByStripeIntentId(
+      paymentIntent.id,
+    );
+    if (existingPayment) return;
 
-      // Extract metadata
-      const metadata = paymentIntent.metadata || {};
-      const organizationId = metadata.organizationId;
-      const userId = metadata.userId;
-      const memberId = metadata.memberId || undefined;
-      const membershipId = metadata.membershipId || undefined;
-
-      // Validate required metadata
-      if (!organizationId || !userId) {
-        this.logger.error(
-          `Missing required metadata in payment intent ${paymentIntent.id}`,
-        );
-        return;
-      }
-
-      // Create payment record
-      await this.paymentsService.createStripePayment(
-        organizationId,
-        paymentIntent.amount,
-        paymentIntent.currency.toUpperCase(),
-        memberId,
-        membershipId,
-        paymentIntent.id,
-        userId,
-        'COMPLETED',
-      );
-
-      this.logger.log(
-        `PaymentIntent ${paymentIntent.id} succeeded and payment record created`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to handle succeeded payment intent ${paymentIntent.id}: ${error.message}`,
-      );
-      // Still return success to Stripe to prevent retries
+    const metadata = paymentIntent.metadata || {};
+    const organizationId = metadata.organizationId;
+    const userId = metadata.userId;
+    const memberId = metadata.memberId || undefined;
+    const membershipId = metadata.membershipId || undefined;
+    if (!organizationId || !userId) {
+      throw new BadRequestException('Stripe payment intent is missing required metadata');
     }
+
+    const currency = String(paymentIntent.currency).toUpperCase();
+    await this.paymentsService.createStripePayment(
+      organizationId,
+      fromStripeMinorUnit(paymentIntent.amount, currency),
+      currency,
+      memberId,
+      membershipId,
+      paymentIntent.id,
+      userId,
+      'COMPLETED',
+    );
   }
 
   private async handleFailedPaymentIntent(paymentIntent: any) {
-    try {
-      // Check if payment already exists (idempotency)
-      const existingPayment = await this.paymentsService.getOneByStripeIntentId(
-        paymentIntent.id,
-      );
-      if (existingPayment) {
-        this.logger.log(
-          `Payment already exists for stripePaymentIntentId: ${paymentIntent.id}`,
-        );
-        return;
-      }
+    const existingPayment = await this.paymentsService.getOneByStripeIntentId(
+      paymentIntent.id,
+    );
+    if (existingPayment) return;
 
-      // Extract metadata
-      const metadata = paymentIntent.metadata || {};
-      const organizationId = metadata.organizationId;
-      const userId = metadata.userId;
-      const memberId = metadata.memberId || undefined;
-      const membershipId = metadata.membershipId || undefined;
-
-      // Validate required metadata
-      if (!organizationId || !userId) {
-        this.logger.error(
-          `Missing required metadata in payment intent ${paymentIntent.id}`,
-        );
-        return;
-      }
-
-      // Create payment record
-      await this.paymentsService.createStripePayment(
-        organizationId,
-        paymentIntent.amount,
-        paymentIntent.currency.toUpperCase(),
-        memberId,
-        membershipId,
-        paymentIntent.id,
-        userId,
-        'FAILED',
-      );
-
-      this.logger.log(
-        `PaymentIntent ${paymentIntent.id} failed and payment record created`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to handle failed payment intent ${paymentIntent.id}: ${error.message}`,
-      );
-      // Still return success to Stripe to prevent retries
+    const metadata = paymentIntent.metadata || {};
+    const organizationId = metadata.organizationId;
+    const userId = metadata.userId;
+    const memberId = metadata.memberId || undefined;
+    const membershipId = metadata.membershipId || undefined;
+    if (!organizationId || !userId) {
+      throw new BadRequestException('Stripe payment intent is missing required metadata');
     }
+
+    const currency = String(paymentIntent.currency).toUpperCase();
+    await this.paymentsService.createStripePayment(
+      organizationId,
+      fromStripeMinorUnit(paymentIntent.amount, currency),
+      currency,
+      memberId,
+      membershipId,
+      paymentIntent.id,
+      userId,
+      'FAILED',
+    );
   }
 }
