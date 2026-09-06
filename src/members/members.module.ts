@@ -22,13 +22,14 @@ import { CommunicationsModule } from '../communications/communications.module';
 @Module({
   imports: [CommunicationsModule],
   controllers: [
+    // Register static /members/tags routes before the dynamic /members/:id routes.
+    MemberTagsController,
     MembersController,
     MemberDetailsController,
     MemberAssessmentsController,
     MemberGoalsController,
     MemberDocumentsController,
     MemberFollowUpsController,
-    MemberTagsController,
     MemberCommunicationsController,
   ],
   providers: [
