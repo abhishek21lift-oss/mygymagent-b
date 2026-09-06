@@ -1,64 +1,13 @@
-import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { ThrottlerStorage } from '@nestjs/throttler';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
-let globalThrottlerStorage: ThrottlerStorage | null = null;
-
-export function resetThrottlerStorage(): void {
-  if (!globalThrottlerStorage) return;
-  const storage = globalThrottlerStorage as {
-    storage?: Map<string, unknown>;
-    _storage?: Map<string, unknown>;
-    timeoutIds?: Map<string, NodeJS.Timeout[]>;
-    onApplicationShutdown?: () => void;
-  };
-  if (storage.storage) storage.storage.clear();
-  if (storage._storage) storage._storage.clear();
-  if (storage.timeoutIds) {
-    storage.timeoutIds.forEach((t) => t.forEach(clearTimeout));
-    storage.timeoutIds.clear();
-  }
-}
-
-export async function resetThrottlerStorageAsync(): Promise<void> {
-  if (!globalThrottlerStorage) return;
-  const storage = globalThrottlerStorage as {
-    storage?: Map<string, unknown>;
-    _storage?: Map<string, unknown>;
-    timeoutIds?: Map<string, NodeJS.Timeout[]>;
-    onApplicationShutdown?: () => void;
-  };
-  try {
-    if (storage.storage) storage.storage.clear();
-  } catch {
-    // Ignore errors
-  }
-  try {
-    if (storage._storage) storage._storage.clear();
-  } catch {
-    // Ignore errors
-  }
-  try {
-    if (storage.timeoutIds) {
-      storage.timeoutIds.forEach((t) => {
-        try {
-          t.forEach(clearTimeout);
-        } catch {
-          // Ignore
-        }
-      });
-      storage.timeoutIds.clear();
-    }
-  } catch {
-    // Ignore errors
-  }
-  try {
-    if (storage.onApplicationShutdown) storage.onApplicationShutdown();
-  } catch {
-    // Ignore errors
+class MockThrottlerGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    return true;
   }
 }
 
@@ -84,39 +33,11 @@ export async function createTestApp(): Promise<{
   try {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useClass(MockThrottlerGuard)
+      .compile();
     app = moduleRef.createNestApplication();
-
-    // Capture the storage reference BEFORE init, so we can reset it
-    let capturedStorage: ThrottlerStorage | null = null;
-    try {
-      capturedStorage = app.get(ThrottlerStorage, { strict: false });
-    } catch {
-      // ThrottlerStorage not available
-    }
-
-    // If we have a storage reference, reset it BEFORE the app processes any requests
-    if (capturedStorage) {
-      globalThrottlerStorage = capturedStorage;
-      const storage = capturedStorage as unknown as {
-        storage?: Map<string, unknown>;
-        _storage?: Map<string, unknown>;
-        timeoutIds?: Map<string, NodeJS.Timeout[]>;
-      };
-      try {
-        if (storage._storage) storage._storage.clear();
-      } catch {
-        // Ignore
-      }
-      try {
-        if (storage.timeoutIds) {
-          storage.timeoutIds.forEach((t) => t.forEach(clearTimeout));
-          storage.timeoutIds.clear();
-        }
-      } catch {
-        // Ignore
-      }
-    }
 
     app.use(cookieParser());
     app.useGlobalPipes(
