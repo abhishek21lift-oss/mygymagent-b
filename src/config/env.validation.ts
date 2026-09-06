@@ -21,7 +21,9 @@ export const envSchema = z.object({
   SMTP_HOST: z.string().optional(), SMTP_PORT: z.coerce.number().int().positive().default(587), SMTP_SECURE: z.string().default('false').transform((v) => v === 'true'), SMTP_USER: z.string().optional(), SMTP_PASSWORD: z.string().optional(), SMTP_FROM_ADDRESS: z.string().optional(),
   WHATSAPP_ENCRYPTION_KEY: z.string().min(16, 'WHATSAPP_ENCRYPTION_KEY must be at least 16 characters').optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(8, 'WHATSAPP_VERIFY_TOKEN must be at least 8 characters').optional(),
-  WHATSAPP_GRAPH_VERSION: z.string().default('v23.0'),
+  WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
 }).superRefine((config, ctx) => {
   if (config.NODE_ENV !== 'production') return;
   if (config.JWT_ACCESS_SECRET.length < 32) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_ACCESS_SECRET'], message: 'Production JWT_ACCESS_SECRET must be at least 32 characters' });
