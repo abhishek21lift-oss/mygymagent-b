@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, ValidationPipe, type INestApplication } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ValidationPipe,
+  type INestApplication,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
@@ -6,7 +11,7 @@ import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
 class MockThrottlerGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  canActivate(_context: ExecutionContext): boolean {
     return true;
   }
 }
