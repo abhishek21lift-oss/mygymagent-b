@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
   InjectThrottlerOptions,
@@ -25,7 +25,7 @@ export class TestableThrottlerGuard extends ThrottlerGuard {
     super(options, storage, reflector);
   }
 
-  canActivate(context: import('@nestjs/common').ExecutionContext) {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     if (process.env.TEST_MODE === 'true') {
       return true;
     }
