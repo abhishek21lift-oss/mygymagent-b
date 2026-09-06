@@ -96,17 +96,13 @@ export class PaymentsService {
     recordedByUserId: string | null = null,
     status: string = 'COMPLETED',
   ) {
-    if (!memberId) {
-      throw new BadRequestException(
-        'Stripe payment intent must identify a member',
-      );
-    }
-
     const [member, membership] = await Promise.all([
-      this.prisma.member.findFirst({
-        where: { id: memberId, organizationId, deletedAt: null },
-        select: { id: true, primaryBranchId: true },
-      }),
+      memberId
+        ? this.prisma.member.findFirst({
+            where: { id: memberId, organizationId, deletedAt: null },
+            select: { id: true, primaryBranchId: true },
+          })
+        : Promise.resolve(null),
       membershipId
         ? this.prisma.membership.findFirst({
             where: { id: membershipId, organizationId },
@@ -115,36 +111,69 @@ export class PaymentsService {
         : Promise.resolve(null),
     ]);
 
-    if (!member) throw new NotFoundException('Member not found');
+    if (memberId && !member) throw new NotFoundException('Member not found');
     if (membershipId && !membership) {
       throw new NotFoundException('Membership not found');
     }
-    if (membership && membership.memberId !== member.id) {
+    if (!member && !membership) {
+      throw new BadRequestException(
+        'Stripe payment intent must identify a member or membership',
+      );
+    }
+    if (member && membership && membership.memberId !== member.id) {
       throw new BadRequestException(
         'Membership does not belong to the specified member',
       );
     }
 
-    const branchId = membership?.branchId ?? member.primaryBranchId;
+    const resolvedMemberId = member?.id ?? membership!.memberId;
+    const resolvedBranchId = membership?.branchId ?? member?.primaryBranchId ?? null;
 
-    return this.prisma.payment.create({
-      data: {
-        organizationId,
-        branchId,
-        memberId: member.id,
-        membershipId: membership?.id,
-        amount,
-        currency,
-        method: 'CARD',
-        status: status as
-          | 'COMPLETED'
-          | 'REFUNDED'
-          | 'PARTIALLY_REFUNDED'
-          | 'FAILED',
-        stripePaymentIntentId,
-        recordedByUserId,
-      },
-    });
+    try {
+      const payment = await this.prisma.payment.create({
+        data: {
+          organizationId,
+          branchId: resolvedBranchId,
+          memberId: resolvedMemberId,
+          membershipId: membership?.id,
+          amount,
+          currency,
+          method: 'CARD',
+          status: status as
+            | 'COMPLETED'
+            | 'REFUNDED'
+            | 'PARTIALLY_REFUNDED'
+            | 'FAILED',
+          stripePaymentIntentId,
+          recordedByUserId,
+        },
+      });
+
+      if (payment.status === 'COMPLETED') {
+        const payload: PaymentRecordedEvent = {
+          organizationId,
+          branchId: payment.branchId ?? '',
+          paymentId: payment.id,
+          memberId: payment.memberId,
+          membershipId: payment.membershipId ?? undefined,
+          amount: payment.amount.toString(),
+          currency: payment.currency,
+        };
+        this.events.emit(DomainEvent.PaymentRecorded, payload);
+      }
+
+      return payment;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        stripePaymentIntentId
+      ) {
+        const existing = await this.getOneByStripeIntentId(stripePaymentIntentId);
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 
   async create(
