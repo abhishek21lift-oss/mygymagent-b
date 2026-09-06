@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
+import Stripe from 'stripe';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../common/decorators/public.decorator';
 import { StripeService } from './stripe.service';
@@ -65,7 +66,7 @@ export class StripeWebhookController {
       throw new InternalServerErrorException('Webhook raw body unavailable');
     }
 
-    let event: Awaited<ReturnType<StripeService['constructEvent']>>;
+    let event: Stripe.Event;
     try {
       event = await this.stripeService.constructEvent(
         payload,
@@ -97,7 +98,7 @@ export class StripeWebhookController {
     }
   }
 
-  private async handleSucceededPaymentIntent(paymentIntent: any) {
+  private async handleSucceededPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     const existingPayment = await this.paymentsService.getOneByStripeIntentId(
       paymentIntent.id,
     );
@@ -125,7 +126,7 @@ export class StripeWebhookController {
     );
   }
 
-  private async handleFailedPaymentIntent(paymentIntent: any) {
+  private async handleFailedPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     const existingPayment = await this.paymentsService.getOneByStripeIntentId(
       paymentIntent.id,
     );
