@@ -53,6 +53,12 @@ export class FollowUpsService {
       this.prisma.leadFollowUp.count({ where }),
     ]);
 
-    return paginate(items, total, query.page, query.pageSize);
+    const now = new Date();
+    const enrichedItems = items.map((item) => ({
+      ...item,
+      isOverdue: item.completedAt === null && item.dueAt < now,
+    }));
+
+    return paginate(enrichedItems, total, query.page, query.pageSize);
   }
 }
