@@ -17,6 +17,7 @@ import { MemberGoalsController } from './member-goals.controller';
 import { MemberGoalsService } from './member-goals.service';
 import { Member360Service } from './member-360.service';
 import { Member360IntegrityService } from './member-360-integrity.service';
+import { MemberBulkTagsController } from './member-bulk-tags.controller';
 import { MemberTagsController } from './member-tags.controller';
 import { MemberTagsService } from './member-tags.service';
 import { MembersController } from './members.controller';
@@ -27,6 +28,7 @@ import { CommunicationsModule } from '../communications/communications.module';
 @Module({
   imports: [CommunicationsModule],
   controllers: [
+    MemberBulkTagsController,
     // Register static /members/tags routes before the dynamic /members/:id routes.
     MemberTagsController,
     MembersController,
