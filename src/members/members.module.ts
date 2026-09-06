@@ -3,6 +3,7 @@ import { MemberAssessmentsController } from './member-assessments.controller';
 import { MemberAssessmentsService } from './member-assessments.service';
 import { MemberCommunicationsController } from './member-communications.controller';
 import { MemberCommunicationsService } from './member-communications.service';
+import { MemberCommunicationsIntegrityService } from './member-communications-integrity.service';
 import { MemberDetailsController } from './member-details.controller';
 import { MemberDetailsService } from './member-details.service';
 import { MemberDocumentsController } from './member-documents.controller';
@@ -44,7 +45,7 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberDuplicateService,
     { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
     MemberTagsService,
-    MemberCommunicationsService,
+    { provide: MemberCommunicationsService, useClass: MemberCommunicationsIntegrityService },
   ],
   exports: [
     MembersService,
