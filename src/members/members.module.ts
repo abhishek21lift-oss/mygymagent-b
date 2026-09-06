@@ -17,6 +17,7 @@ import { MemberTagsController } from './member-tags.controller';
 import { MemberTagsService } from './member-tags.service';
 import { MembersController } from './members.controller';
 import { MembersService } from './members.service';
+import { MemberIntegrityService } from './member-integrity.service';
 import { CommunicationsModule } from '../communications/communications.module';
 
 @Module({
@@ -33,7 +34,7 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberCommunicationsController,
   ],
   providers: [
-    MembersService,
+    { provide: MembersService, useClass: MemberIntegrityService },
     MemberDetailsService,
     MemberAssessmentsService,
     MemberGoalsService,
