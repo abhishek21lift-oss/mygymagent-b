@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -105,6 +107,7 @@ export class MemberDocumentsController {
   }
 
   @Post(':documentId/submit')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member_document', action: 'submit' })
   submit(
