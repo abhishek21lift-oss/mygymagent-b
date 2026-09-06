@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
@@ -40,6 +40,53 @@ import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
+
+/**
+ * Custom in-memory throttler storage for better isolation.
+ * Each instance gets its own storage map.
+ */
+class IsolatedThrottlerStorage extends ThrottlerStorage {
+  private storage = new Map<string, number[]>();
+  private timeoutIds = new Map<string, NodeJS.Timeout[]>();
+
+  async increment(
+    key: string,
+    ttl: number,
+  ): Promise<number[]> {
+    let current = this.storage.get(key) || [];
+    const now = Date.now();
+
+    // Filter out expired entries
+    current = current.filter((timestamp) => now - timestamp < ttl);
+
+    current.push(now);
+    this.storage.set(key, current);
+
+    // Schedule cleanup
+    const timeoutArray = this.timeoutIds.get(key) || [];
+    const timeout = setTimeout(() => {
+      this.storage.delete(key);
+      this.timeoutIds.delete(key);
+    }, ttl);
+    timeoutArray.push(timeout);
+    this.timeoutIds.set(key, timeoutArray);
+
+    return current;
+  }
+
+  async getRecord(key: string): Promise<number[]> {
+    return this.storage.get(key) || [];
+  }
+
+  async reset(): Promise<void> {
+    // Clear all timeouts
+    this.timeoutIds.forEach((timeouts) => {
+      timeouts.forEach(clearTimeout);
+    });
+    this.storage.clear();
+    this.timeoutIds.clear();
+  }
+}
 
 @Module({
   imports: [
@@ -105,6 +152,10 @@ import { BriefingModule } from './briefing/briefing.module';
     { provide: APP_GUARD, useClass: PlatformRoleGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    {
+      provide: ThrottlerStorage,
+      useClass: IsolatedThrottlerStorage,
+    },
   ],
 })
 export class AppModule implements NestModule {
