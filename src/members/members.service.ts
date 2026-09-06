@@ -5,15 +5,12 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
-import {
-  PaginationQueryDto,
-  paginate,
-  skipTake,
-} from '../common/dto/pagination-query.dto';
+import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateMemberDto } from './dto/create-member.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
+import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 
 @Injectable()
 export class MembersService {
@@ -24,7 +21,7 @@ export class MembersService {
 
   async list(
     organizationId: string,
-    query: PaginationQueryDto,
+    query: ListMembersQueryDto,
     branchId?: string,
     assignmentScope: string | null = null,
   ) {
@@ -44,13 +41,50 @@ export class MembersService {
             ],
           }
         : {}),
+      ...(query.status && query.status.length > 0
+        ? { status: { in: query.status } }
+        : {}),
+      ...(query.memberType && query.memberType.length > 0
+        ? { memberType: { in: query.memberType } }
+        : {}),
+      ...(query.trainerId && query.trainerId.length > 0
+        ? { assignedTrainerId: { in: query.trainerId } }
+        : {}),
+      ...(query.branchId && query.branchId.length > 0
+        ? { primaryBranchId: { in: query.branchId } }
+        : {}),
+      ...(query.tagIds && query.tagIds.length > 0
+        ? {
+            tagAssignments: {
+              some: {
+                tagId: { in: query.tagIds },
+              },
+            },
+          }
+        : {}),
+      ...(query.joinedFrom
+        ? { joinedAt: { gte: new Date(query.joinedFrom) } }
+        : {}),
+      ...(query.joinedTo
+        ? { joinedAt: { lte: new Date(query.joinedTo) } }
+        : {}),
     };
+
+    const orderByField = query.orderBy ?? 'createdAt';
+    const orderBy = { [orderByField]: query.order ?? 'desc' };
+
     const [items, total] = await Promise.all([
       this.prisma.member.findMany({
         where,
         ...skipTake(query),
-        orderBy: { createdAt: query.order ?? 'desc' },
-        include: { primaryBranch: { select: { id: true, name: true } } },
+        orderBy,
+        include: {
+          primaryBranch: { select: { id: true, name: true } },
+          assignedTrainer: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          tagAssignments: { include: { tag: true } },
+        },
       }),
       this.prisma.member.count({ where }),
     ]);
@@ -421,6 +455,139 @@ export class MembersService {
       totalRefunded,
       outstandingBalance,
     };
+  }
+
+  async bulkStatusChange(
+    organizationId: string,
+    memberIds: string[],
+    status: string,
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ) {
+    const scopedMemberFilter: Prisma.MemberWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
+
+    const members = await this.prisma.member.findMany({
+      where: { id: { in: memberIds }, ...scopedMemberFilter },
+      select: { id: true },
+    });
+    const authorizedIds = members.map((m) => m.id);
+
+    if (authorizedIds.length === 0) {
+      return { updated: 0 };
+    }
+
+    await this.prisma.member.updateMany({
+      where: { id: { in: authorizedIds } },
+      data: { status: status as any, updatedAt: new Date() },
+    });
+
+    return { updated: authorizedIds.length };
+  }
+
+  async bulkTagAssignment(
+    organizationId: string,
+    memberIds: string[],
+    tagIds: string[],
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ) {
+    const scopedMemberFilter: Prisma.MemberWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
+
+    const members = await this.prisma.member.findMany({
+      where: { id: { in: memberIds }, ...scopedMemberFilter },
+      select: { id: true },
+    });
+    const authorizedIds = members.map((m) => m.id);
+
+    if (authorizedIds.length === 0) {
+      return { assigned: 0 };
+    }
+
+    await this.prisma.memberTagAssignment.deleteMany({
+      where: { memberId: { in: authorizedIds } },
+    });
+
+    await this.prisma.memberTagAssignment.createMany({
+      data: authorizedIds.flatMap((memberId) =>
+        tagIds.map((tagId) => ({
+          memberId,
+          tagId,
+          organizationId,
+          assignedAt: new Date(),
+        })),
+      ),
+      skipDuplicates: true,
+    });
+
+    return { assigned: authorizedIds.length };
+  }
+
+  async bulkExport(
+    organizationId: string,
+    memberIds: string[],
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ) {
+    const scopedMemberFilter: Prisma.MemberWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
+
+    const where =
+      memberIds.length > 0
+        ? { id: { in: memberIds }, ...scopedMemberFilter }
+        : scopedMemberFilter;
+
+    const members = await this.prisma.member.findMany({
+      where,
+      select: {
+        id: true,
+        memberCode: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true,
+        memberType: true,
+        joinedAt: true,
+        createdAt: true,
+        primaryBranch: { select: { name: true } },
+        assignedTrainer: { select: { firstName: true, lastName: true } },
+        tagAssignments: { include: { tag: { select: { name: true } } } },
+      },
+    });
+
+    const rows = members.map((m) => ({
+      memberCode: m.memberCode,
+      firstName: m.firstName,
+      lastName: m.lastName,
+      email: m.email ?? '',
+      phone: m.phone ?? '',
+      status: m.status,
+      memberType: m.memberType,
+      branch: m.primaryBranch?.name ?? '',
+      trainer: m.assignedTrainer
+        ? `${m.assignedTrainer.firstName} ${m.assignedTrainer.lastName}`
+        : '',
+      joinedAt: m.joinedAt
+        ? new Date(m.joinedAt).toISOString().split('T')[0]
+        : '',
+      tags: m.tagAssignments.map((t) => t.tag.name).join('; '),
+    }));
+
+    return { members: rows, total: rows.length };
   }
 
   private async validateReferences(

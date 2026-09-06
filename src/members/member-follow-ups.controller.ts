@@ -6,13 +6,11 @@ import {
   Param,
   Patch,
   Post,
-  UploadedFile,
-  UseInterceptors,
+  Put,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
@@ -20,29 +18,16 @@ import {
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
-import { CreateMemberDocumentDto } from './dto/member-document.dto';
 import {
-  SubmitDocumentDto,
-  ReviewDocumentDto,
-} from './dto/document-versioning.dto';
-import {
-  MAX_DOCUMENT_SIZE_BYTES,
-  MemberDocumentsService,
-  type UploadedFileInput,
-} from './member-documents.service';
+  CreateMemberFollowUpDto,
+  UpdateMemberFollowUpDto,
+} from './dto/member-follow-up.dto';
+import { MemberFollowUpsService } from './member-follow-ups.service';
 
-/**
- * Member 360's Documents/Progress Photos sub-resource -- see the schema
- * comment above `File`/`MemberDocument` for why "progress photo" is just
- * category=PROGRESS_PHOTO on the same table, not a separate one. Gated
- * the same way as the rest of Member 360 (members.read[_assigned]/
- * members.update), not new files.* permissions -- see
- * src/files/README.md.
- */
-@Controller('members/:memberId/documents')
+@Controller('members/:memberId/follow-ups')
 @Throttle({ default: { limit: 40, ttl: 60_000 } })
-export class MemberDocumentsController {
-  constructor(private readonly documents: MemberDocumentsService) {}
+export class MemberFollowUpsController {
+  constructor(private readonly followUps: MemberFollowUpsService) {}
 
   @Get()
   @RequireAnyPermission('members.read', 'members.read_assigned')
@@ -52,9 +37,27 @@ export class MemberDocumentsController {
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.list(
+    return this.followUps.list(
       user.organizationId!,
       memberId,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get(':followUpId')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('followUpId') followUpId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.followUps.getOne(
+      user.organizationId!,
+      memberId,
+      followUpId,
       branchScope,
       assignmentScope,
     );
@@ -62,130 +65,97 @@ export class MemberDocumentsController {
 
   @Post()
   @RequirePermissions('members.update')
-  @Audited({ resource: 'member_document', action: 'upload' })
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }),
-  )
-  upload(
+  @Audited({ resource: 'member_follow_up', action: 'create' })
+  create(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
-    @Body() dto: CreateMemberDocumentDto,
-    @UploadedFile() file: UploadedFileInput,
+    @Body() dto: CreateMemberFollowUpDto,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.upload(
+    return this.followUps.create(
       user.organizationId!,
       memberId,
+      dto,
       user.id,
-      dto,
-      file,
       branchScope,
       assignmentScope,
     );
   }
 
-  @Delete(':documentId')
+  @Patch(':followUpId')
   @RequirePermissions('members.update')
-  @Audited({ resource: 'member_document', action: 'delete' })
-  remove(
+  @Audited({ resource: 'member_follow_up', action: 'update' })
+  update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
-    @Param('documentId') documentId: string,
+    @Param('followUpId') followUpId: string,
+    @Body() dto: UpdateMemberFollowUpDto,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.remove(
+    return this.followUps.update(
       user.organizationId!,
       memberId,
-      documentId,
-      branchScope,
-      assignmentScope,
-    );
-  }
-
-  @Post(':documentId/submit')
-  @RequirePermissions('members.update')
-  @Audited({ resource: 'member_document', action: 'submit' })
-  submit(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('memberId') memberId: string,
-    @Param('documentId') documentId: string,
-    @Body() dto: SubmitDocumentDto,
-    @CurrentBranchScope() branchScope: string | null,
-    @CurrentAssignmentScope() assignmentScope: string | null,
-  ) {
-    return this.documents.submit(
-      user.organizationId!,
-      memberId,
-      documentId,
+      followUpId,
       dto,
       branchScope,
       assignmentScope,
     );
   }
 
-  @Patch(':documentId/review')
+  @Put(':followUpId/complete')
   @RequirePermissions('members.update')
-  @Audited({ resource: 'member_document', action: 'review' })
-  review(
+  @Audited({ resource: 'member_follow_up', action: 'complete' })
+  complete(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
-    @Param('documentId') documentId: string,
-    @Body() dto: ReviewDocumentDto,
+    @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.review(
+    return this.followUps.complete(
       user.organizationId!,
       memberId,
-      documentId,
-      { ...dto, reviewedByUserId: user.id },
+      followUpId,
       branchScope,
       assignmentScope,
     );
   }
 
-  @Post(':documentId/versions')
+  @Put(':followUpId/uncomplete')
   @RequirePermissions('members.update')
-  @Audited({ resource: 'member_document', action: 'upload_version' })
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }),
-  )
-  uploadVersion(
+  @Audited({ resource: 'member_follow_up', action: 'uncomplete' })
+  uncomplete(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
-    @Param('documentId') documentId: string,
-    @Body() dto: { changeNotes?: string },
-    @UploadedFile() file: UploadedFileInput,
+    @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.uploadVersion(
+    return this.followUps.uncomplete(
       user.organizationId!,
       memberId,
-      documentId,
-      user.id,
-      dto,
-      file,
+      followUpId,
       branchScope,
       assignmentScope,
     );
   }
 
-  @Get(':documentId/versions')
-  @RequireAnyPermission('members.read', 'members.read_assigned')
-  getVersionHistory(
+  @Delete(':followUpId')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_follow_up', action: 'delete' })
+  delete(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
-    @Param('documentId') documentId: string,
+    @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.documents.getVersionHistory(
+    return this.followUps.delete(
       user.organizationId!,
       memberId,
-      documentId,
+      followUpId,
       branchScope,
       assignmentScope,
     );

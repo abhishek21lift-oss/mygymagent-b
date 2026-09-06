@@ -634,7 +634,13 @@ export class Member360Service {
       this.prisma.memberDocument.findMany({
         where: { memberId, organizationId },
         orderBy: { createdAt: 'desc' },
-        include: { file: { select: { originalName: true } } },
+        include: {
+          versions: {
+            include: { file: { select: { originalName: true } } },
+            orderBy: { version: 'desc' },
+            take: 1,
+          },
+        },
       }),
       this.prisma.memberNote.findMany({
         where: { memberId, organizationId },
@@ -1072,16 +1078,17 @@ export class Member360Service {
     }
 
     for (const doc of documents) {
+      const latestFile = doc.versions[0]?.file;
       events.push({
         id: `document-${doc.id}`,
         type: 'document_uploaded',
         timestamp: doc.createdAt.toISOString(),
-        title: `Document uploaded: ${doc.file.originalName}`,
+        title: `Document uploaded: ${latestFile?.originalName ?? 'unknown'}`,
         description: doc.description ?? null,
         metadata: {
           documentId: doc.id,
           category: doc.category,
-          originalName: doc.file.originalName,
+          originalName: latestFile?.originalName ?? null,
         },
         actorName: null,
       });

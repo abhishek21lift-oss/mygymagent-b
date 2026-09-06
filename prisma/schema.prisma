@@ -91,6 +91,9 @@ model Organization {
   workoutSessionSets      WorkoutSessionSet[]
   leads                   Lead[]
   leadFollowUps           LeadFollowUp[]
+  memberFollowUps         MemberFollowUp[]
+  memberTags              MemberTag[]
+  memberTagAssignments    MemberTagAssignment[]
   foodItems               FoodItem[]
   dietPlans               DietPlan[]
   dietAssignments         DietAssignment[]
@@ -112,12 +115,13 @@ model Organization {
   memberGoalMilestones    MemberGoalMilestone[]
   files                   File[]
   memberDocuments         MemberDocument[]
+  memberDocumentVersions  MemberDocumentVersion[]
   messageTemplates        MessageTemplate[]
   messageLogs             MessageLog[]
   automationRuns          AutomationRun[]
   aiActions               AiAction[]
   aiConversations         AiConversation[]
-  ptSessions            PtSession[]   @relation("PtSession")
+  ptSessions              PtSession[]               @relation("PtSession")
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -157,7 +161,7 @@ model Branch {
   attendances             Attendance[]
   userRoles               UserRole[]
   payments                Payment[]
-  ptSessions              PtSession[] @relation("PtSession")
+  ptSessions              PtSession[]           @relation("PtSession")
   workoutSessions         WorkoutSession[]
   leads                   Lead[]
   primaryUsers            User[]                @relation("UserPrimaryBranch")
@@ -241,6 +245,8 @@ model User {
   aiUsageLogs              AiUsageLog[]              @relation("AiUsageActor")
   memberNotesAuthored      MemberNote[]              @relation("MemberNoteAuthor")
   memberConsentsRecorded   MemberConsent[]           @relation("MemberConsentRecordedBy")
+  memberFollowUpsCreated   MemberFollowUp[]          @relation("MemberFollowUpCreatedBy")
+  memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberStatusChangesMade  MemberStatusHistory[]     @relation("MemberStatusChangedBy")
   memberBranchChangesMade  MemberBranchHistory[]     @relation("MemberBranchChangedBy")
   memberTrainerChangesMade MemberTrainerHistory[]    @relation("MemberTrainerChangedBy")
@@ -255,6 +261,7 @@ model User {
   aiActionsProposed        AiAction[]                @relation("AiActionProposedBy")
   aiActionsDecided         AiAction[]                @relation("AiActionDecidedBy")
   aiConversations          AiConversation[]
+  memberDocumentsReviewed  MemberDocument[]          @relation("MemberDocumentReviewedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -280,11 +287,11 @@ model StaffProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  ptSessions PtSession[] @relation("PtSession")
+
   @@index([organizationId])
   @@index([branchId])
   @@map("staff_profiles")
-
-  ptSessions PtSession[] @relation("PtSession")
 }
 
 /// Permission catalog, e.g. "members.read", "payments.refund". Global, not
@@ -537,7 +544,7 @@ model Member {
   workoutAssignments WorkoutAssignment[]
   workoutSessions    WorkoutSession[]
   dietAssignments    DietAssignment[]
-  ptSessions         PtSession[]   @relation("PtSession")
+  ptSessions         PtSession[]         @relation("PtSession")
   /// Set if this member originated from a converted Lead -- the opposite
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
@@ -556,6 +563,8 @@ model Member {
   goals             MemberGoal[]
   documents         MemberDocument[]
   messageLogs       MessageLog[]
+  followUps         MemberFollowUp[]
+  tagAssignments    MemberTagAssignment[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -682,6 +691,75 @@ model MemberConsent {
 
   @@index([organizationId, memberId, type])
   @@map("member_consents")
+}
+
+/// Member-specific follow-ups/tasks for tracking todo items related to a member.
+model MemberFollowUp {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  priority    MemberFollowUpPriority @default(MEDIUM)
+
+  createdByUserId  String?
+  createdByUser    User?   @relation("MemberFollowUpCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assignedToUserId String?
+  assignedToUser   User?   @relation("MemberFollowUpAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, memberId])
+  @@index([organizationId, dueAt])
+  @@map("member_follow_ups")
+}
+
+enum MemberFollowUpPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+/// Organization-defined tags for categorizing and segmenting members.
+model MemberTag {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  color          String       @default("#6366f1") // Default indigo color
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  memberAssignments MemberTagAssignment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("member_tags")
+}
+
+/// Links members to tags for segmentation and filtering.
+model MemberTagAssignment {
+  id               String       @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId         String
+  member           Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tagId            String
+  tag              MemberTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  assignedByUserId String?
+  assignedAt       DateTime     @default(now())
+
+  @@unique([memberId, tagId])
+  @@index([organizationId, memberId])
+  @@index([organizationId, tagId])
+  @@map("member_tag_assignments")
 }
 
 /// Append-only. One row per Member.status transition, written by
@@ -815,10 +893,10 @@ model Membership {
   freezeEndDate       DateTime?
   totalFreezeDaysUsed Int       @default(0)
 
-  price     Decimal @db.Decimal(10, 2)
+  price     Decimal  @db.Decimal(10, 2)
   discount  Decimal? @db.Decimal(10, 2)
-  currency  String  @default("USD")
-  autoRenew Boolean @default(false)
+  currency  String   @default("USD")
+  autoRenew Boolean  @default(false)
 
   cancelledAt        DateTime?
   cancellationReason String?
@@ -901,19 +979,19 @@ enum PaymentStatus {
 /// a refund is a new linked Refund row, never a mutation of this row. See
 /// docs/database/data-retention.md's financial-records section.
 model Payment {
-  id                     String       @id @default(uuid())
-  organizationId         String
-  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId               String?
-  branch                 Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  memberId               String
-  member                 Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  id                    String       @id @default(uuid())
+  organizationId        String
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId              String?
+  branch                Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberId              String
+  member                Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
   /// Nullable: a payment can be a one-off (PT session, product) not tied to
   /// a membership purchase/renewal.
-  membershipId           String?
-  membership             Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  membershipId          String?
+  membership            Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
   /// Stripe Payment Intent ID for idempotency and linking to Stripe
-  stripePaymentIntentId  String?      @unique
+  stripePaymentIntentId String?      @unique
 
   amount   Decimal       @db.Decimal(10, 2)
   currency String        @default("USD")
@@ -965,36 +1043,36 @@ model PtSession {
   organizationId String
   organization   Organization @relation("PtSession", fields: [organizationId], references: [id], onDelete: Cascade)
 
-  memberId       String
-  member         Member       @relation("PtSession", fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String
+  member   Member @relation("PtSession", fields: [memberId], references: [id], onDelete: Cascade)
 
   /// Optional trainer - if null, session is unassigned or self-guided
-  trainerId      String?
-  trainer        StaffProfile? @relation("PtSession", fields: [trainerId], references: [id])
+  trainerId String?
+  trainer   StaffProfile? @relation("PtSession", fields: [trainerId], references: [id])
 
-  branchId       String
-  branch         Branch       @relation("PtSession", fields: [branchId], references: [id], onDelete: Cascade)
+  branchId String
+  branch   Branch @relation("PtSession", fields: [branchId], references: [id], onDelete: Cascade)
 
-  startTime      DateTime
-  endTime        DateTime
+  startTime DateTime
+  endTime   DateTime
 
   /// Type of session: personal, partner, or small group training
-  type           PtSessionType  @default(PERSONAL_TRAINING)
+  type PtSessionType @default(PERSONAL_TRAINING)
 
   /// Current status of the session
-  status         PtSessionStatus @default(SCHEDULED)
+  status PtSessionStatus @default(SCHEDULED)
 
   /// Price charged for this session (nullable for comp/internal sessions)
-  price          Decimal?     @db.Decimal(10, 2)
+  price Decimal? @db.Decimal(10, 2)
 
   /// Whether payment has been collected for this session
-  isPaid         Boolean      @default(false)
+  isPaid Boolean @default(false)
 
   /// Trainer notes for the session
-  notes          String?
+  notes String?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId, branchId, startTime])
   @@index([memberId, startTime])
@@ -1126,19 +1204,19 @@ enum WorkoutSessionStatus {
 /// This is the "execution layer" the WorkoutPlan/WorkoutAssignment shape
 /// (above) deliberately deferred -- see workouts/README.md.
 model WorkoutSession {
-  id             String       @id @default(uuid())
+  id             String            @id @default(uuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assignmentId   String
   assignment     WorkoutAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   memberId       String
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
   branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch         Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  sessionDate DateTime              @default(now())
-  status      WorkoutSessionStatus  @default(IN_PROGRESS)
-  startedAt   DateTime              @default(now())
+  sessionDate DateTime             @default(now())
+  status      WorkoutSessionStatus @default(IN_PROGRESS)
+  startedAt   DateTime             @default(now())
   completedAt DateTime?
   notes       String?
 
@@ -1167,16 +1245,16 @@ model WorkoutSession {
 /// same set number overwrites the values in place rather than creating a
 /// second row, so the frontend's "log set N" retries stay idempotent.
 model WorkoutSessionSet {
-  id             String        @id @default(uuid())
+  id             String         @id @default(uuid())
   organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sessionId      String
   session        WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   /// Which snapshot entry of WorkoutSession.exercises this set belongs to
   /// (the per-snapshot `id` above, surfaced to clients as
   /// sessionExerciseId).
-  exerciseId String
-  setNumber  Int
+  exerciseId     String
+  setNumber      Int
 
   weightKg Decimal? @db.Decimal(6, 2)
   reps     Int?
@@ -1736,7 +1814,7 @@ model File {
 
   createdAt DateTime @default(now())
 
-  memberDocument MemberDocument?
+  memberDocumentVersions MemberDocumentVersion[]
 
   @@index([organizationId])
   @@map("files")
@@ -1755,16 +1833,50 @@ model MemberDocument {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   memberId       String
   member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  fileId         String       @unique
-  file           File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   category    MemberDocumentCategory
   description String?
 
+  status           MemberDocumentStatus @default(DRAFT)
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  reviewedByUser   User?                @relation("MemberDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  rejectionReason  String?
+
   createdAt DateTime @default(now())
 
+  versions MemberDocumentVersion[]
+
   @@index([organizationId, memberId, category])
+  @@index([organizationId, status])
   @@map("member_documents")
+}
+
+model MemberDocumentVersion {
+  id             String         @id @default(uuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String
+  document       MemberDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fileId         String         @unique
+  file           File           @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  version     Int
+  changeNotes String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, version])
+  @@index([organizationId, documentId])
+  @@map("member_document_versions")
+}
+
+enum MemberDocumentStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
 }
 
 /// -- src/communications/ -----------------------------------------------
@@ -1805,9 +1917,9 @@ enum MessageStatus {
 /// falls back to when an org hasn't customized that key -- see
 /// MessageTemplateService.resolve().
 model MessageTemplate {
-  id             String                @id @default(uuid())
+  id             String               @id @default(uuid())
   organizationId String?
-  organization   Organization?         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   key            String
   channel        CommunicationChannel
   subject        String?
@@ -1923,12 +2035,12 @@ model AiAction {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  type   AiActionType
-  status AiActionStatus @default(PENDING_APPROVAL)
+  type      AiActionType
+  status    AiActionStatus @default(PENDING_APPROVAL)
   /// Validated args for the eventual execution (e.g. {memberId,
   /// workoutPlanId, startDate?, notes?}) -- re-validated against the same
   /// DTO at approval time, never trusted as-is from when it was drafted.
-  payload Json
+  payload   Json
   /// Human-readable explanation shown to the approver -- an approver
   /// deciding on a raw payload with no context isn't a real approval
   /// step, it's a rubber stamp.
@@ -1946,8 +2058,8 @@ model AiAction {
   /// WorkoutAssignment.id) -- traceability from the proposal to its
   /// real-world effect, not just a status flag.
   resultResourceId String?
-  errorMessage      String?
-  executedAt        DateTime?
+  errorMessage     String?
+  executedAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1996,8 +2108,8 @@ model AiMessage {
   conversationId String
   conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  role    AiMessageRole
-  content String
+  role      AiMessageRole
+  content   String
   /// The tool calls made while producing this reply, if any -- kept for
   /// transcript/audit visibility only, never replayed back into a later
   /// prompt.

@@ -24,6 +24,8 @@ interface SendInput {
   recipient: string;
   memberId?: string;
   variables?: Record<string, string>;
+  customSubject?: string;
+  customBody?: string;
 }
 
 @Injectable()
@@ -82,15 +84,22 @@ export class CommunicationsService {
       }
     }
 
-    const template = await this.templates.resolve(
-      input.organizationId,
-      input.templateKey,
-      input.channel,
-    );
-    const subject = template.subject
-      ? this.templates.render(template.subject, variables)
-      : undefined;
-    const body = this.templates.render(template.body, variables);
+    const useCustomContent = !!input.customBody;
+    const template = useCustomContent
+      ? null
+      : await this.templates.resolve(
+          input.organizationId,
+          input.templateKey,
+          input.channel,
+        );
+    const subject = useCustomContent
+      ? (input.customSubject ?? '')
+      : template!.subject
+        ? this.templates.render(template!.subject, variables)
+        : undefined;
+    const body = useCustomContent
+      ? input.customBody!
+      : this.templates.render(template!.body, variables);
     const log = await this.prisma.messageLog.create({
       data: {
         organizationId: input.organizationId,

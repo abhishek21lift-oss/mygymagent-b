@@ -19,10 +19,15 @@ import {
   RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
+import { ListMembersQueryDto } from './dto/list-members-query.dto';
+import {
+  BulkStatusChangeDto,
+  BulkTagAssignmentDto,
+  BulkExportDto,
+} from './dto/bulk-member.dto';
 import { MembersService } from './members.service';
 import { Member360Service } from './member-360.service';
 import { MemberDuplicateService } from './member-duplicate.service';
@@ -40,7 +45,7 @@ export class MembersController {
   @RequireAnyPermission('members.read', 'members.read_assigned')
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PaginationQueryDto,
+    @Query() query: ListMembersQueryDto,
     @RequestedBranchId() requestedBranchId: string | undefined,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
@@ -286,6 +291,58 @@ export class MembersController {
       user.organizationId!,
       id,
       branchScope,
+    );
+  }
+
+  @Post('bulk/status')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member', action: 'bulk_status_change' })
+  bulkStatusChange(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkStatusChangeDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.bulkStatusChange(
+      user.organizationId!,
+      dto.memberIds,
+      dto.status,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Post('bulk/tags')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member', action: 'bulk_tag_assignment' })
+  bulkTagAssignment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkTagAssignmentDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.bulkTagAssignment(
+      user.organizationId!,
+      dto.memberIds,
+      dto.tagIds,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Post('bulk/export')
+  @RequirePermissions('members.read')
+  bulkExport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkExportDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.bulkExport(
+      user.organizationId!,
+      dto.memberIds,
+      branchScope,
+      assignmentScope,
     );
   }
 
