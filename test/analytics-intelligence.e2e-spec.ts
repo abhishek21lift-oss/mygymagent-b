@@ -43,13 +43,16 @@ describe('Analytics / intelligence (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     org = await registerOrg('Intelligence Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('lists an at-risk member, and excludes one who visited recently', async () => {

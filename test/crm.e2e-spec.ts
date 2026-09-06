@@ -38,12 +38,15 @@ describe('CRM / leads (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('CRM Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('creates a lead, moves it through the pipeline, and rejects setting WON directly', async () => {

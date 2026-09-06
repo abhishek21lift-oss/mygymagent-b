@@ -72,13 +72,16 @@ describe('Automation (e2e)', () => {
   }
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     org = await registerOrg('Automation Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('reminds a member whose membership expires within the window, then respects cooldown', async () => {

@@ -35,7 +35,8 @@ describe('Branch scoping (e2e)', () => {
   const asOwner = (req: request.Test) => authed(owner.accessToken)(req);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     tokens = app.get(TokensService);
 
@@ -119,7 +120,9 @@ describe('Branch scoping (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('is rejected outright (403) if the branch-scoped manager omits the x-branch-id header', async () => {

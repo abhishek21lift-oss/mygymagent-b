@@ -39,7 +39,8 @@ describe('Payments (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Payments Test Gym');
 
     const member = await authed(org.accessToken)(
@@ -53,7 +54,9 @@ describe('Payments (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('records a one-off payment not linked to any membership', async () => {

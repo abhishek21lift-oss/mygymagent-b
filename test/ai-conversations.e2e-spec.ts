@@ -55,7 +55,8 @@ describe('AI conversations / memory (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     conversations = app.get(AiConversationsService);
     orgA = await registerOrg('Conversations Test Gym A');
@@ -63,7 +64,9 @@ describe('AI conversations / memory (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it("persists the user's message and creates a conversation even though the provider call fails", async () => {

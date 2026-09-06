@@ -54,7 +54,8 @@ describe('AI Actions / Action Center (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     toolExecutor = app.get(ToolExecutorService);
     org = await registerOrg('Action Center Test Gym');
@@ -114,7 +115,9 @@ describe('AI Actions / Action Center (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('propose_assign_workout_plan drafts a proposal with zero real effect until approved', async () => {

@@ -40,7 +40,8 @@ describe('Workouts (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Workouts Test Gym');
 
     const exercise = await authed(org.accessToken)(
@@ -61,7 +62,9 @@ describe('Workouts (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('rejects a duplicate exercise name within the same org', async () => {

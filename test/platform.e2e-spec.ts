@@ -19,7 +19,8 @@ describe('Platform administration (e2e)', () => {
   const platformPassword = 'CorrectHorseBattery9';
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = new PrismaClient();
 
     const res = await request(app.getHttpServer())
@@ -60,7 +61,9 @@ describe('Platform administration (e2e)', () => {
 
   afterAll(async () => {
     await prisma.$disconnect();
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('rejects an unauthenticated request', async () => {

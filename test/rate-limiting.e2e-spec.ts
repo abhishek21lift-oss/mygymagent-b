@@ -12,7 +12,8 @@ import { createTestApp } from './utils/test-app';
  */
 describe('Rate limiting (e2e)', () => {
   async function freshApp(): Promise<INestApplication> {
-    return createTestApp();
+    const result = await createTestApp();
+    return result.app;
   }
 
   it('returns 429 once /auth/register is called more than 5 times in a minute', async () => {
@@ -37,7 +38,9 @@ describe('Rate limiting (e2e)', () => {
       expect(statuses.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
       expect(statuses[5]).toBe(429);
     } finally {
-      await app.close();
+      if (app) {
+        await app.close().catch(() => {});
+      }
     }
   });
 
@@ -59,7 +62,9 @@ describe('Rate limiting (e2e)', () => {
       expect(statuses.slice(0, 5)).toEqual([204, 204, 204, 204, 204]);
       expect(statuses[5]).toBe(429);
     } finally {
-      await app.close();
+      if (app) {
+        await app.close().catch(() => {});
+      }
     }
   });
 
@@ -72,7 +77,9 @@ describe('Rate limiting (e2e)', () => {
         await request(app.getHttpServer()).get('/health').expect(200);
       }
     } finally {
-      await app.close();
+      if (app) {
+        await app.close().catch(() => {});
+      }
     }
   });
 });

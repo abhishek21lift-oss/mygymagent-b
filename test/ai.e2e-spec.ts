@@ -52,7 +52,8 @@ describe('AI (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     toolExecutor = app.get(ToolExecutorService);
     prisma = app.get(PrismaService);
     orgA = await registerOrg('AI Test Gym A');
@@ -60,7 +61,9 @@ describe('AI (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('rejects unauthenticated requests', async () => {

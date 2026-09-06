@@ -51,14 +51,17 @@ describe('Owner Daily Briefing (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     prisma = app.get(PrismaService);
     toolExecutor = app.get(ToolExecutorService);
     org = await registerOrg('Daily Briefing Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('aggregates real today/this-month data: a check-in, a low-stock product, and a pending AI action', async () => {

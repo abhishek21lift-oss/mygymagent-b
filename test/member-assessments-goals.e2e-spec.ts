@@ -40,7 +40,8 @@ describe('Member Assessments & Goals (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Assess Goals Test Gym');
     orgB = await registerOrg('Assess Goals Test Gym B');
 
@@ -55,7 +56,9 @@ describe('Member Assessments & Goals (e2e)', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   describe('assessments', () => {

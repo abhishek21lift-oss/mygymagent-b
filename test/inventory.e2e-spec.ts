@@ -40,13 +40,16 @@ describe('Inventory (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     events = app.get(EventEmitter2);
     org = await registerOrg('Inventory Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('rejects a duplicate SKU within the same org', async () => {

@@ -50,12 +50,15 @@ describe('Analytics / revenue (e2e)', () => {
     req.set('Authorization', `Bearer ${token}`);
 
   beforeAll(async () => {
-    app = await createTestApp();
+    const result = await createTestApp();
+    app = result.app;
     org = await registerOrg('Revenue Test Gym');
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close().catch(() => {});
+    }
   });
 
   it('splits gross revenue into membership vs. other, and nets out refunds', async () => {
