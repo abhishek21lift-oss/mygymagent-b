@@ -11,5 +11,6 @@ if printf '%s\n' "$STATUS" | grep -Fq "$MIGRATION"; then
   npx prisma migrate resolve --rolled-back "$MIGRATION"
 fi
 
+# Continue with the normal migration gate and application startup.
 npx prisma migrate deploy
 exec node dist/main
