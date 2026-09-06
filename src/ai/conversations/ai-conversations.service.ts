@@ -44,7 +44,17 @@ export class AiConversationsService {
    * `OpenRouterProvider.chatCompletion()` -- only USER/ASSISTANT turns,
    * never the underlying tool-call mechanics (see the AiMessage schema
    * comment for why). */
-  async getHistory(conversationId: string): Promise<ChatMessage[]> {
+  async getHistory(
+    organizationId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]> {
+    const conversation = await this.prisma.aiConversation.findFirst({
+      where: { id: conversationId, organizationId, userId, deletedAt: null },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
     const messages = await this.prisma.aiMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
@@ -57,11 +67,19 @@ export class AiConversationsService {
   }
 
   async appendMessage(
+    organizationId: string,
+    userId: string,
     conversationId: string,
     role: 'USER' | 'ASSISTANT',
     content: string,
     toolCalls?: { name: string; args: unknown }[],
   ) {
+    const conversation = await this.prisma.aiConversation.findFirst({
+      where: { id: conversationId, organizationId, userId, deletedAt: null },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
     await this.prisma.$transaction([
       this.prisma.aiMessage.create({
         data: {
@@ -74,8 +92,6 @@ export class AiConversationsService {
               : undefined,
         },
       }),
-      // `updatedAt` drives "most recently active" ordering in list() --
-      // touch it on every append, not just at creation.
       this.prisma.aiConversation.update({
         where: { id: conversationId },
         data: { updatedAt: new Date() },

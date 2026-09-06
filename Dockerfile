@@ -38,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # Applies any pending migration before serving traffic -- see "Database
 # migrations" in docs/deployment/overview.md for why this runs on every
 # boot rather than as a separate manual step.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]

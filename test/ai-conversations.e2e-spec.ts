@@ -144,11 +144,15 @@ describe('AI conversations / memory (e2e)', () => {
       orgA.userId,
     );
     await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
       created.id,
       'USER',
       'What is my revenue this month?',
     );
     await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
       created.id,
       'ASSISTANT',
       'Here is your revenue summary.',
@@ -203,7 +207,13 @@ describe('AI conversations / memory (e2e)', () => {
       orgA.organizationId,
       orgA.userId,
     );
-    await conversations.appendMessage(created.id, 'USER', 'delete me later');
+    await conversations.appendMessage(
+      orgA.organizationId,
+      orgA.userId,
+      created.id,
+      'USER',
+      'delete me later',
+    );
 
     await authed(orgA.accessToken)(
       request(app.getHttpServer()).delete(`/ai/conversations/${created.id}`),

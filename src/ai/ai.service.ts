@@ -84,7 +84,11 @@ export class AiService {
       dto.conversationId,
     );
     const priorHistory: ChatMessage[] = dto.conversationId
-      ? await this.conversations.getHistory(conversation.id)
+      ? await this.conversations.getHistory(
+          organizationId,
+          userId,
+          conversation.id,
+        )
       : (dto.history ?? []).map((m) => ({ role: m.role, content: m.content }));
 
     const messages: ChatMessage[] = [
@@ -93,6 +97,8 @@ export class AiService {
       { role: 'user', content: dto.message },
     ];
     await this.conversations.appendMessage(
+      organizationId,
+      userId,
       conversation.id,
       'USER',
       dto.message,
@@ -125,6 +131,8 @@ export class AiService {
           });
           const reply = response.content ?? '';
           await this.conversations.appendMessage(
+            organizationId,
+            userId,
             conversation.id,
             'ASSISTANT',
             reply,
@@ -183,6 +191,8 @@ export class AiService {
       const timedOutReply =
         "I wasn't able to finish that within the allowed number of steps -- could you narrow the request?";
       await this.conversations.appendMessage(
+        organizationId,
+        userId,
         conversation.id,
         'ASSISTANT',
         timedOutReply,
