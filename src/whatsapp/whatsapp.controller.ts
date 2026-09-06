@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -66,7 +66,6 @@ export class WhatsAppController {
     @Res() response: Response,
   ) {
     const verifiedChallenge = this.whatsapp.webhookVerify(mode, token, challenge);
-    // Meta requires the raw challenge body, not the normal API `{data,meta}` envelope.
     return response.status(200).type('text/plain').send(verifiedChallenge);
   }
 
@@ -79,7 +78,7 @@ export class WhatsAppController {
     @Body() payload: unknown,
   ) {
     if (!this.whatsapp.verifyWebhookSignature(signature, request.rawBody)) {
-      return { received: false };
+      throw new UnauthorizedException('Invalid WhatsApp webhook signature');
     }
     return this.whatsapp.handleWebhook(payload as Parameters<WhatsAppService['handleWebhook']>[0]);
   }
