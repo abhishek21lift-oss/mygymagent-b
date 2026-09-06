@@ -1838,11 +1838,11 @@ model MemberDocument {
   description String?
 
   status           MemberDocumentStatus @default(DRAFT)
-  submittedAt      DateTime?
-  reviewedAt       DateTime?
-  reviewedByUserId String?
+  submittedAt      DateTime?            @map("submitted_at")
+  reviewedAt       DateTime?            @map("reviewed_at")
+  reviewedByUserId String?               @map("reviewed_by_user_id")
   reviewedByUser   User?                @relation("MemberDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  rejectionReason  String?
+  rejectionReason  String?               @map("rejection_reason")
 
   createdAt DateTime @default(now())
 
@@ -1854,16 +1854,16 @@ model MemberDocument {
 }
 
 model MemberDocumentVersion {
-  id             String         @id @default(uuid())
-  organizationId String
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  documentId     String
-  document       MemberDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  fileId         String         @unique
-  file           File           @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  id              String       @id @default(uuid())
+  organizationId  String      @map("organization_id")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId      String      @map("document_id")
+  document        MemberDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fileId          String      @unique @map("file_id")
+  file            File        @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   version     Int
-  changeNotes String?
+  changeNotes String?  @map("change_notes")
 
   createdAt DateTime @default(now())
 
