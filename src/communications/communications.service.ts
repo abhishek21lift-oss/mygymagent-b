@@ -35,7 +35,8 @@ export class CommunicationsService {
     private readonly templates: MessageTemplateService,
     private readonly config: ConfigService,
     @Inject(EMAIL_PROVIDER) private readonly emailProvider: EmailProvider,
-    @Inject(WHATSAPP_PROVIDER) private readonly whatsappProvider: MessageProvider,
+    @Inject(WHATSAPP_PROVIDER)
+    private readonly whatsappProvider: MessageProvider,
     @Inject(SMS_PROVIDER) private readonly smsProvider: MessageProvider,
     @Inject(PUSH_PROVIDER) private readonly pushProvider: MessageProvider,
   ) {}
@@ -47,11 +48,16 @@ export class CommunicationsService {
           select: { name: true, emailFromName: true, emailReplyTo: true },
         })
       : null;
-    const variables = { organizationName: organization?.name ?? '', ...input.variables };
+    const variables = {
+      organizationName: organization?.name ?? '',
+      ...input.variables,
+    };
 
     if (input.category === 'MARKETING' && input.memberId) {
       if (!input.organizationId) {
-        throw new BadRequestException('organizationId is required for MARKETING sends targeting a member');
+        throw new BadRequestException(
+          'organizationId is required for MARKETING sends targeting a member',
+        );
       }
       const consent = await this.prisma.memberConsent.findFirst({
         where: {
@@ -76,8 +82,14 @@ export class CommunicationsService {
       }
     }
 
-    const template = await this.templates.resolve(input.organizationId, input.templateKey, input.channel);
-    const subject = template.subject ? this.templates.render(template.subject, variables) : undefined;
+    const template = await this.templates.resolve(
+      input.organizationId,
+      input.templateKey,
+      input.channel,
+    );
+    const subject = template.subject
+      ? this.templates.render(template.subject, variables)
+      : undefined;
     const body = this.templates.render(template.body, variables);
     const log = await this.prisma.messageLog.create({
       data: {
@@ -102,7 +114,9 @@ export class CommunicationsService {
         });
       } else {
         if (!input.organizationId) {
-          throw new BadRequestException('organizationId is required for non-email studio messaging');
+          throw new BadRequestException(
+            'organizationId is required for non-email studio messaging',
+          );
         }
         const provider = {
           WHATSAPP: this.whatsappProvider,
@@ -113,11 +127,18 @@ export class CommunicationsService {
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },
-        data: { status: 'SENT', sentAt: new Date(), attempts: { increment: 1 } },
+        data: {
+          status: 'SENT',
+          sentAt: new Date(),
+          attempts: { increment: 1 },
+        },
       });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to send ${input.channel} "${input.templateKey}" to ${input.recipient}: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to send ${input.channel} "${input.templateKey}" to ${input.recipient}: ${errorMessage}`,
+      );
       await this.prisma.messageLog.update({
         where: { id: log.id },
         data: { status: 'FAILED', attempts: { increment: 1 }, errorMessage },
@@ -130,39 +151,154 @@ export class CommunicationsService {
     return this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
-  sendWelcomeEmail(organizationId: string, to: string, firstName: string, memberId?: string) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'welcome_email', recipient: to, memberId, variables: { firstName } });
+  sendWelcomeEmail(
+    organizationId: string,
+    to: string,
+    firstName: string,
+    memberId?: string,
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'welcome_email',
+      recipient: to,
+      memberId,
+      variables: { firstName },
+    });
   }
 
-  sendEmailVerification(organizationId: string, to: string, firstName: string, token: string) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'email_verification', recipient: to, variables: { firstName, token } });
+  sendEmailVerification(
+    organizationId: string,
+    to: string,
+    firstName: string,
+    token: string,
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'email_verification',
+      recipient: to,
+      variables: { firstName, token },
+    });
   }
 
   sendPasswordReset(organizationId: string | null, to: string, token: string) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'password_reset', recipient: to, variables: { resetUrl: `${this.frontendUrl()}/reset-password?token=${token}` } });
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'password_reset',
+      recipient: to,
+      variables: {
+        resetUrl: `${this.frontendUrl()}/reset-password?token=${token}`,
+      },
+    });
   }
 
-  sendStaffInvite(organizationId: string, to: string, firstName: string, token: string) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'staff_invite', recipient: to, variables: { firstName, resetUrl: `${this.frontendUrl()}/reset-password?token=${token}` } });
+  sendStaffInvite(
+    organizationId: string,
+    to: string,
+    firstName: string,
+    token: string,
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'staff_invite',
+      recipient: to,
+      variables: {
+        firstName,
+        resetUrl: `${this.frontendUrl()}/reset-password?token=${token}`,
+      },
+    });
   }
 
-  sendMembershipRenewalReminder(organizationId: string, memberId: string, to: string, variables: { firstName: string; planName: string; expiryDate: string }) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'membership_renewal_reminder', recipient: to, memberId, variables });
+  sendMembershipRenewalReminder(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: { firstName: string; planName: string; expiryDate: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'membership_renewal_reminder',
+      recipient: to,
+      memberId,
+      variables,
+    });
   }
 
-  sendPaymentOverdueReminder(organizationId: string, memberId: string, to: string, variables: { firstName: string; amount: string; currency: string }) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'payment_overdue_reminder', recipient: to, memberId, variables });
+  sendPaymentOverdueReminder(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: { firstName: string; amount: string; currency: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'payment_overdue_reminder',
+      recipient: to,
+      memberId,
+      variables,
+    });
   }
 
-  sendInactiveMemberRecovery(organizationId: string, memberId: string, to: string, variables: { firstName: string; daysInactive: string }) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'MARKETING', templateKey: 'member_inactive_recovery', recipient: to, memberId, variables });
+  sendInactiveMemberRecovery(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: { firstName: string; daysInactive: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'MARKETING',
+      templateKey: 'member_inactive_recovery',
+      recipient: to,
+      memberId,
+      variables,
+    });
   }
 
-  sendLeadFollowupReminder(organizationId: string, to: string, variables: { leadName: string; dueDate: string; note: string }) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'lead_followup_reminder', recipient: to, variables });
+  sendLeadFollowupReminder(
+    organizationId: string,
+    to: string,
+    variables: { leadName: string; dueDate: string; note: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'lead_followup_reminder',
+      recipient: to,
+      variables,
+    });
   }
 
-  sendLowStockAlert(organizationId: string, to: string, variables: { productName: string; sku: string; quantityOnHand: string; reorderLevel: string }) {
-    return this.send({ organizationId, channel: 'EMAIL', category: 'TRANSACTIONAL', templateKey: 'low_stock_alert', recipient: to, variables });
+  sendLowStockAlert(
+    organizationId: string,
+    to: string,
+    variables: {
+      productName: string;
+      sku: string;
+      quantityOnHand: string;
+      reorderLevel: string;
+    },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'low_stock_alert',
+      recipient: to,
+      variables,
+    });
   }
 }

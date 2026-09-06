@@ -30,7 +30,9 @@ export class ExerciseHistoryService {
     `;
     if (!member[0]) throw new NotFoundException('Member not found');
 
-    const exercise = await this.prisma.$queryRaw<Array<{ id: string; name: string }>>`
+    const exercise = await this.prisma.$queryRaw<
+      Array<{ id: string; name: string }>
+    >`
       SELECT id, name FROM exercises
       WHERE id = ${exerciseId} AND organization_id = ${organizationId}::uuid
       LIMIT 1

@@ -94,7 +94,10 @@ export class SalesIntelligenceService {
 
     return {
       period: { from: query.from ?? null, to: query.to ?? null },
-      byStatus: byStatus.map((row) => ({ status: row.status, count: row._count })),
+      byStatus: byStatus.map((row) => ({
+        status: row.status,
+        count: row._count,
+      })),
       totalLeads,
       wonLeads: wonCount,
       conversionRatePct:
@@ -132,7 +135,10 @@ export class SalesIntelligenceService {
       select: { source: true, status: true },
     });
 
-    const grouped = new Map<string, { totalLeads: number; wonLeads: number; lostLeads: number }>();
+    const grouped = new Map<
+      string,
+      { totalLeads: number; wonLeads: number; lostLeads: number }
+    >();
     for (const row of rows) {
       const source = row.source?.trim() || 'Unknown';
       const current = grouped.get(source) ?? {

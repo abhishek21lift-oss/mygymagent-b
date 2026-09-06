@@ -3,8 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { LogWorkoutSetDto } from './dto/log-workout-set.dto';
 
 export interface SqlSession {
-  id: string; client_id: string; trainer_id: string | null;
-  workout_assignment_id: string | null; session_date: Date; status: string;
+  id: string;
+  client_id: string;
+  trainer_id: string | null;
+  workout_assignment_id: string | null;
+  session_date: Date;
+  status: string;
 }
 
 @Injectable()
@@ -49,12 +53,15 @@ export class WorkoutExecutionService {
         ORDER BY created_at DESC LIMIT 1`;
       if (existing[0]) return existing[0];
 
-      const assignment = await tx.$queryRaw<Array<{ id: string; client_id: string; trainer_id: string | null }>>`
+      const assignment = await tx.$queryRaw<
+        Array<{ id: string; client_id: string; trainer_id: string | null }>
+      >`
         SELECT id, client_id, trainer_id FROM workout_assignments
         WHERE id = ${assignmentId} AND organization_id = ${organizationId}::uuid
           AND status = 'active' AND start_date <= CURRENT_DATE
           AND (end_date IS NULL OR end_date >= CURRENT_DATE) LIMIT 1`;
-      if (!assignment[0]) throw new NotFoundException('Active workout assignment not found');
+      if (!assignment[0])
+        throw new NotFoundException('Active workout assignment not found');
 
       const created = await tx.$queryRaw<SqlSession[]>`
         INSERT INTO workout_sessions
@@ -66,7 +73,12 @@ export class WorkoutExecutionService {
     });
   }
 
-  async logSet(organizationId: string, sessionId: string, sessionExerciseId: string, dto: LogWorkoutSetDto) {
+  async logSet(
+    organizationId: string,
+    sessionId: string,
+    sessionExerciseId: string,
+    dto: LogWorkoutSetDto,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM workout_sessions WHERE id = ${sessionId} AND organization_id = ${organizationId}::uuid LIMIT 1`;
@@ -74,7 +86,8 @@ export class WorkoutExecutionService {
 
       const exercise = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM workout_session_exercises WHERE id = ${sessionExerciseId} AND session_id = ${sessionId} LIMIT 1`;
-      if (!exercise[0]) throw new NotFoundException('Session exercise not found');
+      if (!exercise[0])
+        throw new NotFoundException('Session exercise not found');
 
       if (dto.clientToken) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${sessionExerciseId}:${dto.clientToken}`}))`;
@@ -84,16 +97,18 @@ export class WorkoutExecutionService {
         if (existing[0]) return existing[0];
       }
 
-      const rows = await tx.$queryRaw<Array<{
-        id: string;
-        session_exercise_id: string;
-        set_number: number;
-        weight_kg: number | null;
-        reps: number | null;
-        rpe: number | null;
-        rir: number | null;
-        completed: boolean;
-      }>>`
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          session_exercise_id: string;
+          set_number: number;
+          weight_kg: number | null;
+          reps: number | null;
+          rpe: number | null;
+          rir: number | null;
+          completed: boolean;
+        }>
+      >`
         INSERT INTO workout_sets
           (session_exercise_id, set_number, weight_kg, reps, rpe, rir, tempo, rest_seconds, completed, notes, client_token)
         VALUES
@@ -104,12 +119,16 @@ export class WorkoutExecutionService {
   }
 
   async complete(organizationId: string, sessionId: string, notes?: string) {
-    const rows = await this.prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    const rows = await this.prisma.$queryRaw<
+      Array<{ id: string; status: string }>
+    >`
       UPDATE workout_sessions SET status = 'completed', notes = COALESCE(${notes ?? null}, notes), updated_at = now()
       WHERE id = ${sessionId} AND organization_id = ${organizationId}::uuid AND status <> 'completed'
       RETURNING id, status`;
     if (rows[0]) return rows[0];
-    const existing = await this.prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    const existing = await this.prisma.$queryRaw<
+      Array<{ id: string; status: string }>
+    >`
       SELECT id, status FROM workout_sessions WHERE id = ${sessionId} AND organization_id = ${organizationId}::uuid LIMIT 1`;
     if (!existing[0]) throw new NotFoundException('Workout session not found');
     return existing[0];

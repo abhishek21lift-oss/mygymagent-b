@@ -34,7 +34,11 @@ export class AnalyticsController {
     @Query() query: GetRevenueSummaryQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.finance.getRevenueSummary(user.organizationId!, query, branchScope);
+    return this.finance.getRevenueSummary(
+      user.organizationId!,
+      query,
+      branchScope,
+    );
   }
 
   @Get('revenue/trend')
@@ -57,7 +61,10 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.memberIntelligence.getAtRiskMembers(user.organizationId!, branchScope);
+    return this.memberIntelligence.getAtRiskMembers(
+      user.organizationId!,
+      branchScope,
+    );
   }
 
   @Get('members/status-breakdown')
@@ -66,7 +73,10 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.memberIntelligence.getStatusBreakdown(user.organizationId!, branchScope);
+    return this.memberIntelligence.getStatusBreakdown(
+      user.organizationId!,
+      branchScope,
+    );
   }
 
   @Get('sales/funnel')
@@ -76,7 +86,11 @@ export class AnalyticsController {
     @Query() query: GetSalesFunnelQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.salesIntelligence.getFunnel(user.organizationId!, branchScope, query);
+    return this.salesIntelligence.getFunnel(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
   }
 
   @Get('sales/sources')
@@ -99,7 +113,10 @@ export class AnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.trainerIntelligence.getWorkload(user.organizationId!, branchScope);
+    return this.trainerIntelligence.getWorkload(
+      user.organizationId!,
+      branchScope,
+    );
   }
 
   @Get('inventory/forecast')

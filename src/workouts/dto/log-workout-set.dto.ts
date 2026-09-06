@@ -1,4 +1,12 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class LogWorkoutSetDto {
   @IsInt() @Min(1) setNumber!: number;

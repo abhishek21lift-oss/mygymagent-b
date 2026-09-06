@@ -70,12 +70,22 @@ describe('Sales OS v2 (e2e)', () => {
     await request(app.getHttpServer())
       .post('/leads')
       .set(auth())
-      .send({ firstName: 'Instagram', lastName: 'Lead', source: 'Instagram', branchId: org.branchId })
+      .send({
+        firstName: 'Instagram',
+        lastName: 'Lead',
+        source: 'Instagram',
+        branchId: org.branchId,
+      })
       .expect(201);
     const won = await request(app.getHttpServer())
       .post('/leads')
       .set(auth())
-      .send({ firstName: 'Referral', lastName: 'Lead', source: 'Referral', branchId: org.branchId })
+      .send({
+        firstName: 'Referral',
+        lastName: 'Lead',
+        source: 'Referral',
+        branchId: org.branchId,
+      })
       .expect(201);
     await request(app.getHttpServer())
       .post(`/leads/${won.body.data.id}/convert`)
@@ -88,7 +98,15 @@ describe('Sales OS v2 (e2e)', () => {
       .set(auth())
       .expect(200);
 
-    const referral = result.body.data.find((row: { source: string }) => row.source === 'Referral');
-    expect(referral).toEqual(expect.objectContaining({ totalLeads: 1, wonLeads: 1, conversionRatePct: '100.00' }));
+    const referral = result.body.data.find(
+      (row: { source: string }) => row.source === 'Referral',
+    );
+    expect(referral).toEqual(
+      expect.objectContaining({
+        totalLeads: 1,
+        wonLeads: 1,
+        conversionRatePct: '100.00',
+      }),
+    );
   });
 });

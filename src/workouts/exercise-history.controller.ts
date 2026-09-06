@@ -7,7 +7,9 @@ import { ExerciseHistoryService } from './exercise-history.service';
 
 @Controller('workouts')
 export class ExerciseHistoryController {
-  constructor(private readonly exerciseHistoryService: ExerciseHistoryService) {}
+  constructor(
+    private readonly exerciseHistoryService: ExerciseHistoryService,
+  ) {}
 
   @Get('exercise-history')
   @RequirePermissions('workouts.read')

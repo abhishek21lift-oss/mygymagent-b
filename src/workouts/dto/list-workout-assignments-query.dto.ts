@@ -2,7 +2,11 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
 import type { WorkoutAssignmentStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
-const STATUSES: WorkoutAssignmentStatus[] = ['ACTIVE', 'COMPLETED', 'CANCELLED'];
+const STATUSES: WorkoutAssignmentStatus[] = [
+  'ACTIVE',
+  'COMPLETED',
+  'CANCELLED',
+];
 
 export class ListWorkoutAssignmentsQueryDto extends PaginationQueryDto {
   @IsOptional()

@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class WorkoutPlanExerciseDto {
   @IsString() exerciseId!: string;
@@ -15,6 +23,8 @@ export class WorkoutPlanExerciseDto {
 export class CreateWorkoutPlanDto {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => WorkoutPlanExerciseDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WorkoutPlanExerciseDto)
   exercises!: WorkoutPlanExerciseDto[];
 }

@@ -17,10 +17,6 @@ export class FollowUpsController {
     @Query() query: ListFollowUpsQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.followUpsService.list(
-      user.organizationId!,
-      query,
-      branchScope,
-    );
+    return this.followUpsService.list(user.organizationId!, query, branchScope);
   }
 }

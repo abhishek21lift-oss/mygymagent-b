@@ -32,7 +32,9 @@ describe('ExerciseHistoryService', () => {
   });
 
   it('returns only history after both tenant-owned resources are verified', async () => {
-    const rows = [{ session_id: 'session-a', set_number: 1, weight_kg: 80, reps: 8 }];
+    const rows = [
+      { session_id: 'session-a', set_number: 1, weight_kg: 80, reps: 8 },
+    ];
     prisma.$queryRaw
       .mockResolvedValueOnce([{ id: 'member-a' }])
       .mockResolvedValueOnce([{ id: 'exercise-a', name: 'Bench Press' }])

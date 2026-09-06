@@ -10,10 +10,19 @@ import {
 describe('PermissionsGuard tenant/branch isolation', () => {
   const branchId = 'branch-b';
   const user = { id: 'user-1', organizationId: 'org-1' };
-  type RequestShape = { user: typeof user; headers: Record<string, string>; branchScope?: string | null; grantedViaPermission?: string };
+  type RequestShape = {
+    user: typeof user;
+    headers: Record<string, string>;
+    branchScope?: string | null;
+    grantedViaPermission?: string;
+  };
 
   function makeContext(
-    metadata: { required?: string[]; requiredAny?: string[]; headers?: Record<string, string> },
+    metadata: {
+      required?: string[];
+      requiredAny?: string[];
+      headers?: Record<string, string>;
+    },
     permissions: (key: string, branch?: string) => boolean,
   ) {
     const request: RequestShape = {
@@ -30,8 +39,12 @@ describe('PermissionsGuard tenant/branch isolation', () => {
 
     const permissionService = {
       hasPermission: jest.fn(
-        (_userId: string, _organizationId: string, key: string, requestedBranch?: string) =>
-          Promise.resolve(permissions(key, requestedBranch)),
+        (
+          _userId: string,
+          _organizationId: string,
+          key: string,
+          requestedBranch?: string,
+        ) => Promise.resolve(permissions(key, requestedBranch)),
       ),
     } as any;
 
@@ -48,7 +61,10 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('preserves a branch-scoped grant when a later AND permission is org-wide', async () => {
     const { guard, context, request } = makeContext(
       { required: ['members.read_assigned', 'reports.view'] },
-      (key, requestedBranch) => key === 'members.read_assigned' ? requestedBranch === branchId : requestedBranch === undefined,
+      (key, requestedBranch) =>
+        key === 'members.read_assigned'
+          ? requestedBranch === branchId
+          : requestedBranch === undefined,
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBe(branchId);
@@ -57,7 +73,10 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('preserves a branch-scoped grant when it appears after an org-wide permission', async () => {
     const { guard, context, request } = makeContext(
       { required: ['reports.view', 'members.read_assigned'] },
-      (key, requestedBranch) => key === 'members.read_assigned' ? requestedBranch === branchId : requestedBranch === undefined,
+      (key, requestedBranch) =>
+        key === 'members.read_assigned'
+          ? requestedBranch === branchId
+          : requestedBranch === undefined,
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBe(branchId);
@@ -66,7 +85,8 @@ describe('PermissionsGuard tenant/branch isolation', () => {
   it('does not invent a branch restriction for an org-wide OR permission', async () => {
     const { guard, context, request } = makeContext(
       { requiredAny: ['reports.view', 'members.read_assigned'] },
-      (key, requestedBranch) => key === 'reports.view' && requestedBranch === undefined,
+      (key, requestedBranch) =>
+        key === 'reports.view' && requestedBranch === undefined,
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.branchScope).toBeNull();
@@ -78,6 +98,8 @@ describe('PermissionsGuard tenant/branch isolation', () => {
       { required: ['members.read_assigned'], headers: {} },
       () => false,
     );
-    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });

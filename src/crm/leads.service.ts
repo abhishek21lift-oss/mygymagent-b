@@ -160,7 +160,11 @@ export class LeadsService {
       );
     }
 
-    await this.validateReferences(organizationId, branchId, dto.assignedTrainerId);
+    await this.validateReferences(
+      organizationId,
+      branchId,
+      dto.assignedTrainerId,
+    );
 
     const member = await this.membersService.create(
       organizationId,

@@ -4,7 +4,8 @@ describe('production environment validation', () => {
   const validProduction = {
     NODE_ENV: 'production',
     PORT: 4000,
-    DATABASE_URL: 'postgresql://user:password@db.example.com:5432/mygymagent?schema=public',
+    DATABASE_URL:
+      'postgresql://user:password@db.example.com:5432/mygymagent?schema=public',
     JWT_ACCESS_SECRET: 'a'.repeat(32),
     JWT_REFRESH_SECRET: 'b'.repeat(32),
     CORS_ORIGIN: 'https://app.mygymagent.com',
@@ -22,7 +23,8 @@ describe('production environment validation', () => {
     expect(() =>
       validateEnv({
         ...validProduction,
-        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/mygymagent',
+        DATABASE_URL:
+          'postgresql://postgres:postgres@localhost:5432/mygymagent',
         REDIS_URL: 'redis://localhost:6379',
       }),
     ).toThrow(/localhost/);

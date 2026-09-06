@@ -23,6 +23,12 @@ import { ExerciseHistoryService } from './exercise-history.service';
     WorkoutExecutionService,
     ExerciseHistoryService,
   ],
-  exports: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService, WorkoutExecutionService, ExerciseHistoryService],
+  exports: [
+    ExercisesService,
+    WorkoutPlansService,
+    WorkoutAssignmentsService,
+    WorkoutExecutionService,
+    ExerciseHistoryService,
+  ],
 })
 export class WorkoutsModule {}

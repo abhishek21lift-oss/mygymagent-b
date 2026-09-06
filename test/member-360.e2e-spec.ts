@@ -290,4 +290,188 @@ describe('Member 360 (e2e)', () => {
       ).expect(404);
     });
   });
+
+  describe('Member 360 overview', () => {
+    it('returns aggregated overview for a valid member', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/overview')
+          .query({ memberId }),
+      ).expect(200);
+
+      expect(res.body.data).toHaveProperty('member');
+      expect(res.body.data).toHaveProperty('membership');
+      expect(res.body.data).toHaveProperty('attendance');
+      expect(res.body.data).toHaveProperty('engagement');
+      expect(res.body.data).toHaveProperty('finance');
+      expect(res.body.data).toHaveProperty('ptSummary');
+      expect(res.body.data.member.id).toBe(memberId);
+      expect(res.body.data.member.firstName).toBe('Robin');
+      expect(res.body.data.member.lastName).toBe('Fixture');
+    });
+
+    it('returns 400 when memberId is missing', async () => {
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/members/overview'),
+      ).expect(400);
+    });
+
+    it('returns 404 for member in another org', async () => {
+      const memberInOrgB = await authed(orgB.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: orgB.branchId,
+          firstName: 'Other',
+          lastName: 'Member',
+        }),
+      ).expect(201);
+
+      await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/overview')
+          .query({ memberId: memberInOrgB.body.data.id }),
+      ).expect(404);
+    });
+  });
+
+  describe('Member 360 timeline', () => {
+    it('returns paginated timeline events', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/timeline')
+          .query({ memberId }),
+      ).expect(200);
+
+      expect(res.body.data).toHaveProperty('events');
+      expect(res.body.data).toHaveProperty('totalCount');
+      expect(res.body.data).toHaveProperty('page');
+      expect(res.body.data).toHaveProperty('pageSize');
+      expect(Array.isArray(res.body.data.events)).toBe(true);
+    });
+
+    it('returns member_created event for new member', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/timeline')
+          .query({ memberId, pageSize: 100 }),
+      ).expect(200);
+
+      const createdEvent = res.body.data.events.find(
+        (e: { type: string }) => e.type === 'member_created',
+      );
+      expect(createdEvent).toBeDefined();
+      expect(createdEvent.title).toContain('Robin');
+    });
+
+    it('respects pagination parameters', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/timeline')
+          .query({ memberId, page: 1, pageSize: 5 }),
+      ).expect(200);
+
+      expect(res.body.data.pageSize).toBe(5);
+      expect(res.body.data.page).toBe(1);
+    });
+
+    it('returns 400 when memberId is missing', async () => {
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/members/timeline'),
+      ).expect(400);
+    });
+  });
+
+  describe('Duplicate detection', () => {
+    let duplicateMemberId: string;
+
+    beforeAll(async () => {
+      const duplicate = await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: org.branchId,
+          firstName: 'Robin', // Same first name
+          lastName: 'Fixture', // Same last name
+          email: 'robin.fixture@example.com', // Same email
+        }),
+      ).expect(201);
+      duplicateMemberId = duplicate.body.data.id;
+    });
+
+    it('finds duplicates for a specific member', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer()).get(`/members/${memberId}/duplicates`),
+      ).expect(200);
+
+      expect(res.body.data).toHaveProperty('memberId');
+      expect(res.body.data).toHaveProperty('potentialDuplicates');
+      expect(Array.isArray(res.body.data.potentialDuplicates)).toBe(true);
+    });
+
+    it('finds all duplicates in org', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/members/duplicates'),
+      ).expect(200);
+
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('previews merge between two members', async () => {
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/duplicates/preview-merge')
+          .query({ sourceId: duplicateMemberId, targetId: memberId }),
+      ).expect(200);
+
+      expect(res.body.data).toHaveProperty('sourceMember');
+      expect(res.body.data).toHaveProperty('targetMember');
+      expect(res.body.data).toHaveProperty('conflicts');
+      expect(res.body.data).toHaveProperty('mergeableFields');
+    });
+
+    it('returns 400 when sourceId equals targetId', async () => {
+      await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/members/duplicates/preview-merge')
+          .query({ sourceId: memberId, targetId: memberId }),
+      ).expect(400);
+    });
+
+    it('executes merge between two members', async () => {
+      const newDuplicate = await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: org.branchId,
+          firstName: 'Robin',
+          lastName: 'ToMerge',
+          phone: '+15559999999',
+        }),
+      ).expect(201);
+
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .post('/members/duplicates/execute-merge')
+          .send({
+            sourceMemberId: newDuplicate.body.data.id,
+            targetMemberId: memberId,
+            resolution: {},
+          }),
+      ).expect(201);
+
+      expect(res.body.data).toHaveProperty('success', true);
+      expect(res.body.data).toHaveProperty('mergedMemberId');
+    });
+
+    it('prevents cross-tenant duplicate access', async () => {
+      const memberInOrgB = await authed(orgB.accessToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: orgB.branchId,
+          firstName: 'Other',
+          lastName: 'Duplicate',
+        }),
+      ).expect(201);
+
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).get(
+          `/members/${memberInOrgB.body.data.id}/duplicates`,
+        ),
+      ).expect(404);
+    });
+  });
 });

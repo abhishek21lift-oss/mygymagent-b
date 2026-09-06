@@ -101,16 +101,14 @@ export const envSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['JWT_ACCESS_SECRET'],
-        message:
-          'Production JWT_ACCESS_SECRET must be at least 32 characters',
+        message: 'Production JWT_ACCESS_SECRET must be at least 32 characters',
       });
     }
     if (config.JWT_REFRESH_SECRET.length < 32) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['JWT_REFRESH_SECRET'],
-        message:
-          'Production JWT_REFRESH_SECRET must be at least 32 characters',
+        message: 'Production JWT_REFRESH_SECRET must be at least 32 characters',
       });
     }
 
@@ -138,8 +136,7 @@ export const envSchema = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['CORS_ORIGIN'],
-            message:
-              'Production CORS_ORIGIN must contain valid absolute URLs',
+            message: 'Production CORS_ORIGIN must contain valid absolute URLs',
           });
         }
       }
