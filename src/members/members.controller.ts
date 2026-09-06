@@ -4,6 +4,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -295,6 +297,7 @@ export class MembersController {
   }
 
   @Post('bulk/status')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member', action: 'bulk_status_change' })
   bulkStatusChange(
@@ -313,6 +316,7 @@ export class MembersController {
   }
 
   @Post('bulk/tags')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.update')
   @Audited({ resource: 'member', action: 'bulk_tag_assignment' })
   bulkTagAssignment(
@@ -331,6 +335,7 @@ export class MembersController {
   }
 
   @Post('bulk/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('members.read')
   bulkExport(
     @CurrentUser() user: AuthenticatedUser,
