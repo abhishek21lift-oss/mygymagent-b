@@ -356,10 +356,11 @@ describe('Member 360 (e2e)', () => {
       ).expect(200);
 
       const createdEvent = res.body.data.events.find(
-        (e: { type: string }) => e.type === 'member_created',
+        (e: { type: string; metadata?: { fromStatus?: string } }) =>
+          e.type === 'status_changed' && e.metadata?.fromStatus === null,
       );
       expect(createdEvent).toBeDefined();
-      expect(createdEvent.title).toContain('Robin');
+      expect(createdEvent.title).toContain('ACTIVE');
     });
 
     it('respects pagination parameters', async () => {
@@ -423,7 +424,7 @@ describe('Member 360 (e2e)', () => {
       expect(res.body.data).toHaveProperty('sourceMember');
       expect(res.body.data).toHaveProperty('targetMember');
       expect(res.body.data).toHaveProperty('conflicts');
-      expect(res.body.data).toHaveProperty('mergeableFields');
+      expect(res.body.data).toHaveProperty('mergeableRecords');
     });
 
     it('returns 400 when sourceId equals targetId', async () => {
@@ -439,7 +440,7 @@ describe('Member 360 (e2e)', () => {
         request(app.getHttpServer()).post('/members').send({
           primaryBranchId: org.branchId,
           firstName: 'Robin',
-          lastName: 'ToMerge',
+          lastName: 'Fixture', // Same as target to avoid conflicts
           phone: '+15559999999',
         }),
       ).expect(201);

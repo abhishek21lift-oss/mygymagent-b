@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -61,7 +62,7 @@ export class MembersController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     if (!memberId) {
-      throw new Error('memberId query parameter is required');
+      throw new BadRequestException('memberId query parameter is required');
     }
     return this.member360Service.getOverview(
       user.organizationId!,
@@ -82,7 +83,7 @@ export class MembersController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     if (!memberId) {
-      throw new Error('memberId query parameter is required');
+      throw new BadRequestException('memberId query parameter is required');
     }
     return this.member360Service.getTimeline(
       user.organizationId!,
