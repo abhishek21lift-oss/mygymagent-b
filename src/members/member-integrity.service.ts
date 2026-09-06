@@ -1,15 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, MemberStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembersService } from './members.service';
 
 /**
  * Production hardening seam for bulk Member OS mutations.
- *
- * The public MembersService remains the compatibility surface; this provider
- * is bound to that token by MembersModule so existing consumers keep the same
- * API while bulk mutations gain atomic history/integrity guarantees.
+ * The MembersService token is bound to this implementation by MembersModule.
  */
 @Injectable()
 export class MemberIntegrityService extends MembersService {
@@ -31,7 +28,7 @@ export class MemberIntegrityService extends MembersService {
     branchScope: string | null,
     assignmentScope: string | null,
   ) {
-    const nextStatus = status as Prisma.MemberStatus;
+    const nextStatus = status as MemberStatus;
     const scopedWhere: Prisma.MemberWhereInput = {
       id: { in: [...new Set(memberIds)] },
       organizationId,
@@ -40,7 +37,7 @@ export class MemberIntegrityService extends MembersService {
       ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
     };
 
-    const result = await this.db.$transaction(
+    return this.db.$transaction(
       async (tx) => {
         const current = await tx.member.findMany({
           where: scopedWhere,
@@ -71,12 +68,8 @@ export class MemberIntegrityService extends MembersService {
 
         return { updated: changed.length };
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-
-    return result;
   }
 
   async bulkTagAssignment(
@@ -133,9 +126,7 @@ export class MemberIntegrityService extends MembersService {
 
         return { assigned: authorizedIds.length };
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 }
