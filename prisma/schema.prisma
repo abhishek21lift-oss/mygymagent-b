@@ -478,6 +478,12 @@ enum MemberStatus {
   EXPIRED
 }
 
+enum MemberType {
+  GYM
+  PT
+  GYM_PT
+}
+
 model Member {
   id              String       @id @default(uuid())
   organizationId  String
@@ -504,6 +510,9 @@ model Member {
 
   emergencyContactName  String?
   emergencyContactPhone String?
+
+  memberType MemberType?
+  leadSource String?
 
   profilePhotoUrl String?
   status          MemberStatus @default(ACTIVE)

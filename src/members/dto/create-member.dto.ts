@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsIn,
@@ -70,6 +71,38 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   assignedTrainerId?: string;
+
+  @IsOptional()
+  @IsIn(['GYM', 'PT', 'GYM_PT'])
+  memberType?: 'GYM' | 'PT' | 'GYM_PT';
+
+  @IsOptional()
+  @IsString()
+  leadSource?: string;
+
+  @IsOptional()
+  @IsString()
+  emergencyContactRelationship?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  waiverConsent?: boolean;
+
+  @IsOptional()
+  @IsString()
+  fitnessGoal?: string;
+
+  @IsOptional()
+  @IsString()
+  injuries?: string;
+
+  @IsOptional()
+  @IsString()
+  allergies?: string;
+
+  @IsOptional()
+  @IsString()
+  medicalNotes?: string;
 
   @IsOptional()
   @IsString()

@@ -92,6 +92,12 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
+    emergencyContactRelationship?: string,
+    waiverConsent?: boolean,
+    fitnessGoal?: string,
+    injuries?: string,
+    allergies?: string,
+    medicalNotes?: string,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
@@ -139,6 +145,48 @@ export class MembersService {
             fromTrainerId: null,
             toTrainerId: created.assignedTrainerId,
             changedByUserId: createdByUserId,
+          },
+        });
+      }
+      // Create emergency contact with relationship if provided
+      if (dto.emergencyContactName || dto.emergencyContactPhone) {
+        await tx.memberEmergencyContact.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            name: dto.emergencyContactName || '',
+            phone: dto.emergencyContactPhone || '',
+            relationship: emergencyContactRelationship || null,
+            isPrimary: true,
+          },
+        });
+      }
+      // Create waiver consent if provided
+      if (waiverConsent !== undefined) {
+        await tx.memberConsent.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            type: 'WAIVER',
+            granted: waiverConsent,
+            note:
+              injuries || allergies
+                ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
+                : undefined,
+            recordedByUserId: createdByUserId,
+          },
+        });
+      }
+      // Create fitness goal if provided
+      if (fitnessGoal) {
+        await tx.memberGoal.create({
+          data: {
+            organizationId,
+            memberId: created.id,
+            title: fitnessGoal,
+            category: 'GENERAL_FITNESS',
+            description: medicalNotes || undefined,
+            startDate: new Date(),
           },
         });
       }

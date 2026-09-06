@@ -75,6 +75,12 @@ export class MembersController {
       dto,
       branchScope,
       user.id,
+      dto.emergencyContactRelationship,
+      dto.waiverConsent,
+      dto.fitnessGoal,
+      dto.injuries,
+      dto.allergies,
+      dto.medicalNotes,
     );
   }
 
