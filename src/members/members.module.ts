@@ -10,6 +10,7 @@ import { MemberDocumentsService } from './member-documents.service';
 import { MemberDuplicateService } from './member-duplicate.service';
 import { MemberFollowUpsController } from './member-follow-ups.controller';
 import { MemberFollowUpsService } from './member-follow-ups.service';
+import { MemberFollowUpsIntegrityService } from './member-follow-ups-integrity.service';
 import { MemberGoalsController } from './member-goals.controller';
 import { MemberGoalsService } from './member-goals.service';
 import { Member360Service } from './member-360.service';
@@ -41,7 +42,7 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberDocumentsService,
     Member360Service,
     MemberDuplicateService,
-    MemberFollowUpsService,
+    { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
     MemberTagsService,
     MemberCommunicationsService,
   ],
