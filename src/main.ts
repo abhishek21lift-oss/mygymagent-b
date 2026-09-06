@@ -11,7 +11,13 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // rawBody is required for cryptographically correct Stripe webhook
+  // signature verification. Nest preserves the exact request bytes on
+  // req.rawBody while still parsing normal JSON requests as usual.
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
 
@@ -20,11 +26,7 @@ async function bootstrap() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          styleSrc: [
-            "'self'",
-            "'unsafe-inline'",
-            'https://cdnjs.cloudflare.com',
-          ],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
           scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
           imgSrc: ["'self'", 'data:', 'https:'],
           fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
@@ -85,6 +87,7 @@ async function bootstrap() {
       'X-Device-Name',
       'X-Request-Id',
       'x-branch-id',
+      'Idempotency-Key',
     ],
   });
 
