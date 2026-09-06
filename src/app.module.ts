@@ -39,6 +39,7 @@ import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { MemberIntelligenceModule } from './member-intelligence/member-intelligence.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
 
@@ -96,6 +97,7 @@ import { BriefingModule } from './briefing/briefing.module';
     NotificationsModule,
     SearchModule,
     AnalyticsModule,
+    MemberIntelligenceModule,
     AutomationModule,
     BriefingModule,
   ],

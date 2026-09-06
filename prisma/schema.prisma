@@ -122,6 +122,9 @@ model Organization {
   aiActions               AiAction[]
   aiConversations         AiConversation[]
   ptSessions              PtSession[]               @relation("PtSession")
+  riskProfiles            MemberRiskProfile[]
+  segments                MemberSegment[]
+  recommendedActions      RecommendedAction[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -565,6 +568,9 @@ model Member {
   messageLogs       MessageLog[]
   followUps         MemberFollowUp[]
   tagAssignments    MemberTagAssignment[]
+  riskProfile       MemberRiskProfile?
+  segmentAssignments MemberSegmentAssignment[]
+  recommendedActions RecommendedAction[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -2119,4 +2125,133 @@ model AiMessage {
 
   @@index([conversationId, createdAt])
   @@map("ai_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Member Intelligence OS (P2)
+// ---------------------------------------------------------------------------
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskTrend {
+  IMPROVING
+  STABLE
+  WORSENING
+}
+
+model MemberRiskProfile {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String  @unique
+  member         Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  overallScore        Int             @default(0)
+  riskLevel           RiskLevel       @default(LOW)
+  trend               RiskTrend       @default(STABLE)
+  contributingFactors Json            @default("[]")
+  protectiveFactors   String[]        @default([])
+
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([organizationId, riskLevel])
+  @@index([organizationId, computedAt])
+  @@map("member_risk_profiles")
+}
+
+model MemberSegment {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  rules       Json
+  isSystem    Boolean  @default(false)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, isSystem])
+  @@map("member_segments")
+}
+
+model MemberSegmentAssignment {
+  id         String   @id @default(uuid())
+  memberId   String
+  member     Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  segmentId  String
+  createdAt  DateTime @default(now())
+
+  @@unique([memberId, segmentId])
+  @@map("member_segment_assignments")
+}
+
+enum ActionType {
+  OUTREACH_CHURN_RISK
+  RENEWAL_NUDGE
+  PAYMENT_PLAN
+  FREEZE_OFFER
+  UPGRADE_PITCH
+  ASSESSMENT_BOOK
+  LOYALTY_REWARD
+  RE_ENGAGEMENT
+}
+
+enum Priority {
+  P0
+  P1
+  P2
+}
+
+enum ChannelType {
+  WHATSAPP
+  SMS
+  EMAIL
+  IN_PERSON
+  CALL
+}
+
+enum ActionStatus {
+  PENDING
+  ASSIGNED
+  COMPLETED
+  DISMISSED
+  AUTOMATED
+}
+
+model RecommendedAction {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type           ActionType
+  priority       Priority
+  confidence     Float
+  reasoning      String
+
+  suggestedChannel   ChannelType?
+  suggestedContent   String?
+  suggestedOfferType  String?
+  discountPercent     Int?
+  freezeDays          Int?
+
+  status           ActionStatus @default(PENDING)
+  assignedToUserId String?
+  completedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, memberId])
+  @@map("recommended_actions")
 }
