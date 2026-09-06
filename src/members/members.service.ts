@@ -115,9 +115,6 @@ export class MembersService {
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
         },
       });
-      // Seed history from day one, not just from the first *change* --
-      // otherwise a member's original status/branch/trainer is invisible
-      // in history (see docs/architecture/discovery-report.md §6).
       await tx.memberStatusHistory.create({
         data: {
           organizationId,
@@ -327,7 +324,6 @@ export class MembersService {
               id: assignedTrainerId,
               organizationId,
               deletedAt: null,
-              status: 'ACTIVE',
             },
             select: { id: true },
           })
