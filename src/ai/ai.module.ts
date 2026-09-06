@@ -16,6 +16,14 @@ import { AiConversationsService } from './conversations/ai-conversations.service
 import { OpenRouterProvider } from './providers/openrouter.provider';
 import { ToolExecutorService } from './tools/tool-executor.service';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
+import { SpecialistFactoryService } from './supervisor/specialist-factory.service';
+import { MemberSpecialistService } from './specialists/member-specialist.service';
+import { WorkoutSpecialistService } from './specialists/workout-specialist.service';
+import { NutritionSpecialistService } from './specialists/nutrition-specialist.service';
+import { AnalyticsSpecialistService } from './specialists/analytics-specialist.service';
+import { CrmSpecialistService } from './specialists/crm-specialist.service';
+import { ActionsSpecialistService } from './specialists/actions-specialist.service';
+import { BriefingSpecialistService } from './specialists/briefing-specialist.service';
 import { GlobalAiCommandController } from './global-ai-command.controller';
 import { GlobalAiCommandService } from './global-ai-command.service';
 
@@ -46,6 +54,14 @@ import { GlobalAiCommandService } from './global-ai-command.service';
     AiUsageService,
     AiConversationsService,
     AiSupervisorService,
+    SpecialistFactoryService,
+    MemberSpecialistService,
+    WorkoutSpecialistService,
+    NutritionSpecialistService,
+    AnalyticsSpecialistService,
+    CrmSpecialistService,
+    ActionsSpecialistService,
+    BriefingSpecialistService,
     GlobalAiCommandService,
   ],
 })

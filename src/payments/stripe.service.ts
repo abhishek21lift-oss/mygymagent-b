@@ -5,15 +5,28 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class StripeService {
   private readonly logger = new Logger(StripeService.name);
-  private readonly stripe: Stripe;
+  private readonly stripe: Stripe | null = null;
+  private readonly isConfigured: boolean;
 
   constructor(private readonly config: ConfigService) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!secretKey) {
-      this.logger.error('Stripe secret key not configured');
-      throw new Error('STRIPE_SECRET_KEY is required');
+      this.logger.warn(
+        'Stripe secret key not configured - payment features disabled',
+      );
+      this.isConfigured = false;
+      return;
     }
+    this.isConfigured = true;
     this.stripe = new Stripe(secretKey, { apiVersion: '2022-11-15' as any });
+  }
+
+  private ensureConfigured(): void {
+    if (!this.isConfigured || !this.stripe) {
+      throw new Error(
+        'Stripe is not configured. Set STRIPE_SECRET_KEY to enable payments.',
+      );
+    }
   }
 
   /** Create a payment intent for a given amount (in cents) and currency */
@@ -23,7 +36,8 @@ export class StripeService {
     metadata?: Record<string, string>,
     idempotencyKey?: string,
   ) {
-    return this.stripe.paymentIntents.create(
+    this.ensureConfigured();
+    return this.stripe!.paymentIntents.create(
       { amount, currency, metadata },
       { idempotencyKey },
     );
@@ -31,7 +45,8 @@ export class StripeService {
 
   /** Retrieve a payment intent */
   async retrievePaymentIntent(id: string) {
-    return this.stripe.paymentIntents.retrieve(id);
+    this.ensureConfigured();
+    return this.stripe!.paymentIntents.retrieve(id);
   }
 
   /** Verify webhook signature and return the event */
@@ -40,7 +55,8 @@ export class StripeService {
     sigHeader: string,
     webhookSecret: string,
   ) {
-    return this.stripe.webhooks.constructEvent(
+    this.ensureConfigured();
+    return this.stripe!.webhooks.constructEvent(
       payload,
       sigHeader,
       webhookSecret,
