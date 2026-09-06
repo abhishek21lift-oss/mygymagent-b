@@ -15,6 +15,7 @@ import { MemberFollowUpsIntegrityService } from './member-follow-ups-integrity.s
 import { MemberGoalsController } from './member-goals.controller';
 import { MemberGoalsService } from './member-goals.service';
 import { Member360Service } from './member-360.service';
+import { Member360IntegrityService } from './member-360-integrity.service';
 import { MemberTagsController } from './member-tags.controller';
 import { MemberTagsService } from './member-tags.service';
 import { MembersController } from './members.controller';
@@ -41,7 +42,7 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberAssessmentsService,
     MemberGoalsService,
     MemberDocumentsService,
-    Member360Service,
+    { provide: Member360Service, useClass: Member360IntegrityService },
     MemberDuplicateService,
     { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
     MemberTagsService,
