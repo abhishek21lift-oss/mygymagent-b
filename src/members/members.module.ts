@@ -8,6 +8,7 @@ import { MemberDetailsController } from './member-details.controller';
 import { MemberDetailsService } from './member-details.service';
 import { MemberDocumentsController } from './member-documents.controller';
 import { MemberDocumentsService } from './member-documents.service';
+import { MemberDocumentsIntegrityService } from './member-documents-integrity.service';
 import { MemberDuplicateService } from './member-duplicate.service';
 import { MemberFollowUpsController } from './member-follow-ups.controller';
 import { MemberFollowUpsService } from './member-follow-ups.service';
@@ -41,7 +42,7 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberDetailsService,
     MemberAssessmentsService,
     MemberGoalsService,
-    MemberDocumentsService,
+    { provide: MemberDocumentsService, useClass: MemberDocumentsIntegrityService },
     { provide: Member360Service, useClass: Member360IntegrityService },
     MemberDuplicateService,
     { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
