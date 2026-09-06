@@ -10,7 +10,6 @@ import {
   Headers,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
@@ -26,7 +25,6 @@ export class OnlinePaymentController {
   private readonly logger = new Logger(OnlinePaymentController.name);
 
   constructor(
-    private readonly config: ConfigService,
     private readonly stripeService: StripeService,
     private readonly prisma: PrismaService,
   ) {}
@@ -46,7 +44,9 @@ export class OnlinePaymentController {
     }
 
     if (!Number.isSafeInteger(dto.amount) || dto.amount <= 0) {
-      throw new BadRequestException('Amount must be a positive integer in the currency minor unit');
+      throw new BadRequestException(
+        'Amount must be a positive integer in the currency minor unit',
+      );
     }
 
     if (!dto.memberId && !dto.membershipId) {
