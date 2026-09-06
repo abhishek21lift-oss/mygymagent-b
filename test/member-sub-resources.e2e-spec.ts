@@ -9,9 +9,7 @@ describe('Member sub-resources (e2e)', () => {
   let memberId: string;
 
   async function registerOrg(name: string): Promise<RegisteredAccount> {
-    const email = `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}@example.com`;
+    const email = `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
     const res = await request(app.getHttpServer())
       .post('/auth/register')
       .send({
@@ -184,6 +182,8 @@ describe('Member sub-resources (e2e)', () => {
     });
 
     it('rejects a submitted document with reason', async () => {
+      await authed(org.accessToken)(request(app.getHttpServer()).post(`/members/${memberId}/documents/${documentId}/versions`).attach('file', Buffer.from('%PDF-1.4 rejection revision'), { filename: 'doc-rejection.pdf', contentType: 'application/pdf' }).field('changeNotes', 'Prepare rejection review')).expect(201);
+      await authed(org.accessToken)(request(app.getHttpServer()).post(`/members/${memberId}/documents/${documentId}/submit`).send({ changeNotes: 'Ready for rejection review' })).expect(200);
       const rejected = await authed(org.accessToken)(request(app.getHttpServer()).patch(`/members/${memberId}/documents/${documentId}/review`).send({ action: 'reject', rejectionReason: 'Needs revision' })).expect(200);
       expect(rejected.body.data.status).toBe('REJECTED');
       expect(rejected.body.data.rejectionReason).toBe('Needs revision');
@@ -192,13 +192,13 @@ describe('Member sub-resources (e2e)', () => {
     it('uploads a new version of a rejected document', async () => {
       const newVersion = await authed(org.accessToken)(request(app.getHttpServer()).post(`/members/${memberId}/documents/${documentId}/versions`).attach('file', Buffer.from('%PDF-1.4 version2'), { filename: 'doc-v2.pdf', contentType: 'application/pdf' }).field('changeNotes', 'Fixed per feedback')).expect(201);
       expect(newVersion.body.data.status).toBe('DRAFT');
-      expect(newVersion.body.data.versions.length).toBeGreaterThanOrEqual(2);
+      expect(newVersion.body.data.versions.length).toBeGreaterThanOrEqual(3);
     });
 
     it('gets version history', async () => {
       const history = await authed(org.accessToken)(request(app.getHttpServer()).get(`/members/${memberId}/documents/${documentId}/versions`)).expect(200);
       expect(Array.isArray(history.body.data)).toBe(true);
-      expect(history.body.data.length).toBeGreaterThanOrEqual(2);
+      expect(history.body.data.length).toBeGreaterThanOrEqual(3);
     });
 
     it('cross-tenant: rejects submit/review/upload from other org', async () => {
