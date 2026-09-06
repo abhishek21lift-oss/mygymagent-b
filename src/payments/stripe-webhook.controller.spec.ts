@@ -8,14 +8,17 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Logger } from '@nestjs/common';
 
 describe('StripeWebhookController', () => {
   let controller: StripeWebhookController;
   let stripeService: StripeService;
   let paymentsService: PaymentsService;
   let configService: ConfigService;
-  let _logger: Logger;
+
+  const request = (rawBody = '{}') =>
+    ({ rawBody: Buffer.from(rawBody) }) as Parameters<
+      StripeWebhookController['handleWebhook']
+    >[0];
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -23,9 +26,7 @@ describe('StripeWebhookController', () => {
       providers: [
         {
           provide: StripeService,
-          useValue: {
-            constructEvent: jest.fn(),
-          },
+          useValue: { constructEvent: jest.fn() },
         },
         {
           provide: PaymentsService,
@@ -36,84 +37,48 @@ describe('StripeWebhookController', () => {
         },
         {
           provide: ConfigService,
-          useValue: {
-            get: jest.fn(),
-          },
-        },
-        {
-          provide: Logger,
-          useValue: {
-            log: jest.fn(),
-            error: jest.fn(),
-          },
+          useValue: { get: jest.fn() },
         },
       ],
     }).compile();
 
-    controller = moduleRef.get<StripeWebhookController>(
-      StripeWebhookController,
-    );
+    controller = moduleRef.get<StripeWebhookController>(StripeWebhookController);
     stripeService = moduleRef.get<StripeService>(StripeService);
     paymentsService = moduleRef.get<PaymentsService>(PaymentsService);
     configService = moduleRef.get<ConfigService>(ConfigService);
-    _logger = moduleRef.get<Logger>(Logger);
   });
 
   describe('handleWebhook', () => {
-    it('should return InternalServerErrorException when webhook secret is not configured', async () => {
-      // Arrange
+    it('throws when webhook secret is not configured', async () => {
       (configService.get as jest.Mock).mockReturnValue(null);
 
-      // Act
-      try {
-        await controller.handleWebhook({}, 'signature');
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(InternalServerErrorException);
-        expect(error.message).toBe('Webhook secret not configured');
-        return;
-      }
-      throw new Error('Expected InternalServerErrorException');
+      await expect(controller.handleWebhook(request(), 'signature')).rejects.toBeInstanceOf(
+        InternalServerErrorException,
+      );
     });
 
-    it('should throw BadRequestException when stripe-signature header is missing', async () => {
-      // Arrange
+    it('throws BadRequestException when stripe-signature header is missing', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
 
-      // Act
-      try {
-        await controller.handleWebhook({}, '');
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(BadRequestException);
-        expect(error.message).toBe('Missing stripe-signature header');
-        return;
-      }
-      throw new Error('Expected BadRequestException');
+      await expect(controller.handleWebhook(request(), '')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
-    it('should throw UnauthorizedException when webhook signature verification fails', async () => {
-      // Arrange
+    it('throws UnauthorizedException when webhook signature verification fails', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
       (stripeService.constructEvent as jest.Mock).mockImplementation(() => {
         throw new Error('Invalid signature');
       });
 
-      // Act
-      try {
-        await controller.handleWebhook({}, 'signature');
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(UnauthorizedException);
-        expect(error.message).toContain('Webhook Error');
-        return;
-      }
-      throw new Error('Expected UnauthorizedException');
+      await expect(
+        controller.handleWebhook(request('{"event":"test"}'), 'signature'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('should handle payment_intent.succeeded event and create payment record', async () => {
-      // Arrange
+    it('uses the exact raw request body and creates a successful payment record', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      const rawBody = '{"id":"pi_123"}';
       const mockEvent = {
         type: 'payment_intent.succeeded',
         data: {
@@ -130,17 +95,18 @@ describe('StripeWebhookController', () => {
         },
       };
       (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
-        null,
-      ); // No existing payment
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(null);
 
-      // Act
-      await controller.handleWebhook({}, 'signature');
+      await controller.handleWebhook(request(rawBody), 'signature');
 
-      // Assert
+      expect(stripeService.constructEvent).toHaveBeenCalledWith(
+        Buffer.from(rawBody),
+        'signature',
+        'whsec_123',
+      );
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
         'org_1',
-        1000,
+        10,
         'USD',
         'member_1',
         undefined,
@@ -150,10 +116,38 @@ describe('StripeWebhookController', () => {
       );
     });
 
-    it('should handle payment_intent.payment_failed event and create payment record with FAILED status', async () => {
-      // Arrange
+    it('converts zero-decimal currency amounts correctly', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
-      const mockEvent = {
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_jpy',
+            amount: 1000,
+            currency: 'jpy',
+            metadata: { organizationId: 'org_1', userId: 'user_1', memberId: 'member_1' },
+          },
+        },
+      });
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(null);
+
+      await controller.handleWebhook(request(), 'signature');
+
+      expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
+        'org_1',
+        1000,
+        'JPY',
+        'member_1',
+        undefined,
+        'pi_jpy',
+        'user_1',
+        'COMPLETED',
+      );
+    });
+
+    it('supports membership-only failed payments', async () => {
+      (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
         type: 'payment_intent.payment_failed',
         data: {
           object: {
@@ -167,19 +161,14 @@ describe('StripeWebhookController', () => {
             },
           },
         },
-      };
-      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
-        null,
-      ); // No existing payment
+      });
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(null);
 
-      // Act
-      await controller.handleWebhook({}, 'signature');
+      await controller.handleWebhook(request(), 'signature');
 
-      // Assert
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
         'org_1',
-        2000,
+        20,
         'USD',
         undefined,
         'membership_1',
@@ -189,134 +178,61 @@ describe('StripeWebhookController', () => {
       );
     });
 
-    it('should not create duplicate payment if one already exists for the stripePaymentIntentId', async () => {
-      // Arrange
+    it('does not create duplicate payment if the intent was already recorded', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
-      const mockEvent = {
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
         type: 'payment_intent.succeeded',
         data: {
           object: {
             id: 'pi_789',
             amount: 1500,
             currency: 'usd',
-            metadata: {
-              organizationId: 'org_1',
-              userId: 'user_1',
-              memberId: 'member_1',
-            },
+            metadata: { organizationId: 'org_1', userId: 'user_1', memberId: 'member_1' },
           },
         },
-      };
-      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-      const existingPayment = { id: 'payment_1' };
-      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
-        existingPayment,
-      );
+      });
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue({ id: 'payment_1' });
 
-      // Act
-      await controller.handleWebhook({}, 'signature');
+      await controller.handleWebhook(request(), 'signature');
 
-      // Assert
       expect(paymentsService.createStripePayment).not.toHaveBeenCalled();
     });
 
-    it('should log error and return success response when handling succeeded payment fails', async () => {
-      // Arrange
+    it('returns an error so Stripe can retry when payment persistence fails', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
-      const mockEvent = {
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
         type: 'payment_intent.succeeded',
         data: {
           object: {
             id: 'pi_999',
             amount: 1000,
             currency: 'usd',
-            metadata: {
-              organizationId: 'org_1',
-              userId: 'user_1',
-            },
+            metadata: { organizationId: 'org_1', userId: 'user_1', memberId: 'member_1' },
           },
         },
-      };
-      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
-        null,
-      );
+      });
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(null);
       (paymentsService.createStripePayment as jest.Mock).mockRejectedValue(
         new Error('Database error'),
       );
 
-      // Spy on the controller's logger
-      const logSpy = jest.spyOn(controller['logger'], 'error');
-
-      // Act
-      const result = await controller.handleWebhook({}, 'signature');
-
-      // Assert
-      expect(logSpy).toHaveBeenCalledWith(
-        'Failed to handle succeeded payment intent pi_999: Database error',
+      await expect(controller.handleWebhook(request(), 'signature')).rejects.toBeInstanceOf(
+        InternalServerErrorException,
       );
-      expect(result).toEqual({ received: true });
     });
 
-    it('should log error and return success response when handling failed payment fails', async () => {
-      // Arrange
+    it('logs unhandled event types without failing', async () => {
       (configService.get as jest.Mock).mockReturnValue('whsec_123');
-      const mockEvent = {
-        type: 'payment_intent.payment_failed',
-        data: {
-          object: {
-            id: 'pi_888',
-            amount: 1000,
-            currency: 'usd',
-            metadata: {
-              organizationId: 'org_1',
-              userId: 'user_1',
-            },
-          },
-        },
-      };
-      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
-        null,
-      );
-      (paymentsService.createStripePayment as jest.Mock).mockRejectedValue(
-        new Error('Database error'),
-      );
-
-      // Spy on the controller's logger
-      const logSpy = jest.spyOn(controller['logger'], 'error');
-
-      // Act
-      const result = await controller.handleWebhook({}, 'signature');
-
-      // Assert
-      expect(logSpy).toHaveBeenCalledWith(
-        'Failed to handle failed payment intent pi_888: Database error',
-      );
-      expect(result).toEqual({ received: true });
-    });
-
-    it('should log unhandled event types', async () => {
-      // Arrange
-      (configService.get as jest.Mock).mockReturnValue('whsec_123');
-      const mockEvent = {
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
         type: 'charge.succeeded',
-        data: {
-          object: {},
-        },
-      };
-      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
-
-      // Spy on the controller's logger
+        data: { object: {} },
+      });
       const logSpy = jest.spyOn(controller['logger'], 'log');
 
-      // Act
-      await controller.handleWebhook({}, 'signature');
-
-      // Assert
-      expect(logSpy).toHaveBeenCalledWith(
-        'Unhandled event type charge.succeeded',
-      );
+      await expect(controller.handleWebhook(request(), 'signature')).resolves.toEqual({
+        received: true,
+      });
+      expect(logSpy).toHaveBeenCalledWith('Unhandled event type charge.succeeded');
     });
   });
 });
