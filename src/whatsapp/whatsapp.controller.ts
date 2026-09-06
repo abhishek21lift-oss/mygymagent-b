@@ -13,19 +13,15 @@ export class WhatsAppController {
 
   @Get('integration')
   @RequirePermissions('settings.manage')
-  getIntegration(@CurrentUser() user: AuthenticatedUser) {
-    return this.whatsapp.getIntegration(user.organizationId!);
-  }
+  getIntegration(@CurrentUser() user: AuthenticatedUser) { return this.whatsapp.getIntegration(user.organizationId!); }
 
   @Post('integration/embedded-signup')
   @RequirePermissions('settings.manage')
   @Audited({ resource: 'whatsapp-integration', action: 'embedded-signup' })
   completeEmbeddedSignup(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { code: string; wabaId: string; phoneNumberId: string },
-  ) {
-    return this.whatsapp.completeEmbeddedSignup(user.organizationId!, body);
-  }
+    @Body() body: { code: string; wabaId: string; phoneNumberId?: string },
+  ) { return this.whatsapp.completeEmbeddedSignup(user.organizationId!, body); }
 
   /** Legacy/manual connection endpoint retained for controlled migrations/tests. */
   @Post('integration/connect')
@@ -34,28 +30,20 @@ export class WhatsAppController {
   connect(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: { phoneNumberId: string; wabaId?: string; businessAccountId?: string; accessToken: string; displayPhoneNumber?: string; displayName?: string },
-  ) {
-    return this.whatsapp.connect(user.organizationId!, body);
-  }
+  ) { return this.whatsapp.connect(user.organizationId!, body); }
 
   @Post('integration/disconnect')
   @RequirePermissions('settings.manage')
   @Audited({ resource: 'whatsapp-integration', action: 'disconnect' })
-  disconnect(@CurrentUser() user: AuthenticatedUser) {
-    return this.whatsapp.disconnect(user.organizationId!);
-  }
+  disconnect(@CurrentUser() user: AuthenticatedUser) { return this.whatsapp.disconnect(user.organizationId!); }
 
   @Post('messages')
   @RequirePermissions('members.update')
-  send(@CurrentUser() user: AuthenticatedUser, @Body() body: { to: string; text: string }) {
-    return this.whatsapp.sendText(user.organizationId!, body.to, body.text);
-  }
+  send(@CurrentUser() user: AuthenticatedUser, @Body() body: { to: string; text: string }) { return this.whatsapp.sendText(user.organizationId!, body.to, body.text); }
 
   @Get('messages')
   @RequirePermissions('members.read')
-  messages(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string) {
-    return this.whatsapp.listMessages(user.organizationId!, Number(limit));
-  }
+  messages(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string) { return this.whatsapp.listMessages(user.organizationId!, Number(limit)); }
 
   @Get('webhook')
   @Public()
@@ -77,9 +65,7 @@ export class WhatsAppController {
     @Headers('x-hub-signature-256') signature: string | undefined,
     @Body() payload: unknown,
   ) {
-    if (!this.whatsapp.verifyWebhookSignature(signature, request.rawBody)) {
-      throw new UnauthorizedException('Invalid WhatsApp webhook signature');
-    }
+    if (!this.whatsapp.verifyWebhookSignature(signature, request.rawBody)) throw new UnauthorizedException('Invalid WhatsApp webhook signature');
     return this.whatsapp.handleWebhook(payload as Parameters<WhatsAppService['handleWebhook']>[0]);
   }
 }
