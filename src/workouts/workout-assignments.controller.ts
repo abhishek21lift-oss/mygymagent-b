@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
   RequireAnyPermission,
@@ -23,12 +24,14 @@ export class WorkoutAssignmentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListWorkoutAssignmentsQueryDto,
     @CurrentAssignmentScope() assignmentScope: string | null,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.workoutAssignmentsService.list(
       user.organizationId!,
       query,
       query.memberId,
       assignmentScope,
+      branchScope,
     );
   }
 
@@ -39,11 +42,15 @@ export class WorkoutAssignmentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateWorkoutAssignmentStatusDto,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.workoutAssignmentsService.updateStatus(
       user.organizationId!,
       id,
       dto,
+      assignmentScope,
+      branchScope,
     );
   }
 }
