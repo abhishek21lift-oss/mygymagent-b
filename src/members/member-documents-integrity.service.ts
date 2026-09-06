@@ -2,7 +2,10 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { MemberDocumentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembersService } from './members.service';
-import { MemberDocumentsService } from './member-documents.service';
+import {
+  MemberDocumentsService,
+  type UploadedFileInput,
+} from './member-documents.service';
 import { FileStorageService } from '../files/file-storage.service';
 import type { ReviewDocumentDto } from './dto/document-versioning.dto';
 
@@ -56,7 +59,7 @@ export class MemberDocumentsIntegrityService extends MemberDocumentsService {
     documentId: string,
     uploadedByUserId: string,
     dto: { changeNotes?: string },
-    file: Parameters<MemberDocumentsService['uploadVersion']>[6],
+    file: UploadedFileInput,
     branchScope: string | null,
     assignmentScope: string | null,
   ) {
