@@ -13,6 +13,7 @@ import { CancelMembershipDto } from './dto/cancel-membership.dto';
 import { CreateMembershipDto } from './dto/create-membership.dto';
 import { FreezeMembershipDto } from './dto/freeze-membership.dto';
 import { ListMembershipsQueryDto } from './dto/list-memberships-query.dto';
+import { RenewMembershipDto } from './dto/renew-membership.dto';
 import { MembershipsService } from './memberships.service';
 
 @Controller('memberships')
@@ -110,6 +111,23 @@ export class MembershipsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.membershipsService.cancel(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
+  }
+
+  @Post(':id/renew')
+  @RequirePermissions('memberships.update')
+  @Audited({ resource: 'membership', action: 'renew' })
+  renew(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RenewMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.renew(
       user.organizationId!,
       id,
       dto,

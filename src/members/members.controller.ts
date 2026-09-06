@@ -150,6 +150,20 @@ export class MembersController {
     );
   }
 
+  @Get(':id/membership-billing')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getMembershipBilling(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membersService.getMembershipBilling(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
+  }
+
   @Delete(':id')
   @RequirePermissions('members.delete')
   @Audited({ resource: 'member', action: 'delete' })

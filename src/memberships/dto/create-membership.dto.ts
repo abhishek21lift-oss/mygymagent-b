@@ -1,4 +1,10 @@
-import { IsBoolean, IsDateString, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateMembershipDto {
   @IsString()
@@ -14,4 +20,8 @@ export class CreateMembershipDto {
   @IsOptional()
   @IsBoolean()
   autoRenew?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  discount?: number;
 }

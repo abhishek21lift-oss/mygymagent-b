@@ -346,6 +346,54 @@ export class MembersService {
     });
   }
 
+  async getMembershipBilling(
+    organizationId: string,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
+    const where: Prisma.MemberWhereInput = {
+      id: memberId,
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
+    const member = await this.prisma.member.findFirst({ where });
+    if (!member) throw new NotFoundException('Member not found');
+    const memberships = await this.prisma.membership.findMany({
+      where: { organizationId, memberId },
+      orderBy: { createdAt: 'desc' },
+      include: { membershipPlan: true },
+    });
+    const payments = await this.prisma.payment.findMany({
+      where: { organizationId, memberId, status: 'COMPLETED' },
+      select: { amount: true, membershipId: true },
+    });
+    const membershipIds = new Set(memberships.map((m) => m.id));
+    const totalPaid = payments
+      .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
+      .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
+    const totalDue = memberships.reduce(
+      (sum, m) => sum.plus(m.price),
+      new Prisma.Decimal(0),
+    );
+    const outstandingBalance = totalDue.sub(totalPaid);
+    return {
+      memberships: memberships.map((m) => ({
+        id: m.id,
+        planName: m.membershipPlan.name,
+        price: m.price,
+        discount: m.discount,
+        finalPrice: m.price,
+        startDate: m.startDate,
+        endDate: m.endDate,
+        status: m.status,
+      })),
+      totalDue,
+      totalPaid,
+      outstandingBalance,
+    };
+  }
+
   private async validateReferences(
     organizationId: string,
     primaryBranchId?: string,

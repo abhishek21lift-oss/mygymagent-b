@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   BadRequestException,
   Injectable,
@@ -105,6 +106,8 @@ export class MembershipsService {
     const endDate = new Date(
       startDate.getTime() + plan.durationDays * MS_PER_DAY,
     );
+    const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
+    const finalPrice = discount ? plan.price.sub(discount) : plan.price;
     const membership = await this.prisma.membership.create({
       data: {
         organizationId,
@@ -114,7 +117,8 @@ export class MembershipsService {
         status: 'ACTIVE',
         startDate,
         endDate,
-        price: plan.price,
+        price: finalPrice,
+        discount,
         currency: plan.currency,
         autoRenew: dto.autoRenew ?? false,
       },
@@ -206,5 +210,79 @@ export class MembershipsService {
     };
     this.events.emit(DomainEvent.MembershipCancelled, payload);
     return cancelled;
+  }
+
+  async getOutstandingBalance(organizationId: string, memberId: string) {
+    const memberships = await this.prisma.membership.findMany({
+      where: { organizationId, memberId },
+      select: { price: true },
+    });
+    const payments = await this.prisma.payment.findMany({
+      where: { organizationId, memberId, status: 'COMPLETED' },
+      select: { amount: true },
+    });
+    const totalDue = memberships.reduce(
+      (sum, m) => sum.plus(m.price),
+      new Prisma.Decimal(0),
+    );
+    const totalPaid = payments.reduce(
+      (sum, p) => sum.plus(p.amount),
+      new Prisma.Decimal(0),
+    );
+    const outstandingBalance = totalDue.sub(totalPaid);
+    return {
+      totalDue,
+      totalPaid,
+      outstandingBalance,
+    };
+  }
+
+  async renew(
+    organizationId: string,
+    membershipId: string,
+    dto: { discount?: number } = {},
+    branchScope: string | null = null,
+  ) {
+    const membership = await this.getOne(
+      organizationId,
+      membershipId,
+      branchScope,
+    );
+    const isExpiredOrCancelled =
+      membership.status === 'EXPIRED' || membership.status === 'CANCELLED';
+    if (membership.status === 'FROZEN') {
+      throw new BadRequestException(
+        'Cannot renew a frozen membership. Please resume it first.',
+      );
+    }
+    const plan = membership.membershipPlan;
+    if (isExpiredOrCancelled) {
+      const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
+      const finalPrice = discount ? plan.price.sub(discount) : plan.price;
+      const newMembership = await this.prisma.membership.create({
+        data: {
+          organizationId,
+          branchId: membership.branchId,
+          memberId: membership.memberId,
+          membershipPlanId: plan.id,
+          status: 'ACTIVE',
+          startDate: new Date(),
+          endDate: new Date(Date.now() + plan.durationDays * MS_PER_DAY),
+          price: finalPrice,
+          discount,
+          currency: plan.currency,
+          autoRenew: membership.autoRenew,
+          previousMembershipId: membership.id,
+        },
+      });
+      return newMembership;
+    }
+    const extendedEndDate = new Date(
+      membership.endDate.getTime() + plan.durationDays * MS_PER_DAY,
+    );
+    return this.prisma.membership.update({
+      where: { id: membershipId },
+      data: { endDate: extendedEndDate },
+    });
   }
 }

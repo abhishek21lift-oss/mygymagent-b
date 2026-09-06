@@ -816,6 +816,7 @@ model Membership {
   totalFreezeDaysUsed Int       @default(0)
 
   price     Decimal @db.Decimal(10, 2)
+  discount  Decimal? @db.Decimal(10, 2)
   currency  String  @default("USD")
   autoRenew Boolean @default(false)
 
