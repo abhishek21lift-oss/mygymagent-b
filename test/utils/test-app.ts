@@ -1,8 +1,66 @@
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ThrottlerStorage } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
+
+let globalThrottlerStorage: ThrottlerStorage | null = null;
+
+export function resetThrottlerStorage(): void {
+  if (!globalThrottlerStorage) return;
+  const storage = globalThrottlerStorage as {
+    storage?: Map<string, unknown>;
+    _storage?: Map<string, unknown>;
+    timeoutIds?: Map<string, NodeJS.Timeout[]>;
+    onApplicationShutdown?: () => void;
+  };
+  if (storage.storage) storage.storage.clear();
+  if (storage._storage) storage._storage.clear();
+  if (storage.timeoutIds) {
+    storage.timeoutIds.forEach((t) => t.forEach(clearTimeout));
+    storage.timeoutIds.clear();
+  }
+}
+
+export async function resetThrottlerStorageAsync(): Promise<void> {
+  if (!globalThrottlerStorage) return;
+  const storage = globalThrottlerStorage as {
+    storage?: Map<string, unknown>;
+    _storage?: Map<string, unknown>;
+    timeoutIds?: Map<string, NodeJS.Timeout[]>;
+    onApplicationShutdown?: () => void;
+  };
+  try {
+    if (storage.storage) storage.storage.clear();
+  } catch {
+    // Ignore errors
+  }
+  try {
+    if (storage._storage) storage._storage.clear();
+  } catch {
+    // Ignore errors
+  }
+  try {
+    if (storage.timeoutIds) {
+      storage.timeoutIds.forEach((t) => {
+        try {
+          t.forEach(clearTimeout);
+        } catch {
+          // Ignore
+        }
+      });
+      storage.timeoutIds.clear();
+    }
+  } catch {
+    // Ignore errors
+  }
+  try {
+    if (storage.onApplicationShutdown) storage.onApplicationShutdown();
+  } catch {
+    // Ignore errors
+  }
+}
 
 /** Builds a fully-wired Nest application (same global pipes/filters/
  * middleware as main.ts) for supertest to exercise, without binding to a real
@@ -41,6 +99,15 @@ export async function createTestApp(): Promise<{
     app.useGlobalFilters(new AllExceptionsFilter());
 
     await app.init();
+
+    if (!globalThrottlerStorage) {
+      try {
+        globalThrottlerStorage = app.get(ThrottlerStorage, { strict: false });
+      } catch {
+        // ThrottlerStorage not available
+      }
+    }
+
     return { app, close };
   } catch (error) {
     await close();
