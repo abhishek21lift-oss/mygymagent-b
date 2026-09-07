@@ -91,13 +91,15 @@ export class MembersController {
     if (!memberId) {
       throw new BadRequestException('memberId query parameter is required');
     }
+    const safePage = Math.max(1, parseInt(page ?? '1', 10) || 1);
+    const safePageSize = Math.min(100, Math.max(1, parseInt(pageSize ?? '50', 10) || 50));
     return this.member360Service.getTimeline(
       user.organizationId!,
       memberId,
       branchScope,
       assignmentScope,
-      page ? parseInt(page, 10) : 1,
-      pageSize ? parseInt(pageSize, 10) : 50,
+      safePage,
+      safePageSize,
     );
   }
 
@@ -289,11 +291,13 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.getMembershipBilling(
       user.organizationId!,
       id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -354,7 +358,13 @@ export class MembersController {
 
     const escapeCsv = (value: unknown) => {
       const text = value == null ? '' : String(value);
-      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      // Neutralise spreadsheet formula injection: a leading =, +, -, or @
+      // (optionally wrapped in quotes) would execute as a formula in
+      // Excel/Sheets. Prefixing with a single quote makes it inert text.
+      const sanitized = /^[=+\-@]/.test(text) ? `'${text}` : text;
+      return /[",\n\r]/.test(sanitized)
+        ? `"${sanitized.replace(/"/g, '""')}"`
+        : sanitized;
     };
 
     const csv = [

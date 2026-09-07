@@ -144,7 +144,58 @@ export class MembersService {
       dto.assignedTrainerId,
     );
     const memberCode = await this.generateMemberCode(organizationId);
-    const member = await this.prisma.$transaction(async (tx) => {
+    // Two concurrent creates can pick the same count-based code; the
+    // @@unique([organizationId, memberCode]) constraint is the final
+    // authority, so retry with a fresh code instead of failing the request.
+    let member;
+    for (let attempt = 0; ; attempt++) {
+      const candidate =
+        attempt === 0 ? memberCode : await this.generateMemberCode(organizationId);
+      try {
+        member = await this.createWithCode(
+          organizationId,
+          candidate,
+          dto,
+          createdByUserId,
+          emergencyContactRelationship,
+          waiverConsent,
+          fitnessGoal,
+          injuries,
+          allergies,
+          medicalNotes,
+        );
+        break;
+      } catch (error) {
+        if (attempt >= 3 || !isUniqueMemberCodeViolation(error)) throw error;
+      }
+    }
+    const payload: MemberCreatedEvent = {
+      organizationId,
+      branchId: member.primaryBranchId,
+      memberId: member.id,
+      email: member.email ?? undefined,
+      firstName: member.firstName,
+    };
+    this.events.emit(DomainEvent.MemberCreated, payload);
+    return member;
+  }
+
+  /** create()'s transactional core, parameterised on the member code so
+   * the P2002 retry loop can regenerate just the code. Seeds the same
+   * status/branch/trainer history rows as before. */
+  private async createWithCode(
+    organizationId: string,
+    memberCode: string,
+    dto: CreateMemberDto,
+    createdByUserId: string | null,
+    emergencyContactRelationship?: string,
+    waiverConsent?: boolean,
+    fitnessGoal?: string,
+    injuries?: string,
+    allergies?: string,
+    medicalNotes?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
         data: {
           ...dto,
@@ -226,15 +277,6 @@ export class MembersService {
       }
       return created;
     });
-    const payload: MemberCreatedEvent = {
-      organizationId,
-      branchId: member.primaryBranchId,
-      memberId: member.id,
-      email: member.email ?? undefined,
-      firstName: member.firstName,
-    };
-    this.events.emit(DomainEvent.MemberCreated, payload);
-    return member;
   }
 
   async update(
@@ -402,12 +444,14 @@ export class MembersService {
     organizationId: string,
     memberId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       id: memberId,
       organizationId,
       deletedAt: null,
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
     };
     const member = await this.prisma.member.findFirst({ where });
     if (!member) throw new NotFoundException('Member not found');
@@ -651,4 +695,15 @@ export class MembersService {
     }
     return `M-${Date.now()}`;
   }
+}
+
+/** Prisma P2002 on the @@unique([organizationId, memberCode]) index --
+ * i.e. another concurrent create took this memberCode first. */
+function isUniqueMemberCodeViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002' &&
+    Array.isArray(error.meta?.target) &&
+    (error.meta.target as string[]).includes('memberCode')
+  );
 }

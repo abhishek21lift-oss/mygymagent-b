@@ -28,7 +28,7 @@ export class Member360IntegrityService extends Member360Service {
 
     const memberships = await this.integrityPrisma.membership.findMany({
       where: { organizationId, memberId },
-      select: { id: true, price: true, status: true },
+      select: { id: true, price: true, discount: true, status: true },
     });
     const membershipIds = memberships.map((membership) => membership.id);
     const payments = membershipIds.length
@@ -57,8 +57,11 @@ export class Member360IntegrityService extends Member360Service {
     // PaymentStatus has no PENDING state. Keep the response field stable
     // without misclassifying completed payments as pending.
     const pendingPayments = 0;
+    // Same net-price basis as MembersService.getMembershipBilling and the
+    // base Member360Service: due = price - discount, never gross price.
     const totalDue = memberships.reduce(
-      (sum, membership) => sum.plus(membership.price),
+      (sum, membership) =>
+        sum.plus(membership.price.sub(membership.discount ?? new Prisma.Decimal(0))),
       new Prisma.Decimal(0),
     );
     const totalPaid = payments.reduce(
@@ -98,7 +101,10 @@ export class Member360IntegrityService extends Member360Service {
             ...overview.membership,
             totalPaid: activePaid,
             outstandingBalance: activeMembership
-              ? activeMembership.price.sub(activePaid).add(activeRefunded)
+              ? activeMembership.price
+                  .sub(activeMembership.discount ?? new Prisma.Decimal(0))
+                  .sub(activePaid)
+                  .add(activeRefunded)
               : overview.membership.outstandingBalance,
           }
         : null,

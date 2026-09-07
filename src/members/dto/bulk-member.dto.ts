@@ -27,6 +27,8 @@ export class BulkExportDto {
   memberIds: string[];
 
   @IsOptional()
-  @IsString()
-  format?: 'csv' | 'xlsx';
+  // Only CSV is implemented -- reject 'xlsx' rather than silently
+  // returning CSV bytes under a name that claims otherwise.
+  @IsIn(['csv'])
+  format?: 'csv';
 }

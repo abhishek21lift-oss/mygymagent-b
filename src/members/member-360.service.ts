@@ -207,7 +207,10 @@ export class Member360Service {
         },
       }),
       this.prisma.refund.findMany({
-        where: { organizationId },
+        where: {
+          organizationId,
+          payment: { memberId, organizationId },
+        },
         include: { payment: { select: { memberId: true } } },
       }),
       this.prisma.ptSession.findMany({
@@ -507,7 +510,9 @@ export class Member360Service {
       assignmentScope,
     );
 
-    const skip = (page - 1) * pageSize;
+    const safePage = Math.max(1, page || 1);
+    const safePageSize = Math.min(100, Math.max(1, pageSize || 50));
+    const skip = (safePage - 1) * safePageSize;
 
     const [
       statusHistory,
@@ -577,7 +582,10 @@ export class Member360Service {
         },
       }),
       this.prisma.refund.findMany({
-        where: { organizationId },
+        where: {
+          organizationId,
+          payment: { memberId, organizationId },
+        },
         include: {
           recordedByUser: { select: { firstName: true, lastName: true } },
           payment: { select: { memberId: true } },
@@ -1159,8 +1167,8 @@ export class Member360Service {
     return {
       events: paginatedEvents,
       totalCount,
-      page,
-      pageSize,
+      page: safePage,
+      pageSize: safePageSize,
     };
   }
 }
