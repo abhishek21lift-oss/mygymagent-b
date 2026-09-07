@@ -64,5 +64,10 @@ import { GlobalAiCommandService } from './global-ai-command.service';
     BriefingSpecialistService,
     GlobalAiCommandService,
   ],
+  exports: [
+    AiService,
+    OpenRouterProvider,
+    AiUsageService,
+  ],
 })
 export class AiModule {}

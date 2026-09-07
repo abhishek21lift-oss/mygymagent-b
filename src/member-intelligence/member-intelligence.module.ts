@@ -14,8 +14,10 @@ import { RecommendationsController } from './recommendations.controller';
 import { RecommendationsService } from './recommendations.service';
 import { SegmentsController } from './segments.controller';
 import { SegmentsService } from './segments.service';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
+  imports: [AiModule],
   controllers: [
     RiskEngineController,
     IntelligenceAnalyticsController,
