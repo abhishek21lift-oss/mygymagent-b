@@ -446,6 +446,54 @@ export class MemberDuplicateService {
         },
       });
 
+      // Apply the caller's per-conflict field resolution: when a conflict
+      // says "source", the source member's value is copied onto the target
+      // before the source is retired. "target" (or unset) keeps the target's
+      // existing value.
+      const sourceMember = await tx.member.findUnique({
+        where: { id: sourceMemberId },
+        select: {
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          dateOfBirth: true,
+          gender: true,
+        },
+      });
+      const targetMember = await tx.member.findUnique({
+        where: { id: targetMemberId },
+        select: {
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          dateOfBirth: true,
+          gender: true,
+        },
+      });
+      if (sourceMember && targetMember) {
+        const resolvedFields: Record<string, unknown> = {};
+        for (const conflict of preview.conflicts) {
+          if (resolution[conflict.field] !== 'source') continue;
+          const sourceValue = (sourceMember as Record<string, unknown>)[
+            conflict.field === 'name' ? 'firstName' : conflict.field
+          ];
+          if (conflict.field === 'name') {
+            resolvedFields.firstName = sourceMember.firstName;
+            resolvedFields.lastName = sourceMember.lastName;
+          } else {
+            resolvedFields[conflict.field] = sourceValue;
+          }
+        }
+        if (Object.keys(resolvedFields).length > 0) {
+          await tx.member.update({
+            where: { id: targetMemberId },
+            data: resolvedFields,
+          });
+        }
+      }
+
       await tx.attendance.updateMany({
         where: { memberId: sourceMemberId },
         data: { memberId: targetMemberId },
@@ -534,6 +582,83 @@ export class MemberDuplicateService {
       await tx.messageLog.updateMany({
         where: { memberId: sourceMemberId },
         data: { memberId: targetMemberId },
+      });
+
+      // The remaining member-owned tables (same memberId-move pattern).
+      // Without these, cascade delete silently destroyed the source's
+      // follow-ups, tags, segment assignments, recommended actions, and
+      // workout/diet history when the source row was retired.
+      await tx.memberFollowUp.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      // @@unique([memberId, segmentId]): the target may already sit in one
+      // of the source's segments -- drop the target's colliding rows first
+      // so the move can't violate the constraint.
+      const sourceSegmentIds = await tx.memberSegmentAssignment.findMany({
+        where: { memberId: sourceMemberId },
+        select: { segmentId: true },
+      });
+      if (sourceSegmentIds.length > 0) {
+        await tx.memberSegmentAssignment.deleteMany({
+          where: {
+            memberId: targetMemberId,
+            segmentId: { in: sourceSegmentIds.map((s) => s.segmentId) },
+          },
+        });
+      }
+      await tx.memberSegmentAssignment.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      await tx.recommendedAction.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      await tx.workoutAssignment.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      await tx.workoutSession.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      await tx.dietAssignment.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      // Tags: same collision story as segments (@@unique([memberId, tagId])
+      // via the member_tag_assignments unique index) -- keep the target's
+      // assignment where both members had the same tag.
+      const sourceTagIds = await tx.memberTagAssignment.findMany({
+        where: { memberId: sourceMemberId },
+        select: { tagId: true },
+      });
+      if (sourceTagIds.length > 0) {
+        await tx.memberTagAssignment.deleteMany({
+          where: {
+            memberId: targetMemberId,
+            tagId: { in: sourceTagIds.map((t) => t.tagId) },
+          },
+        });
+      }
+      await tx.memberTagAssignment.updateMany({
+        where: { memberId: sourceMemberId },
+        data: { memberId: targetMemberId },
+      });
+
+      // convertedFromLead: Lead.convertedMemberId is @unique, so an
+      // updateMany would throw if the target already has a lead link. Clear
+      // the source's link instead of moving it -- the target keeps its own.
+      await tx.lead.updateMany({
+        where: { convertedMemberId: sourceMemberId },
+        data: { convertedMemberId: null },
       });
 
       await tx.member.update({

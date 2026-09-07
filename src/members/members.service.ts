@@ -372,11 +372,29 @@ export class MembersService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    changedByUserId: string | null = null,
   ) {
-    await this.getOne(organizationId, id, branchScope);
-    return this.prisma.member.update({
-      where: { id },
-      data: { deletedAt: new Date(), status: 'INACTIVE' },
+    const before = await this.getOne(organizationId, id, branchScope);
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.member.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: 'INACTIVE' },
+      });
+      // Soft-delete flips status to INACTIVE -- record it on the same
+      // status timeline every other status change is written to, so the
+      // member's trail has a final entry instead of silently ending.
+      if (before.status !== 'INACTIVE') {
+        await tx.memberStatusHistory.create({
+          data: {
+            organizationId,
+            memberId: id,
+            fromStatus: before.status,
+            toStatus: updated.status,
+            changedByUserId,
+          },
+        });
+      }
+      return updated;
     });
   }
 

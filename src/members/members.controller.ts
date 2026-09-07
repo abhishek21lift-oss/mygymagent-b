@@ -125,7 +125,9 @@ export class MembersController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     if (!sourceId || !targetId) {
-      throw new Error('sourceId and targetId query parameters are required');
+      throw new BadRequestException(
+        'sourceId and targetId query parameters are required',
+      );
     }
     return this.duplicateService.previewMerge(
       user.organizationId!,
@@ -387,6 +389,11 @@ export class MembersController {
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.membersService.remove(user.organizationId!, id, branchScope);
+    return this.membersService.remove(
+      user.organizationId!,
+      id,
+      branchScope,
+      user.id,
+    );
   }
 }
