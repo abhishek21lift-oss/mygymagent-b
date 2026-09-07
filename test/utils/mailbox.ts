@@ -49,21 +49,39 @@ function readAll(captureFile: string): CapturedEmail[] {
  * local SMTP server the app's SmtpEmailProvider actually sends to) for
  * the most recent message to `recipient`, up to `timeoutMs`. Throws on
  * timeout rather than returning undefined -- a missing email is a test
- * failure, not a value for the caller to null-check. */
+ * failure, not a value for the caller to null-check.
+ *
+ * `subjectContains`: match by subject, not recency. A member's address
+ * can legitimately receive several emails in one test (e.g. the queued
+ * welcome email landing after a synchronous automation send), and
+ * "newest to this address" can be the wrong one -- a race under CI
+ * load. When given, this waits for (and returns) an email whose subject
+ * contains the fragment, ignoring other traffic to the same inbox. */
 export async function waitForEmailTo(
   recipient: string,
   timeoutMs = 5000,
+  subjectContains?: string,
 ): Promise<{ subject: string; body: string; raw: string }> {
   const captureFile = process.env.SMTP_TEST_CAPTURE_FILE;
   if (!captureFile) throw new Error('SMTP_TEST_CAPTURE_FILE must be set');
+
+  const matches = (raw: string): boolean => {
+    if (!subjectContains) return true;
+    const { subject } = parseRaw(raw);
+    return subject.toLowerCase().includes(subjectContains.toLowerCase());
+  };
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const match = readAll(captureFile)
       .reverse()
-      .find((email) => email.to.includes(recipient));
+      .find((email) => email.to.includes(recipient) && matches(email.raw));
     if (match) return { ...parseRaw(match.raw), raw: match.raw };
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Timed out waiting for an email to ${recipient}`);
+  throw new Error(
+    subjectContains
+      ? `Timed out waiting for an email to ${recipient} with subject containing "${subjectContains}"`
+      : `Timed out waiting for an email to ${recipient}`,
+  );
 }

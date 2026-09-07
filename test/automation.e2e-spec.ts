@@ -112,7 +112,7 @@ describe('Automation (e2e)', () => {
     const first = await scanner.scan();
     expect(first.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    const sentEmail = await waitForEmailTo(email, 5000, 'expiring soon');
     expect(sentEmail.subject).toContain('expiring soon');
 
     const runs = await prisma.automationRun.findMany({
@@ -176,7 +176,7 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    const sentEmail = await waitForEmailTo(email, 5000, 'Payment reminder');
     expect(sentEmail.body).toContain('60.00');
 
     const run = await prisma.automationRun.findFirst({
@@ -268,7 +268,7 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    const sentEmail = await waitForEmailTo(email, 5000, 'miss you');
     expect(sentEmail.subject.toLowerCase()).toContain('miss you');
 
     const run = await prisma.automationRun.findFirst({
@@ -333,7 +333,7 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(ownerEmail);
+    const sentEmail = await waitForEmailTo(ownerEmail, 5000, 'Follow up due');
     expect(sentEmail.body).toContain('Overdue Prospect');
 
     const run = await prisma.automationRun.findFirst({
@@ -375,7 +375,7 @@ describe('Automation (e2e)', () => {
       );
     });
 
-    const sentEmail = await waitForEmailTo(ownerEmail);
+    const sentEmail = await waitForEmailTo(ownerEmail, 5000, 'Low stock alert');
     expect(sentEmail.subject).toContain('Protein Bar');
 
     const run = await prisma.automationRun.findFirst({
