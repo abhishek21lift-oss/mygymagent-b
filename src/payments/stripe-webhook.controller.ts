@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
+import type Stripe from 'stripe';
 import { Public } from '../common/decorators/public.decorator';
 import { StripeService } from './stripe.service';
 import { PaymentsService } from '../billing/payments.service';
@@ -111,9 +112,24 @@ export class StripeWebhookController {
     };
   }
 
-  private async handleSucceededPaymentIntent(paymentIntent: any) {
+  private async handleSucceededPaymentIntent(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
     const meta = this.extractMetadata(paymentIntent);
     if (!meta) return;
+
+    // Idempotency pre-check: Stripe redelivers events. Advisory only --
+    // the unique index on stripePaymentIntentId is the real guard against
+    // concurrent redelivery racing this check.
+    const existing = await this.paymentsService.getOneByStripeIntentId(
+      paymentIntent.id,
+    );
+    if (existing) {
+      this.logger.log(
+        `Payment already exists for stripePaymentIntentId: ${paymentIntent.id}`,
+      );
+      return;
+    }
 
     // Stripe amounts are integer cents; Payment.amount is
     // Decimal(10,2) in major units (the same column manual payments
@@ -135,9 +151,19 @@ export class StripeWebhookController {
     );
   }
 
-  private async handleFailedPaymentIntent(paymentIntent: any) {
+  private async handleFailedPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     const meta = this.extractMetadata(paymentIntent);
     if (!meta) return;
+
+    const existing = await this.paymentsService.getOneByStripeIntentId(
+      paymentIntent.id,
+    );
+    if (existing) {
+      this.logger.log(
+        `Payment already exists for stripePaymentIntentId: ${paymentIntent.id}`,
+      );
+      return;
+    }
 
     const amountMajorUnits = paymentIntent.amount / 100;
 

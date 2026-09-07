@@ -25,12 +25,18 @@ function emptyRequest(): Request & { rawBody?: Buffer } {
 describe('StripeWebhookController', () => {
   let controller: StripeWebhookController;
   let stripeService: { constructEvent: jest.Mock };
-  let paymentsService: { createStripePayment: jest.Mock };
+  let paymentsService: {
+    createStripePayment: jest.Mock;
+    getOneByStripeIntentId: jest.Mock;
+  };
   let configService: { get: jest.Mock };
 
   beforeEach(async () => {
     stripeService = { constructEvent: jest.fn() };
-    paymentsService = { createStripePayment: jest.fn() };
+    paymentsService = {
+      createStripePayment: jest.fn(),
+      getOneByStripeIntentId: jest.fn().mockResolvedValue(null),
+    };
     configService = { get: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
@@ -126,6 +132,7 @@ describe('StripeWebhookController', () => {
           metadata: {
             organizationId: 'org_1',
             userId: 'user_1',
+            memberId: 'member_1',
           },
         },
       },
@@ -136,12 +143,40 @@ describe('StripeWebhookController', () => {
       'org_1',
       250, // 25000 cents -> $250.00
       'USD',
-      undefined,
+      'member_1',
       undefined,
       'pi_456',
       'user_1',
       'FAILED',
     );
+  });
+
+  it('skips a redelivered intent whose payment already exists', async () => {
+    configService.get.mockReturnValue('whsec_123');
+    stripeService.constructEvent.mockResolvedValue({
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: 'pi_dup',
+          amount: 1000,
+          currency: 'usd',
+          metadata: {
+            organizationId: 'org_1',
+            userId: 'user_1',
+            memberId: 'member_1',
+          },
+        },
+      },
+    });
+    paymentsService.getOneByStripeIntentId.mockResolvedValue({
+      id: 'pay_existing',
+      stripePaymentIntentId: 'pi_dup',
+    });
+
+    await expect(
+      controller.handleWebhook(webhookRequest({ id: 'pi_dup' }), 'sig'),
+    ).resolves.toEqual({ received: true });
+    expect(paymentsService.createStripePayment).not.toHaveBeenCalled();
   });
 
   it('skips intents without the required metadata (no error thrown)', async () => {

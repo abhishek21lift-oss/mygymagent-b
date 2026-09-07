@@ -12,15 +12,15 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
+  // rawBody: true makes Nest register the json/urlencoded parsers with a
+  // verify hook that keeps the exact request bytes on req.rawBody --
+  // webhook signature verification (Stripe, WhatsApp) must hash those
+  // bytes, which a re-serialized body can never reproduce. Note: this
+  // option is only read here, at create(); useBodyParser()'s own options
+  // object has no rawBody effect.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
-  });
-  // Keep the raw request body bytes alongside the parsed JSON: webhook
-  // signature verification (Stripe, WhatsApp) must hash the exact bytes
-  // Stripe/Meta signed, which a re-serialized body can never reproduce.
-  app.useBodyParser('json', {
     rawBody: true,
-    limit: '1mb',
   });
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';

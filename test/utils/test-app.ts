@@ -45,10 +45,12 @@ export async function createTestApp(): Promise<{
       .overrideGuard(ThrottlerGuard)
       .useClass(MockThrottlerGuard)
       .compile();
-    app = moduleRef.createNestApplication<NestExpressApplication>();
-
-    // Raw body bytes for webhook signature verification, same as main.ts.
-    app.useBodyParser('json', { rawBody: true, limit: '1mb' });
+    // rawBody must be set here at createNestApplication() time for Nest
+    // to register its json parser with the rawBody verify hook (same as
+    // main.ts); useBodyParser()'s options object has no rawBody effect.
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      rawBody: true,
+    });
 
     app.use(cookieParser());
     app.useGlobalPipes(
