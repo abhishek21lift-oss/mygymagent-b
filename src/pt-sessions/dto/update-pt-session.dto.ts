@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDate,
   IsEnum,
   IsOptional,
@@ -46,18 +47,7 @@ export class UpdatePtSessionDto {
   @MaxLength(1000)
   notes?: string;
 
-  @IsOptional()
-  @IsDate()
-  completedAt?: Date;
-
-  @IsOptional()
-  @IsString()
-  completedByUserId?: string;
-
-  @IsOptional()
-  @IsString()
-  cancelledByUserId?: string;
-
+  @IsBoolean()
   @IsOptional()
   isPaid?: boolean;
 }
