@@ -3,6 +3,7 @@ import './instrument';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -11,7 +12,16 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
+  // Keep the raw request body bytes alongside the parsed JSON: webhook
+  // signature verification (Stripe, WhatsApp) must hash the exact bytes
+  // Stripe/Meta signed, which a re-serialized body can never reproduce.
+  app.useBodyParser('json', {
+    rawBody: true,
+    limit: '1mb',
+  });
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
 

@@ -5,6 +5,7 @@ import {
   type INestApplication,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
@@ -44,7 +45,10 @@ export async function createTestApp(): Promise<{
       .overrideGuard(ThrottlerGuard)
       .useClass(MockThrottlerGuard)
       .compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication<NestExpressApplication>();
+
+    // Raw body bytes for webhook signature verification, same as main.ts.
+    app.useBodyParser('json', { rawBody: true, limit: '1mb' });
 
     app.use(cookieParser());
     app.useGlobalPipes(
