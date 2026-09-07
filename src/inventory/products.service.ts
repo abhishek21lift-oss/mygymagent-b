@@ -9,6 +9,37 @@ import type { UpdateProductDto } from './dto/update-product.dto';
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Normalizes a scanned barcode/QR value before SKU matching.
+   * EAN-13/UPC-A codes with a leading zero can lose that zero when a
+   * scanner (or the numeric-keyboard workflow some devices use) treats
+   * the value as a number, producing a 12-digit string that no longer
+   * equals the stored SKU. Try the exact value first, then the
+   * zero-padded variant -- a deliberate best-effort convenience for
+   * numeric codes only; SKUs stay matched exactly as typed. */
+  private normalizeScanCode(code: string): string[] {
+    const trimmed = code.trim();
+    const candidates = [trimmed];
+    if (/^\d{1,13}$/.test(trimmed)) {
+      candidates.push(trimmed.padStart(13, '0'));
+    }
+    return candidates;
+  }
+
+  /** Resolves a scanned QR/barcode value to a product by exact SKU
+   * match, within the caller's organization only -- a code only ever
+   * resolves to this tenant's product, never another org's (the
+   * organizationId + sku unique constraint guarantees one product per
+   * code per org). */
+  async findByScanCode(organizationId: string, code: string) {
+    for (const candidate of this.normalizeScanCode(code)) {
+      const product = await this.prisma.product.findFirst({
+        where: { organizationId, sku: candidate },
+      });
+      if (product) return product;
+    }
+    throw new NotFoundException('No product with this code');
+  }
+
   async list(organizationId: string, query: ListProductsQueryDto) {
     const where = {
       organizationId,

@@ -1,6 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import request from 'supertest';
+import { TokensService } from '../src/auth/tokens.service';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 
 describe('Inventory (e2e)', () => {
@@ -220,5 +222,130 @@ describe('Inventory (e2e)', () => {
         .post('/products/00000000-0000-0000-0000-000000000000/stock-movements')
         .send({ type: 'RESTOCK', quantity: 10 }),
     ).expect(404);
+  });
+
+  describe('QR/barcode product scan lookup (GET /products/scan/:code)', () => {
+    it('resolves an exact SKU scan to this org\u2019s product', async () => {
+      const product = await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/products').send({
+          sku: 'WHEY-1KG',
+          name: 'Whey Protein 1kg',
+          unitPrice: 45,
+          quantityOnHand: 12,
+        }),
+      ).expect(201);
+
+      const scan = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/WHEY-1KG'),
+      ).expect(200);
+      expect(scan.body.data.id).toBe(product.body.data.id);
+      expect(scan.body.data.name).toBe('Whey Protein 1kg');
+      expect(scan.body.data.quantityOnHand).toBe(12);
+    });
+
+    it('resolves an EAN-13 numeric code, including a leading zero lost to scanner numeric coercion', async () => {
+      // A real EAN-13 with a leading zero. Some scanners/devices emit the
+      // 12-digit tail when the code is parsed as a number.
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/products').send({
+          sku: '0031234567890',
+          name: 'Energy Bar',
+          unitPrice: 2.5,
+        }),
+      ).expect(201);
+
+      const exact = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/0031234567890'),
+      ).expect(200);
+      expect(exact.body.data.sku).toBe('0031234567890');
+
+      // The leading-zero-lost variant still resolves.
+      const coerced = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/031234567890'),
+      ).expect(200);
+      expect(coerced.body.data.sku).toBe('0031234567890');
+    });
+
+    it('returns 404 for an unknown code, without creating anything', async () => {
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/NO-SUCH-CODE'),
+      ).expect(404);
+
+      // No product was auto-created for the unknown code.
+      const list = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products'),
+      ).expect(200);
+      expect(
+        list.body.data.items.some(
+          (p: { sku: string }) => p.sku === 'NO-SUCH-CODE',
+        ),
+      ).toBe(false);
+    });
+
+    it('never resolves another organization\u2019s product with the same SKU', async () => {
+      const other = await registerOrg('Scan Tenant Isolation Gym');
+
+      // Both orgs have a product with the SAME scan code.
+      await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/products').send({
+          sku: 'SHARED-CODE',
+          name: 'Owner org product',
+          unitPrice: 1,
+        }),
+      ).expect(201);
+      const otherProduct = await authed(other.accessToken)(
+        request(app.getHttpServer()).post('/products').send({
+          sku: 'SHARED-CODE',
+          name: 'Other org product',
+          unitPrice: 2,
+        }),
+      ).expect(201);
+
+      // Each org's scan resolves only to its own product.
+      const mine = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/SHARED-CODE'),
+      ).expect(200);
+      expect(mine.body.data.id).not.toBe(otherProduct.body.data.id);
+      expect(mine.body.data.name).toBe('Owner org product');
+
+      const theirs = await authed(other.accessToken)(
+        request(app.getHttpServer()).get('/products/scan/SHARED-CODE'),
+      ).expect(200);
+      expect(theirs.body.data.id).toBe(otherProduct.body.data.id);
+    });
+
+    it('rejects an unauthenticated caller', async () => {
+      await request(app.getHttpServer())
+        .get('/products/scan/WHEY-1KG')
+        .expect(401);
+    });
+
+    it('rejects a caller without inventory.read (e.g. a trainer)', async () => {
+      // A user holding no inventory permissions at all.
+      const trainerEmail = `scan-trainer-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}@example.com`;
+      const invited = await authed(org.accessToken)(
+        request(app.getHttpServer()).post('/users').send({
+          email: trainerEmail,
+          firstName: 'Scan',
+          lastName: 'Trainer',
+          roleKey: 'TRAINER',
+        }),
+      ).expect(201);
+
+      const prisma = app.get(PrismaService);
+      const tokens = app.get(TokensService);
+      await prisma.user.update({
+        where: { id: invited.body.data.id },
+        data: { status: 'ACTIVE' },
+      });
+      const trainerToken = tokens.signAccessToken(invited.body.data.id);
+
+      await request(app.getHttpServer())
+        .get('/products/scan/WHEY-1KG')
+        .set('Authorization', `Bearer ${trainerToken}`)
+        .expect(403);
+    });
   });
 });
