@@ -17,6 +17,7 @@ import { MemberGoalsController } from './member-goals.controller';
 import { MemberGoalsService } from './member-goals.service';
 import { Member360Service } from './member-360.service';
 import { Member360IntegrityService } from './member-360-integrity.service';
+import { MemberBulkTagsController } from './member-bulk-tags.controller';
 import { MemberTagsController } from './member-tags.controller';
 import { MemberTagsService } from './member-tags.service';
 import { MembersController } from './members.controller';
@@ -27,6 +28,14 @@ import { CommunicationsModule } from '../communications/communications.module';
 @Module({
   imports: [CommunicationsModule],
   controllers: [
+    // ROUTE ORDER MATTERS (Express matches first-registered first).
+    // MemberBulkTagsController must stay FIRST and is the ONLY owner of
+    // POST /members/bulk/tags: without it, MemberTagsController's earlier
+    // @Post(':memberId/tags') swallows the request with memberId='bulk'
+    // and its AssignMemberTagsDto (forbidNonWhitelisted) rejects the
+    // memberIds field with a 400. MembersController deliberately does NOT
+    // declare this route (it would be shadowed dead code).
+    MemberBulkTagsController,
     // Register static /members/tags routes before the dynamic /members/:id routes.
     MemberTagsController,
     MembersController,

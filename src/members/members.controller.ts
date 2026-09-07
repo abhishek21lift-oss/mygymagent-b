@@ -27,7 +27,6 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 import { ListMembersQueryDto } from './dto/list-members-query.dto';
 import {
   BulkStatusChangeDto,
-  BulkTagAssignmentDto,
   BulkExportDto,
 } from './dto/bulk-member.dto';
 import { MembersService } from './members.service';
@@ -315,24 +314,11 @@ export class MembersController {
     );
   }
 
-  @Post('bulk/tags')
-  @HttpCode(HttpStatus.OK)
-  @RequirePermissions('members.update')
-  @Audited({ resource: 'member', action: 'bulk_tag_assignment' })
-  bulkTagAssignment(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: BulkTagAssignmentDto,
-    @CurrentBranchScope() branchScope: string | null,
-    @CurrentAssignmentScope() assignmentScope: string | null,
-  ) {
-    return this.membersService.bulkTagAssignment(
-      user.organizationId!,
-      dto.memberIds,
-      dto.tagIds,
-      branchScope,
-      assignmentScope,
-    );
-  }
+  // NOTE: POST /members/bulk/tags lives in MemberBulkTagsController, NOT
+  // here. MembersController registers after MemberTagsController, so any
+  // route it declares under :memberId is unreachable shadowed code -- and
+  // a duplicate /members/bulk/tags here would be silently shadowed too.
+  // See members.module.ts for the ordering constraint.
 
   @Post('bulk/export')
   @HttpCode(HttpStatus.OK)
