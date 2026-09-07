@@ -18,8 +18,6 @@ describe('IntelligenceToolExecutorService', () => {
         weight_kg: null,
         reps: null,
         rpe: null,
-        rir: null,
-        completed: false,
       },
     ]);
 
@@ -58,8 +56,6 @@ describe('IntelligenceToolExecutorService', () => {
         weight_kg: 100,
         reps: 8,
         rpe: 8,
-        rir: 2,
-        completed: true,
       },
       {
         session_id: 's1',
@@ -69,8 +65,6 @@ describe('IntelligenceToolExecutorService', () => {
         weight_kg: 90,
         reps: 8,
         rpe: 8,
-        rir: 2,
-        completed: true,
       },
     ]);
 

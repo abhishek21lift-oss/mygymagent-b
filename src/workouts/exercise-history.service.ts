@@ -9,10 +9,20 @@ export interface ExerciseHistoryRow {
   weight_kg: number | null;
   reps: number | null;
   rpe: number | null;
-  rir: number | null;
-  completed: boolean;
 }
 
+/**
+ * One row per logged set of one library exercise, newest session first.
+ *
+ * Set rows reference the per-session snapshot entry id
+ * (`WorkoutSessionSet.exerciseId` = the snapshot entry's `id`, not the
+ * library exercise id -- see WorkoutSession.exercises), so the join has
+ * to unspool the JSON snapshot to translate library exerciseId ->
+ * snapshot entry id. Column names are the Prisma-mapped camelCase ones
+ * (see migrations); there is no `rir` column and no separate
+ * `workout_session_exercises` table -- earlier versions of this query
+ * targeted a schema that never shipped.
+ */
 @Injectable()
 export class ExerciseHistoryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -23,40 +33,38 @@ export class ExerciseHistoryService {
     exerciseId: string,
     limit = 50,
   ) {
-    const member = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM members
-      WHERE id = ${memberId} AND organization_id = ${organizationId}::uuid
-      LIMIT 1
-    `;
-    if (!member[0]) throw new NotFoundException('Member not found');
+    const member = await this.prisma.member.findFirst({
+      where: { id: memberId, organizationId },
+      select: { id: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
 
-    const exercise = await this.prisma.$queryRaw<
-      Array<{ id: string; name: string }>
-    >`
-      SELECT id, name FROM exercises
-      WHERE id = ${exerciseId} AND organization_id = ${organizationId}::uuid
-      LIMIT 1
-    `;
-    if (!exercise[0]) throw new NotFoundException('Exercise not found');
+    const exercise = await this.prisma.exercise.findFirst({
+      where: { id: exerciseId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!exercise) throw new NotFoundException('Exercise not found');
 
     return this.prisma.$queryRaw<ExerciseHistoryRow[]>`
       SELECT
-        ws.id AS session_id,
-        ws.session_date,
-        ws.status AS session_status,
-        wset.set_number,
-        wset.weight_kg,
-        wset.reps,
-        wset.rpe,
-        wset.rir,
-        wset.completed
-      FROM workout_sessions ws
-      JOIN workout_session_exercises wse ON wse.session_id = ws.id
-      JOIN workout_sets wset ON wset.session_exercise_id = wse.id
-      WHERE ws.organization_id = ${organizationId}::uuid
-        AND ws.client_id = ${memberId}
-        AND wse.exercise_id = ${exerciseId}
-      ORDER BY ws.session_date DESC, wset.set_number ASC
+        ws."id" AS session_id,
+        ws."sessionDate" AS session_date,
+        ws."status" AS session_status,
+        wset."setNumber" AS set_number,
+        wset."weightKg" AS weight_kg,
+        wset."reps" AS reps,
+        wset."rpe" AS rpe
+      FROM "workout_sessions" ws
+      JOIN "workout_session_sets" wset
+        ON wset."sessionId" = ws."id"
+       AND wset."exerciseId" IN (
+         SELECT (entry->>'id')::text
+         FROM jsonb_array_elements(ws."exercises") AS entry
+         WHERE entry->>'exerciseId' = ${exerciseId}
+       )
+      WHERE ws."organizationId" = ${organizationId}
+        AND ws."memberId" = ${memberId}
+      ORDER BY ws."sessionDate" DESC, wset."setNumber" ASC
       LIMIT ${limit}
     `;
   }

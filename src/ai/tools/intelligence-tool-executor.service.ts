@@ -39,8 +39,12 @@ export class IntelligenceToolExecutorService {
       limit,
     );
 
+    // Every row returned by getMemberExerciseHistory is a logged set
+    // (rows only exist once a set is logged), and analysis needs weight
+    // and reps to be meaningful. `rir` isn't tracked on sets in the
+    // current schema, so it's reported as null.
     const completed = rows.filter(
-      (row) => row.completed && row.weight_kg !== null && row.reps !== null,
+      (row) => row.weight_kg !== null && row.reps !== null,
     );
     if (completed.length === 0) {
       return {
@@ -129,7 +133,7 @@ export class IntelligenceToolExecutorService {
         weightKg: best.weight_kg,
         reps: best.reps,
         rpe: best.rpe,
-        rir: best.rir,
+        rir: null,
       },
       guardrails: {
         predictionMade: false,
