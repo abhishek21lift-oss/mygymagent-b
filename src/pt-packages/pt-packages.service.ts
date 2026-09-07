@@ -117,7 +117,7 @@ export class PtPackagesService {
     sessionStartTime: Date,
   ) {
     const existing = await tx.$queryRawUnsafe<any[]>(
-      `SELECT id FROM "pt_session_consumptions"
+      `SELECT id, "packageId" FROM "pt_session_consumptions"
        WHERE "organizationId"=$1 AND "ptSessionId"=$2 LIMIT 1`,
       organizationId,
       ptSessionId,

@@ -135,6 +135,13 @@ describe('Workouts (e2e)', () => {
         .send({ status: 'COMPLETED' }),
     ).expect(200);
     expect(updated.body.data.status).toBe('COMPLETED');
+
+    // Terminal states are frozen: COMPLETED cannot go back to ACTIVE.
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/workout-assignments/${assignment.body.data.id}/status`)
+        .send({ status: 'ACTIVE' }),
+    ).expect(400);
   });
 
   it('rejects assigning a plan to a member that does not exist', async () => {

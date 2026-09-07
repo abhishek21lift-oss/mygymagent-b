@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsDate,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -34,6 +35,8 @@ export class UpdatePtSessionDto {
   @IsOptional()
   type?: PtSessionType;
 
+  // PtSession.price is Decimal(10,2): reject more than 2 decimal places.
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   @IsOptional()
   price?: number;

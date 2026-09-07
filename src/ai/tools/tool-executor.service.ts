@@ -173,12 +173,15 @@ export class ToolExecutorService {
     );
     const assignmentScope =
       matchedKey === 'workouts.read_assigned' ? userId : null;
+    // list(organizationId, query, memberId, assignmentScope, branchScope) --
+    // the previous call passed the two scopes swapped, silently filtering
+    // by branch when it meant trainer and vice versa.
     const assignments = await this.workoutAssignmentsService.list(
       organizationId,
       { page: 1, pageSize: 20 },
       memberId,
-      branchScope,
       assignmentScope,
+      branchScope,
     );
     return assignments.items.map((a) => ({
       planName: a.workoutPlan.name,
