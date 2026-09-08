@@ -135,6 +135,13 @@ describe('Workouts (e2e)', () => {
         .send({ status: 'COMPLETED' }),
     ).expect(200);
     expect(updated.body.data.status).toBe('COMPLETED');
+
+    // Terminal states are frozen: COMPLETED cannot go back to ACTIVE.
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/workout-assignments/${assignment.body.data.id}/status`)
+        .send({ status: 'ACTIVE' }),
+    ).expect(400);
   });
 
   it('rejects assigning a plan to a member that does not exist', async () => {
@@ -149,6 +156,71 @@ describe('Workouts (e2e)', () => {
       request(app.getHttpServer())
         .post(`/workout-plans/${plan.body.data.id}/assign`)
         .send({ memberId: '00000000-0000-0000-0000-000000000000' }),
+    ).expect(404);
+  });
+
+  it('returns logged sets through the exercise-history join', async () => {
+    // Regression: the history query used to target a schema that never
+    // shipped (snake_case columns, workout_sets/workout_session_exercises
+    // tables) and 500'd on every call. This drives a real session -> set
+    // -> history read through the live endpoint.
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/workout-plans')
+        .send({
+          name: 'History Regression Plan',
+          exercises: [{ exerciseId, order: 1, sets: 2, reps: '8' }],
+        }),
+    ).expect(201);
+
+    const assignment = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/workout-plans/${plan.body.data.id}/assign`)
+        .send({ memberId }),
+    ).expect(201);
+
+    const session = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/workout-sessions/assignment/${assignment.body.data.id}/start`)
+        .send({}),
+    ).expect(201);
+    const snapshotExerciseId = session.body.data.exercises[0].id;
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(
+          `/workout-sessions/${session.body.data.id}/exercises/${snapshotExerciseId}/sets`,
+        )
+        .send({ setNumber: 1, weightKg: 60, reps: 8 }),
+    ).expect(201);
+
+    const history = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .get('/workouts/exercise-history')
+        .query({ memberId, exerciseId, limit: 10 }),
+    ).expect(200);
+
+    const rows = history.body.data;
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows[0].weight_kg).toBe('60');
+    expect(rows[0].reps).toBe(8);
+    expect(rows[0].set_number).toBe(1);
+  });
+
+  it('returns 404 from exercise-history for another org member or exercise', async () => {
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/workouts/exercise-history').query({
+        memberId: '00000000-0000-0000-0000-000000000000',
+        exerciseId,
+      }),
+    ).expect(404);
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/workouts/exercise-history').query({
+        memberId,
+        exerciseId: '00000000-0000-0000-0000-000000000000',
+      }),
     ).expect(404);
   });
 });

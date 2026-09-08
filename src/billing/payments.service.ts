@@ -96,40 +96,95 @@ export class PaymentsService {
     recordedByUserId: string | null = null,
     status: string = 'COMPLETED',
   ) {
-    // Determine branchId from member or membership
-    let branchId: string | null = null;
-    if (membershipId) {
-      const membership = await this.prisma.membership.findFirst({
-        where: { id: membershipId, organizationId },
-        select: { branchId: true },
-      });
-      branchId = membership?.branchId ?? null;
-    } else if (memberId) {
-      const member = await this.prisma.member.findFirst({
-        where: { id: memberId, organizationId },
-        select: { primaryBranchId: true },
-      });
-      branchId = member?.primaryBranchId ?? null;
+    // Both member and membership are tenant-checked: a webhook or caller
+    // referencing another org's ids gets a 404-equivalent here, never a
+    // cross-tenant ledger row.
+    const [member, membership] = await Promise.all([
+      memberId
+        ? this.prisma.member.findFirst({
+            where: { id: memberId, organizationId, deletedAt: null },
+            select: { id: true, primaryBranchId: true },
+          })
+        : Promise.resolve(null),
+      membershipId
+        ? this.prisma.membership.findFirst({
+            where: { id: membershipId, organizationId },
+            select: { id: true, memberId: true, branchId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    if (memberId && !member) throw new NotFoundException('Member not found');
+    if (membershipId && !membership) {
+      throw new NotFoundException('Membership not found');
+    }
+    if (!member && !membership) {
+      // memberId is NOT NULL on every Payment row -- an intent with
+      // neither id cannot produce a valid ledger row.
+      throw new BadRequestException(
+        'Stripe payment intent must identify a member or membership',
+      );
+    }
+    if (member && membership && membership.memberId !== member.id) {
+      throw new BadRequestException(
+        'Membership does not belong to the specified member',
+      );
     }
 
-    // Create the payment record
-    const payment = await this.prisma.payment.create({
-      data: {
-        organizationId,
-        branchId,
-        memberId: memberId as string,
-        membershipId,
-        amount,
-        currency,
-        method: 'CARD', // Assuming Stripe payments are card payments
-        status: status as
-          'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
-        stripePaymentIntentId,
-        recordedByUserId,
-      },
-    });
+    // memberId is required on every Payment row; resolve it from the
+    // membership when the intent metadata carried only a membershipId.
+    const resolvedMemberId = (member?.id ?? membership!.memberId) as string;
+    const resolvedBranchId =
+      membership?.branchId ?? member?.primaryBranchId ?? null;
 
-    return payment;
+    try {
+      const payment = await this.prisma.payment.create({
+        data: {
+          organizationId,
+          branchId: resolvedBranchId,
+          memberId: resolvedMemberId,
+          membershipId: membership?.id,
+          amount,
+          currency,
+          method: 'CARD',
+          status: status as
+            'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED',
+          stripePaymentIntentId,
+          recordedByUserId,
+        },
+      });
+
+      if (payment.status === 'COMPLETED') {
+        const payload: PaymentRecordedEvent = {
+          organizationId,
+          branchId: payment.branchId ?? '',
+          paymentId: payment.id,
+          memberId: payment.memberId,
+          membershipId: payment.membershipId ?? undefined,
+          amount: payment.amount.toString(),
+          currency: payment.currency,
+        };
+        this.events.emit(DomainEvent.PaymentRecorded, payload);
+      }
+
+      return payment;
+    } catch (error) {
+      // DB-level idempotency: the getOneByStripeIntentId pre-check in the
+      // webhook handler is advisory only -- two concurrent Stripe
+      // redeliveries can both pass it and race the insert. The unique
+      // index is the real guard; on collision, return the winner's row
+      // so the webhook still acks 200 (payment already recorded).
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        stripePaymentIntentId
+      ) {
+        const existing = await this.getOneByStripeIntentId(
+          stripePaymentIntentId,
+        );
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 
   async create(

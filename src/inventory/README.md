@@ -19,7 +19,12 @@ conventions as the other core modules:
 
 - **Products** (`/products`): SKU, name, description, category, unit price,
   optional cost price, `quantityOnHand`, `reorderLevel`, active flag.
-  SKUs are unique per organization.
+  SKUs are unique per organization. The SKU doubles as the QR/barcode
+  scan value — a product is matched by scanning via
+  `GET /products/scan/:code` (exact, org-scoped SKU match; a numeric
+  code whose leading zero was stripped by scanner numeric coercion is
+  retried zero-padded to 13 digits). Unknown codes 404 — nothing is
+  auto-created, and stock is never mutated by a lookup.
 - **Stock movements** (`/products/:id/stock-movements`, `/stock-movements`):
   an append-only ledger of `RESTOCK` / `SALE` / `ADJUSTMENT` / `DAMAGED`
   entries. Each entry stores the *signed delta* actually applied to

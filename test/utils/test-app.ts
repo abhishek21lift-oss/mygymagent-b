@@ -5,6 +5,7 @@ import {
   type INestApplication,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
@@ -44,7 +45,12 @@ export async function createTestApp(): Promise<{
       .overrideGuard(ThrottlerGuard)
       .useClass(MockThrottlerGuard)
       .compile();
-    app = moduleRef.createNestApplication();
+    // rawBody must be set here at createNestApplication() time for Nest
+    // to register its json parser with the rawBody verify hook (same as
+    // main.ts); useBodyParser()'s options object has no rawBody effect.
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      rawBody: true,
+    });
 
     app.use(cookieParser());
     app.useGlobalPipes(

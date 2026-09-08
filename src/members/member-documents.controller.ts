@@ -3,7 +3,10 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
+  Patch,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -20,6 +23,10 @@ import {
 } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDocumentDto } from './dto/member-document.dto';
+import {
+  SubmitDocumentDto,
+  ReviewDocumentDto,
+} from './dto/document-versioning.dto';
 import {
   MAX_DOCUMENT_SIZE_BYTES,
   MemberDocumentsService,
@@ -91,6 +98,94 @@ export class MemberDocumentsController {
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.documents.remove(
+      user.organizationId!,
+      memberId,
+      documentId,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Post(':documentId/submit')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'submit' })
+  submit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: SubmitDocumentDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.submit(
+      user.organizationId!,
+      memberId,
+      documentId,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Patch(':documentId/review')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'review' })
+  review(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: ReviewDocumentDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.review(
+      user.organizationId!,
+      memberId,
+      documentId,
+      { ...dto, reviewedByUserId: user.id },
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Post(':documentId/versions')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'upload_version' })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }),
+  )
+  uploadVersion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: { changeNotes?: string },
+    @UploadedFile() file: UploadedFileInput,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.uploadVersion(
+      user.organizationId!,
+      memberId,
+      documentId,
+      user.id,
+      dto,
+      file,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get(':documentId/versions')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getVersionHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.getVersionHistory(
       user.organizationId!,
       memberId,
       documentId,

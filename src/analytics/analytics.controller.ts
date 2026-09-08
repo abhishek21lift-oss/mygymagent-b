@@ -10,14 +10,13 @@ import { GetSalesFunnelQueryDto } from './dto/get-sales-funnel-query.dto';
 import { FinanceService } from './finance.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
+import { MembershipLifecycleAnalyticsService } from './membership-lifecycle-analytics.service';
 import { SalesIntelligenceService } from './sales-intelligence.service';
 import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
 /// Every route here is guarded by `reports.view` -- these are all
 /// read-only reporting/intelligence endpoints, the same permission tier
-/// as GET /analytics/revenue (P1), not the resource-specific
-/// members.read/leads.read/etc. permissions those resources' own CRUD
-/// routes use.
+/// as the resource-specific reporting surfaces.
 @Controller('analytics')
 @Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AnalyticsController {
@@ -27,6 +26,7 @@ export class AnalyticsController {
     private readonly salesIntelligence: SalesIntelligenceService,
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
+    private readonly membershipLifecycle: MembershipLifecycleAnalyticsService,
   ) {}
 
   @Get('revenue')
@@ -95,6 +95,48 @@ export class AnalyticsController {
     );
   }
 
+  @Get('sales/sources')
+  @RequirePermissions('reports.view')
+  getSalesSources(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getSourcePerformance(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
+  @Get('sales/lost-reasons')
+  @RequirePermissions('reports.view')
+  getSalesLostReasons(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getLostReasons(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
+  @Get('sales/assignees')
+  @RequirePermissions('reports.view')
+  getSalesAssigneePerformance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getAssigneePerformance(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
   @Get('trainers/workload')
   @RequirePermissions('reports.view')
   getTrainerWorkload(
@@ -111,5 +153,17 @@ export class AnalyticsController {
   @RequirePermissions('reports.view')
   getInventoryForecast(@CurrentUser() user: AuthenticatedUser) {
     return this.inventoryIntelligence.getStockForecast(user.organizationId!);
+  }
+
+  @Get('memberships/lifecycle')
+  @RequirePermissions('reports.view')
+  getMembershipLifecycle(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipLifecycle.getLifecycle(
+      user.organizationId!,
+      branchScope,
+    );
   }
 }

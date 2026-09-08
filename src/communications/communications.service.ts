@@ -17,9 +17,6 @@ export const SMS_PROVIDER = Symbol('SMS_PROVIDER');
 export const PUSH_PROVIDER = Symbol('PUSH_PROVIDER');
 
 interface SendInput {
-  /** Null for a platform admin (User.organizationId: null) triggering
-   * their own send, e.g. a password reset -- mirrors AuditService.record()'s
-   * nullable organizationId for the same reason. */
   organizationId: string | null;
   channel: CommunicationChannel;
   category: MessageCategory;
@@ -27,28 +24,10 @@ interface SendInput {
   recipient: string;
   memberId?: string;
   variables?: Record<string, string>;
+  customSubject?: string;
+  customBody?: string;
 }
 
-/**
- * The one place in the codebase that turns "send this kind of message to
- * this person" into an actual outbound attempt -- template resolution
- * (org override or system default), per-org branding, consent
- * enforcement, delivery logging, and provider dispatch, in that order.
- * See README.md for what's real (EMAIL, via SmtpEmailProvider) vs. typed
- * but unimplemented (WHATSAPP/SMS/PUSH).
- *
- * Callers fall into two shapes:
- *  - Synchronous, time-sensitive transactional flows (password reset,
- *    email verification) call `send()`/the convenience wrappers directly
- *    and await the result -- a failure here is the caller's to handle
- *    (e.g. AuthService still completes forgotPassword() even if the send
- *    fails, matching the old MailerService's fire-and-forget shape, but
- *    now the failure is recorded in MessageLog instead of only a log line).
- *  - Anything queued (the welcome email today; future automation-engine
- *    actions) calls `send()` from inside a BullMQ job processor, so a
- *    thrown error gets the queue's own retry/backoff for free -- see
- *    queue.module.ts's defaultJobOptions.
- */
 @Injectable()
 export class CommunicationsService {
   private readonly logger = new Logger(CommunicationsService.name);
@@ -77,10 +56,6 @@ export class CommunicationsService {
     };
 
     if (input.category === 'MARKETING' && input.memberId) {
-      // A MARKETING send always targets a member, and every Member belongs
-      // to an organization -- a null organizationId here means the caller
-      // built the input wrong, not a legitimate platform-admin case (those
-      // are transactional, e.g. password reset, and never carry a memberId).
       if (!input.organizationId) {
         throw new BadRequestException(
           'organizationId is required for MARKETING sends targeting a member',
@@ -109,16 +84,22 @@ export class CommunicationsService {
       }
     }
 
-    const template = await this.templates.resolve(
-      input.organizationId,
-      input.templateKey,
-      input.channel,
-    );
-    const subject = template.subject
-      ? this.templates.render(template.subject, variables)
-      : undefined;
-    const body = this.templates.render(template.body, variables);
-
+    const useCustomContent = !!input.customBody;
+    const template = useCustomContent
+      ? null
+      : await this.templates.resolve(
+          input.organizationId,
+          input.templateKey,
+          input.channel,
+        );
+    const subject = useCustomContent
+      ? (input.customSubject ?? '')
+      : template!.subject
+        ? this.templates.render(template!.subject, variables)
+        : undefined;
+    const body = useCustomContent
+      ? input.customBody!
+      : this.templates.render(template!.body, variables);
     const log = await this.prisma.messageLog.create({
       data: {
         organizationId: input.organizationId,
@@ -141,6 +122,11 @@ export class CommunicationsService {
           replyTo: organization?.emailReplyTo ?? undefined,
         });
       } else {
+        if (!input.organizationId) {
+          throw new BadRequestException(
+            'organizationId is required for non-email studio messaging',
+          );
+        }
         const provider = {
           WHATSAPP: this.whatsappProvider,
           SMS: this.smsProvider,
@@ -173,8 +159,6 @@ export class CommunicationsService {
   private frontendUrl(): string {
     return this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
-
-  // -- Transactional convenience wrappers, replacing the old MailerService --
 
   sendWelcomeEmail(
     organizationId: string,
@@ -241,8 +225,6 @@ export class CommunicationsService {
     });
   }
 
-  // -- Automation-engine actions (src/automation/) --
-
   sendMembershipRenewalReminder(
     organizationId: string,
     memberId: string,
@@ -256,6 +238,46 @@ export class CommunicationsService {
       templateKey: 'membership_renewal_reminder',
       recipient: to,
       memberId,
+      variables,
+    });
+  }
+
+  sendMembershipExpiredNotice(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: { firstName: string; planName: string; endDate: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'membership_expired_notice',
+      recipient: to,
+      memberId,
+      variables,
+    });
+  }
+
+  sendAppointmentReminder(
+    organizationId: string,
+    memberId: string | null,
+    to: string,
+    variables: {
+      firstName: string;
+      title: string;
+      appointmentTime: string;
+      branchName: string;
+      staffName: string;
+    },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'appointment_reminder',
+      recipient: to,
+      memberId: memberId ?? undefined,
       variables,
     });
   }
@@ -283,8 +305,6 @@ export class CommunicationsService {
     to: string,
     variables: { firstName: string; daysInactive: string },
   ) {
-    // Marketing-adjacent re-engagement, not an operational necessity like
-    // the reminders above -- gated by MARKETING consent in send().
     return this.send({
       organizationId,
       channel: 'EMAIL',
@@ -301,8 +321,6 @@ export class CommunicationsService {
     to: string,
     variables: { leadName: string; dueDate: string; note: string },
   ) {
-    // Sent to staff (the assigned salesperson), not a member -- no
-    // memberId, no consent gate.
     return this.send({
       organizationId,
       channel: 'EMAIL',

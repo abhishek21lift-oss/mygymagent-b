@@ -35,10 +35,12 @@ import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PtSessionsModule } from './pt-sessions/pt-sessions.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { MemberIntelligenceModule } from './member-intelligence/member-intelligence.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
 
@@ -92,10 +94,12 @@ import { BriefingModule } from './briefing/briefing.module';
     NutritionModule,
     InventoryModule,
     PtSessionsModule,
+    AppointmentsModule,
     PtPackagesModule,
     NotificationsModule,
     SearchModule,
     AnalyticsModule,
+    MemberIntelligenceModule,
     AutomationModule,
     BriefingModule,
   ],

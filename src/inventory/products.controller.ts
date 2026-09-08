@@ -36,6 +36,20 @@ export class ProductsController {
     return this.productsService.list(user.organizationId!, query);
   }
 
+  // Registered BEFORE @Get(':id'): Express resolves routes in declaration
+  // order, so a GET /products/scan/:code after @Get(':id') would never be
+  // reachable (':id' would swallow "scan"). Same static-before-dynamic
+  // ordering constraint documented in MembersController -- see commit
+  // cc27109 for the incident that established the rule.
+  @Get('scan/:code')
+  @RequirePermissions('inventory.read')
+  findByScanCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('code') code: string,
+  ) {
+    return this.productsService.findByScanCode(user.organizationId!, code);
+  }
+
   @Get(':id')
   @RequirePermissions('inventory.read')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

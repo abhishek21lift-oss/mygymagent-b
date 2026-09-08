@@ -5,21 +5,27 @@ import { WorkoutAssignmentsController } from './workout-assignments.controller';
 import { WorkoutAssignmentsService } from './workout-assignments.service';
 import { WorkoutPlansController } from './workout-plans.controller';
 import { WorkoutPlansService } from './workout-plans.service';
+import { ExerciseHistoryController } from './exercise-history.controller';
+import { ExerciseHistoryService } from './exercise-history.service';
 
-/**
- * v1 workout/PT engine: exercise library, named workout plans (ordered
- * exercises with sets/reps/rest), and assigning a plan to a member with
- * status tracking. See README.md for the scope decision (a full
- * Program -> Phase -> Week -> Day -> Workout -> Exercise -> Set hierarchy
- * was deliberately deferred as over-engineering for a first pass).
- */
 @Module({
   controllers: [
     ExercisesController,
     WorkoutPlansController,
     WorkoutAssignmentsController,
+    ExerciseHistoryController,
   ],
-  providers: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
-  exports: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
+  providers: [
+    ExercisesService,
+    WorkoutPlansService,
+    WorkoutAssignmentsService,
+    ExerciseHistoryService,
+  ],
+  exports: [
+    ExercisesService,
+    WorkoutPlansService,
+    WorkoutAssignmentsService,
+    ExerciseHistoryService,
+  ],
 })
 export class WorkoutsModule {}

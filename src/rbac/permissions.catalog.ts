@@ -107,6 +107,14 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     create: 'Create/sell a PT package',
     update: 'Update a PT package',
   }),
+  ...resource('appointments', {
+    read: 'View calendar appointments and availability',
+    read_assigned:
+      'View calendar appointments and availability for assigned clients',
+    create: 'Book a calendar appointment',
+    update: 'Reschedule, cancel, complete, or mark no-show an appointment',
+    manage: 'Manage trainer availability rules and time off',
+  }),
   ...resource('reports', { view: 'View analytics and business reports' }),
   ...resource('ai', {
     generate: 'Invoke AI generation features',

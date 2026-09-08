@@ -15,8 +15,18 @@ export class DietAssignmentsService {
     organizationId: string,
     query: PaginationQueryDto,
     memberId?: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const where = { organizationId, ...(memberId ? { memberId } : {}) };
+    const memberWhere = {
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
+    const where = {
+      organizationId,
+      ...(memberId ? { memberId } : {}),
+      ...(Object.keys(memberWhere).length > 0 ? { member: memberWhere } : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.dietAssignment.findMany({
         where,
@@ -36,9 +46,24 @@ export class DietAssignmentsService {
     organizationId: string,
     id: string,
     dto: UpdateDietAssignmentStatusDto,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const assignment = await this.prisma.dietAssignment.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope || assignmentScope
+          ? {
+              member: {
+                ...(branchScope ? { primaryBranchId: branchScope } : {}),
+                ...(assignmentScope
+                  ? { assignedTrainerId: assignmentScope }
+                  : {}),
+              },
+            }
+          : {}),
+      },
     });
     if (!assignment) throw new NotFoundException('Diet assignment not found');
 

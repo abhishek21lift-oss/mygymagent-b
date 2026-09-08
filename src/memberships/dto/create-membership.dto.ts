@@ -21,6 +21,13 @@ export class CreateMembershipDto {
 
   @IsOptional()
   @IsBoolean()
+  /** false = record the purchase as PENDING and activate later via
+   * POST /memberships/:id/activate. Omitted/true keeps the legacy
+   * behaviour of activating immediately. */
+  activate?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   autoRenew?: boolean;
 
   @IsOptional()

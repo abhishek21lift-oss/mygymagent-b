@@ -1,208 +1,165 @@
 import { Test } from '@nestjs/testing';
-import { OnlinePaymentController } from './online-payment.controller';
-import { StripeService } from './stripe.service';
-import { ConfigService } from '@nestjs/config';
 import {
-  UnauthorizedException,
   BadRequestException,
   InternalServerErrorException,
+  NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { OnlinePaymentController } from './online-payment.controller';
+import { StripeService } from './stripe.service';
+import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateOnlinePaymentIntentDto } from './dto/create-online-payment-intent.dto';
+import { Decimal } from '@prisma/client/runtime/library';
+
+/** Minimal Decimal-like amounts for the mocked Prisma results. */
+const D = (n: number) => new Decimal(n);
 
 describe('OnlinePaymentController', () => {
   let controller: OnlinePaymentController;
-  let stripeService: StripeService;
-  let _configService: ConfigService;
+  let stripeService: { createPaymentIntent: jest.Mock };
+  let prisma: Record<string, Record<string, jest.Mock>>;
+
+  const membershipId = '00000000-0000-0000-0000-000000000001';
+
+  const mockUser = {
+    id: 'user_1',
+    organizationId: 'org_1',
+  } as any as AuthenticatedUser;
+
+  const dto: CreateOnlinePaymentIntentDto = {
+    membershipId,
+    description: 'Test payment',
+  };
+
+  const mockMembership = {
+    id: membershipId,
+    memberId: 'member_1',
+    price: D(150),
+    currency: 'USD',
+    membershipPlan: { id: 'plan_1' },
+  };
+
+  const mockMember = { id: 'member_1', primaryBranchId: 'branch_1' };
 
   beforeEach(async () => {
+    stripeService = { createPaymentIntent: jest.fn() };
+    prisma = {
+      membership: { findFirst: jest.fn().mockResolvedValue(mockMembership) },
+      member: { findFirst: jest.fn().mockResolvedValue(mockMember) },
+      payment: { findMany: jest.fn().mockResolvedValue([]) },
+      refund: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [OnlinePaymentController],
       providers: [
-        {
-          provide: StripeService,
-          useValue: {
-            createPaymentIntent: jest.fn(),
-          },
-        },
-        {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn(),
-          },
-        },
+        { provide: StripeService, useValue: stripeService },
+        { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
 
-    controller = moduleRef.get<OnlinePaymentController>(
-      OnlinePaymentController,
-    );
-    stripeService = moduleRef.get<StripeService>(StripeService);
-    _configService = moduleRef.get<ConfigService>(ConfigService);
+    controller = moduleRef.get(OnlinePaymentController);
   });
 
-  describe('createPaymentIntent', () => {
-    const mockUser = {
-      id: 'user_1',
-      organizationId: 'org_1',
-      email: 'test@example.com',
-      firstName: 'Test',
-      lastName: 'User',
-      status: 'ACTIVE',
-      emailVerifiedAt: new Date(),
-      lastLoginAt: new Date(),
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      primaryBranchId: 'branch_1',
-    } as any as AuthenticatedUser;
+  it('throws Unauthorized if the user has no organization', async () => {
+    await expect(
+      controller.createPaymentIntent(
+        { ...mockUser, organizationId: null } as any,
+        'key',
+        dto,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
 
-    const mockDto: CreateOnlinePaymentIntentDto = {
-      amount: 1000,
-      currency: 'usd',
-      description: 'Test payment',
-      memberId: 'member_1',
-      membershipId: 'membership_1',
-    };
+  it('throws NotFound for a membership outside the org', async () => {
+    prisma.membership.findFirst.mockResolvedValue(null);
+    await expect(
+      controller.createPaymentIntent(mockUser, 'key', dto),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
 
-    it('should throw UnauthorizedException if user does not belong to an organization', async () => {
-      // Arrange
-      const userWithoutOrg = { ...mockUser, organizationId: null };
+  it('throws NotFound when the membership member is missing', async () => {
+    prisma.member.findFirst.mockResolvedValue(null);
+    await expect(
+      controller.createPaymentIntent(mockUser, 'key', dto),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
 
-      // Act
-      try {
-        await controller.createPaymentIntent(
-          userWithoutOrg,
-          'idempotency-key',
-          mockDto,
-        );
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(UnauthorizedException);
-        expect(error.message).toBe(
-          'User must belong to an organization to create payment intents',
-        );
-        return;
-      }
-      throw new Error('Expected UnauthorizedException');
+  it('throws BadRequest when nothing is outstanding', async () => {
+    // Fully paid: 150 due, 150 paid.
+    prisma.payment.findMany.mockResolvedValue([
+      { id: 'pay_1', amount: D(150) },
+    ]);
+    prisma.refund.findMany.mockResolvedValue([]);
+    await expect(
+      controller.createPaymentIntent(mockUser, 'key', dto),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('derives the amount server-side and charges cents', async () => {
+    // 150 due, 50 paid, 20 refunded -> outstanding 120 -> 12000 cents.
+    prisma.payment.findMany.mockResolvedValue([{ id: 'pay_1', amount: D(50) }]);
+    prisma.refund.findMany.mockResolvedValue([{ amount: D(20) }]);
+    stripeService.createPaymentIntent.mockResolvedValue({
+      id: 'pi_123',
+      client_secret: 'secret_123',
     });
 
-    it('should throw BadRequestException if neither memberId nor membershipId is provided', async () => {
-      // Arrange
-      const dtoWithoutIds = {
-        ...mockDto,
-        memberId: undefined,
-        membershipId: undefined,
-      };
+    const result = await controller.createPaymentIntent(
+      mockUser,
+      'idempotency-key',
+      dto,
+    );
 
-      // Act
-      try {
-        await controller.createPaymentIntent(
-          mockUser,
-          'idempotency-key',
-          dtoWithoutIds,
-        );
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(BadRequestException);
-        expect(error.message).toBe(
-          'Either memberId or membershipId must be provided',
-        );
-        return;
-      }
-      throw new Error('Expected BadRequestException');
+    expect(stripeService.createPaymentIntent).toHaveBeenCalledWith(
+      12000,
+      'usd',
+      {
+        organizationId: 'org_1',
+        userId: 'user_1',
+        memberId: 'member_1',
+        membershipId,
+        description: 'Test payment',
+      },
+      'idempotency-key',
+    );
+    expect(result).toEqual({
+      clientSecret: 'secret_123',
+      id: 'pi_123',
+      amount: 12000,
+    });
+  });
+
+  it('accounts refunds against partial refunds when deriving balance', async () => {
+    // 150 due, 100 paid, 30 refunded -> outstanding 80 -> 8000 cents.
+    prisma.payment.findMany.mockResolvedValue([
+      { id: 'pay_1', amount: D(100) },
+    ]);
+    prisma.refund.findMany.mockResolvedValue([{ amount: D(30) }]);
+    stripeService.createPaymentIntent.mockResolvedValue({
+      id: 'pi_1',
+      client_secret: 's',
     });
 
-    it('should create a payment intent and return clientSecret and id', async () => {
-      // Arrange
-      const mockPaymentIntent = {
-        client_secret: 'secret_123',
-        id: 'pi_123',
-      };
-      (stripeService.createPaymentIntent as jest.Mock).mockResolvedValue(
-        mockPaymentIntent,
-      );
+    await controller.createPaymentIntent(mockUser, 'key', dto);
+    expect(stripeService.createPaymentIntent).toHaveBeenCalledWith(
+      8000,
+      expect.any(String),
+      expect.objectContaining({ membershipId }),
+      'key',
+    );
+  });
 
-      // Act
-      const result = await controller.createPaymentIntent(
-        mockUser,
-        'idempotency-key',
-        mockDto,
-      );
+  it('maps a Stripe failure to InternalServerError', async () => {
+    prisma.payment.findMany.mockResolvedValue([{ id: 'pay_1', amount: D(50) }]);
+    prisma.refund.findMany.mockResolvedValue([]);
+    stripeService.createPaymentIntent.mockRejectedValue(
+      new Error('Stripe error'),
+    );
 
-      // Assert
-      expect(stripeService.createPaymentIntent).toHaveBeenCalledWith(
-        1000,
-        'usd',
-        {
-          organizationId: 'org_1',
-          userId: 'user_1',
-          memberId: 'member_1',
-          membershipId: 'membership_1',
-          description: 'Test payment',
-        },
-        'idempotency-key',
-      );
-      expect(result).toEqual({
-        clientSecret: 'secret_123',
-        id: 'pi_123',
-      });
-    });
-
-    it('should use default currency if not provided', async () => {
-      // Arrange
-      const dtoWithoutCurrency = { ...mockDto, currency: undefined };
-      const mockPaymentIntent = {
-        client_secret: 'secret_123',
-        id: 'pi_123',
-      };
-      (stripeService.createPaymentIntent as jest.Mock).mockResolvedValue(
-        mockPaymentIntent,
-      );
-
-      // Act
-      await controller.createPaymentIntent(
-        mockUser,
-        'idempotency-key',
-        dtoWithoutCurrency,
-      );
-
-      // Assert
-      expect(stripeService.createPaymentIntent).toHaveBeenCalledWith(
-        1000,
-        'usd',
-        {
-          organizationId: 'org_1',
-          userId: 'user_1',
-          memberId: 'member_1',
-          membershipId: 'membership_1',
-          description: 'Test payment',
-        },
-        'idempotency-key',
-      );
-    });
-
-    it('should log error and throw InternalServerErrorException when Stripe fails', async () => {
-      // Arrange
-      (stripeService.createPaymentIntent as jest.Mock).mockRejectedValue(
-        new Error('Stripe error'),
-      );
-
-      // Act
-      try {
-        await controller.createPaymentIntent(
-          mockUser,
-          'idempotency-key',
-          mockDto,
-        );
-      } catch (error) {
-        // Assert
-        // Note: We cannot directly spy on the logger because we are using the testing module.
-        // However, we can check that the error is thrown and is an InternalServerErrorException.
-        expect(error).toBeInstanceOf(InternalServerErrorException);
-        expect(error.message).toBe('Failed to create payment intent');
-        return;
-      }
-      throw new Error('Expected InternalServerErrorException');
-    });
+    await expect(
+      controller.createPaymentIntent(mockUser, 'key', dto),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
   });
 });

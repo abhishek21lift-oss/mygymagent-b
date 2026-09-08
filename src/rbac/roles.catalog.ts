@@ -66,6 +66,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'pt-packages.read',
       'pt-packages.create',
       'pt-packages.update',
+      'appointments.read',
+      'appointments.create',
+      'appointments.update',
+      'appointments.manage',
     ),
   },
   {
@@ -93,6 +97,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'pt-packages.read',
       'pt-packages.create',
       'pt-packages.update',
+      'appointments.read',
+      'appointments.create',
+      'appointments.update',
+      'appointments.manage',
     ),
   },
   {
@@ -112,6 +120,9 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'pt-sessions.create',
       'pt-sessions.update',
       'pt-packages.read_assigned',
+      'appointments.read_assigned',
+      'appointments.create',
+      'appointments.update',
     ),
   },
   {
@@ -142,6 +153,9 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'pt-sessions.create',
       'pt-packages.read',
       'pt-packages.create',
+      'appointments.read',
+      'appointments.create',
+      'appointments.update',
     ),
   },
   {
@@ -160,6 +174,9 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'payments.create',
       'pt-packages.read',
       'pt-packages.create',
+      'appointments.read',
+      'appointments.create',
+      'appointments.update',
     ),
   },
   {

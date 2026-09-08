@@ -9,28 +9,16 @@ import {
 import { MessageTemplateService } from './message-template.service';
 import { UnimplementedChannelProvider } from './interfaces/message-provider.interface';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
+import { MetaWhatsAppProvider } from './providers/meta-whatsapp.provider';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
-/**
- * Real, provider-backed communications -- see README.md for what's built
- * (EMAIL, real templates, per-org branding, MARKETING-consent enforcement,
- * delivery logging) vs. deliberately not yet (WHATSAPP/SMS/PUSH have no
- * real provider; the bound `UnimplementedChannelProvider` always throws
- * rather than silently no-opping).
- *
- * `@Global()` is deliberately NOT used here (unlike QueueModule/FilesModule)
- * -- CommunicationsService is a substantial, feature-specific API surface,
- * not small shared infrastructure; modules that need it import this one
- * explicitly, the same way AiModule imports MembersModule.
- */
 @Module({
+  imports: [WhatsAppModule],
   providers: [
     CommunicationsService,
     MessageTemplateService,
     { provide: EMAIL_PROVIDER, useClass: SmtpEmailProvider },
-    {
-      provide: WHATSAPP_PROVIDER,
-      useValue: new UnimplementedChannelProvider('WhatsApp'),
-    },
+    { provide: WHATSAPP_PROVIDER, useClass: MetaWhatsAppProvider },
     {
       provide: SMS_PROVIDER,
       useValue: new UnimplementedChannelProvider('SMS'),

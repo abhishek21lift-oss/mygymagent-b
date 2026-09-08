@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, PtSessionStatus } from '@prisma/client';
 import {
   PaginationQueryDto,
   paginate,
@@ -41,12 +41,18 @@ export class PtSessionsService {
     branchId?: string,
     startFrom?: Date,
     endTo?: Date,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.PtSessionWhereInput = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(trainerId ? { trainerId } : {}),
       ...(branchId ? { branchId } : {}),
+      // Assignment-scoped callers (pt-sessions.read_assigned) only see
+      // sessions for members assigned to them, mirroring members.read_assigned.
+      ...(assignmentScope
+        ? { member: { assignedTrainerId: assignmentScope } }
+        : {}),
       ...(startFrom && endTo
         ? {
             AND: [
@@ -86,9 +92,19 @@ export class PtSessionsService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    assignmentScope: string | null = null,
+  ) {
     const session = await this.prisma.ptSession.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
+      },
       include: {
         member: {
           select: {
@@ -204,6 +220,32 @@ trainer: {
     });
   }
 
+  /** Allowed PT session status transitions. Terminal states (COMPLETED,
+   * CANCELLED, NO_SHOW) can never be left, and only SCHEDULED can move.
+   * Without this guard a PATCH could re-open a cancelled session or
+   * double-complete one (which would try to consume a second package
+   * session). */
+  private static readonly ALLOWED_TRANSITIONS: Record<string, PtSessionStatus[]> =
+    {
+      SCHEDULED: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
+      COMPLETED: [],
+      CANCELLED: [],
+      NO_SHOW: [],
+    };
+
+  private assertStatusTransition(
+    from: PtSessionStatus,
+    to: PtSessionStatus,
+  ): void {
+    const allowed =
+      PtSessionsService.ALLOWED_TRANSITIONS[from] ?? [];
+    if (from !== to && !allowed.includes(to)) {
+      throw new BadRequestException(
+        `Cannot transition a ${from} PT session to ${to}`,
+      );
+    }
+  }
+
   async update(
     organizationId: string,
     id: string,
@@ -211,6 +253,9 @@ trainer: {
     updatedByUserId: string,
   ) {
     const session = await this.getOne(organizationId, id);
+    if (dto.status !== undefined && dto.status !== session.status) {
+      this.assertStatusTransition(session.status, dto.status);
+    }
     if (
       session.status !== 'SCHEDULED' &&
       dto.status === undefined &&
@@ -355,7 +400,7 @@ trainer: {
     return this.update(
       organizationId,
       id,
-      { status: 'COMPLETED', completedByUserId },
+      { status: 'COMPLETED' },
       completedByUserId,
     );
   }
@@ -368,7 +413,7 @@ trainer: {
     return this.update(
       organizationId,
       id,
-      { status: 'CANCELLED', cancelledByUserId, notes: cancellationReason },
+      { status: 'CANCELLED', notes: cancellationReason },
       cancelledByUserId,
     );
   }

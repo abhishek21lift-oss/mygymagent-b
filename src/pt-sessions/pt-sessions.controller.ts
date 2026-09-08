@@ -9,8 +9,9 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import { RequireAnyPermission, RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -31,7 +32,7 @@ export class PtSessionsController {
   constructor(private readonly ptSessionsService: PtSessionsService) {}
 
   @Get()
-  @RequirePermissions('pt-sessions.read')
+  @RequireAnyPermission('pt-sessions.read', 'pt-sessions.read_assigned')
   async list(
     @Query() query: PaginationQueryDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -40,6 +41,7 @@ export class PtSessionsController {
     @Query('branchId') branchId?: string,
     @Query('startFrom') startFrom?: string,
     @Query('endTo') endTo?: string,
+    @CurrentAssignmentScope() assignmentScope: string | null = null,
   ) {
     return this.ptSessionsService.list(
       requireOrgId(user),
@@ -49,13 +51,18 @@ export class PtSessionsController {
       branchId,
       startFrom ? new Date(startFrom) : undefined,
       endTo ? new Date(endTo) : undefined,
+      assignmentScope,
     );
   }
 
   @Get(':id')
-  @RequirePermissions('pt-sessions.read')
-  async getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.ptSessionsService.getOne(requireOrgId(user), id);
+  @RequireAnyPermission('pt-sessions.read', 'pt-sessions.read_assigned')
+  async getOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null = null,
+  ) {
+    return this.ptSessionsService.getOne(requireOrgId(user), id, assignmentScope);
   }
 
   @Post()
