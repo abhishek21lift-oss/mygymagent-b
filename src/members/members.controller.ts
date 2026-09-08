@@ -25,10 +25,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { ListMembersQueryDto } from './dto/list-members-query.dto';
-import {
-  BulkStatusChangeDto,
-  BulkExportDto,
-} from './dto/bulk-member.dto';
+import { BulkStatusChangeDto, BulkExportDto } from './dto/bulk-member.dto';
 import { MembersService } from './members.service';
 import { Member360Service } from './member-360.service';
 import { MemberDuplicateService } from './member-duplicate.service';
@@ -92,7 +89,10 @@ export class MembersController {
       throw new BadRequestException('memberId query parameter is required');
     }
     const safePage = Math.max(1, parseInt(page ?? '1', 10) || 1);
-    const safePageSize = Math.min(100, Math.max(1, parseInt(pageSize ?? '50', 10) || 50));
+    const safePageSize = Math.min(
+      100,
+      Math.max(1, parseInt(pageSize ?? '50', 10) || 50),
+    );
     return this.member360Service.getTimeline(
       user.organizationId!,
       memberId,

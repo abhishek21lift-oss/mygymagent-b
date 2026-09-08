@@ -10,10 +10,7 @@ import { MembersService } from './members.service';
  */
 @Injectable()
 export class MemberIntegrityService extends MembersService {
-  constructor(
-    prisma: PrismaService,
-    events: EventEmitter2,
-  ) {
+  constructor(prisma: PrismaService, events: EventEmitter2) {
     super(prisma, events);
   }
 
@@ -43,7 +40,9 @@ export class MemberIntegrityService extends MembersService {
           where: scopedWhere,
           select: { id: true, status: true },
         });
-        const changed = current.filter((member) => member.status !== nextStatus);
+        const changed = current.filter(
+          (member) => member.status !== nextStatus,
+        );
         if (changed.length === 0) return { updated: 0 };
 
         await tx.member.updateMany({
@@ -110,7 +109,8 @@ export class MemberIntegrityService extends MembersService {
           where: { organizationId, memberId: { in: authorizedIds } },
         });
 
-        if (uniqueTagIds.length === 0) return { assigned: authorizedIds.length };
+        if (uniqueTagIds.length === 0)
+          return { assigned: authorizedIds.length };
 
         await tx.memberTagAssignment.createMany({
           data: authorizedIds.flatMap((memberId) =>

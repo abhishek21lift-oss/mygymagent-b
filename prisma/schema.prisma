@@ -107,6 +107,7 @@ model Organization {
   memberStatusHistory     MemberStatusHistory[]
   memberBranchHistory     MemberBranchHistory[]
   memberTrainerHistory    MemberTrainerHistory[]
+  membershipStatusHistory MembershipStatusHistory[]
   memberAssessments       MemberAssessment[]
   memberMeasurements      MemberMeasurement[]
   memberFitnessResults    MemberFitnessTestResult[]
@@ -125,6 +126,9 @@ model Organization {
   riskProfiles            MemberRiskProfile[]
   segments                MemberSegment[]
   recommendedActions      RecommendedAction[]
+  appointments            Appointment[]
+  availabilityRules       TrainerAvailabilityRule[]
+  timeOffs                TrainerTimeOff[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -164,13 +168,16 @@ model Branch {
   attendances             Attendance[]
   userRoles               UserRole[]
   payments                Payment[]
-  ptSessions              PtSession[]           @relation("PtSession")
+  ptSessions              PtSession[]               @relation("PtSession")
   workoutSessions         WorkoutSession[]
   leads                   Lead[]
-  primaryUsers            User[]                @relation("UserPrimaryBranch")
-  primaryMembers          Member[]              @relation("MemberPrimaryBranch")
-  memberBranchHistoryTo   MemberBranchHistory[] @relation("MemberBranchHistoryTo")
-  memberBranchHistoryFrom MemberBranchHistory[] @relation("MemberBranchHistoryFrom")
+  primaryUsers            User[]                    @relation("UserPrimaryBranch")
+  primaryMembers          Member[]                  @relation("MemberPrimaryBranch")
+  memberBranchHistoryTo   MemberBranchHistory[]     @relation("MemberBranchHistoryTo")
+  memberBranchHistoryFrom MemberBranchHistory[]     @relation("MemberBranchHistoryFrom")
+  appointments            Appointment[]
+  availabilityRules       TrainerAvailabilityRule[]
+  timeOffs                TrainerTimeOff[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -224,47 +231,49 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  staffProfile             StaffProfile?
-  member                   Member?                   @relation("MemberPortalUser")
-  userRoles                UserRole[]
-  permissionOverrides      UserPermissionOverride[]
-  refreshTokens            RefreshToken[]
-  passwordResetTokens      PasswordResetToken[]
-  emailVerificationTokens  EmailVerificationToken[]
-  auditLogsAsActor         AuditLog[]                @relation("AuditActor")
-  assignedMembers          Member[]                  @relation("MemberAssignedTrainer")
-  recordedAttendances      Attendance[]              @relation("AttendanceRecordedBy")
-  staffAttendances         Attendance[]              @relation("AttendanceStaffUser")
-  paymentsRecorded         Payment[]                 @relation("PaymentRecordedBy")
-  refundsRecorded          Refund[]                  @relation("RefundRecordedBy")
-  workoutPlansCreated      WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
-  workoutAssignmentsMade   WorkoutAssignment[]       @relation("WorkoutAssignedBy")
-  workoutSessionsCreated   WorkoutSession[]          @relation("WorkoutSessionCreatedBy")
-  leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
-  leadFollowUpsCreated     LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
-  dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
-  dietAssignmentsMade      DietAssignment[]          @relation("DietAssignedBy")
-  stockMovementsRecorded   StockMovement[]           @relation("StockMovementRecordedBy")
-  aiUsageLogs              AiUsageLog[]              @relation("AiUsageActor")
-  memberNotesAuthored      MemberNote[]              @relation("MemberNoteAuthor")
-  memberConsentsRecorded   MemberConsent[]           @relation("MemberConsentRecordedBy")
-  memberFollowUpsCreated   MemberFollowUp[]          @relation("MemberFollowUpCreatedBy")
-  memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
-  memberStatusChangesMade  MemberStatusHistory[]     @relation("MemberStatusChangedBy")
-  memberBranchChangesMade  MemberBranchHistory[]     @relation("MemberBranchChangedBy")
-  memberTrainerChangesMade MemberTrainerHistory[]    @relation("MemberTrainerChangedBy")
-  memberTrainerHistoryFrom MemberTrainerHistory[]    @relation("MemberTrainerHistoryFrom")
-  memberTrainerHistoryTo   MemberTrainerHistory[]    @relation("MemberTrainerHistoryTo")
-  assessmentsConducted     MemberAssessment[]        @relation("AssessmentConductedBy")
-  measurementsRecorded     MemberMeasurement[]       @relation("MeasurementRecordedBy")
-  fitnessTestsRecorded     MemberFitnessTestResult[] @relation("FitnessTestRecordedBy")
-  screeningsRecorded       MemberScreening[]         @relation("ScreeningRecordedBy")
-  goalsCreated             MemberGoal[]              @relation("GoalCreatedBy")
-  filesUploaded            File[]                    @relation("FileUploadedBy")
-  aiActionsProposed        AiAction[]                @relation("AiActionProposedBy")
-  aiActionsDecided         AiAction[]                @relation("AiActionDecidedBy")
-  aiConversations          AiConversation[]
-  memberDocumentsReviewed  MemberDocument[]          @relation("MemberDocumentReviewedBy")
+  staffProfile                StaffProfile?
+  member                      Member?                   @relation("MemberPortalUser")
+  userRoles                   UserRole[]
+  permissionOverrides         UserPermissionOverride[]
+  refreshTokens               RefreshToken[]
+  passwordResetTokens         PasswordResetToken[]
+  emailVerificationTokens     EmailVerificationToken[]
+  auditLogsAsActor            AuditLog[]                @relation("AuditActor")
+  assignedMembers             Member[]                  @relation("MemberAssignedTrainer")
+  recordedAttendances         Attendance[]              @relation("AttendanceRecordedBy")
+  staffAttendances            Attendance[]              @relation("AttendanceStaffUser")
+  paymentsRecorded            Payment[]                 @relation("PaymentRecordedBy")
+  refundsRecorded             Refund[]                  @relation("RefundRecordedBy")
+  workoutPlansCreated         WorkoutPlan[]             @relation("WorkoutPlanCreatedBy")
+  workoutAssignmentsMade      WorkoutAssignment[]       @relation("WorkoutAssignedBy")
+  workoutSessionsCreated      WorkoutSession[]          @relation("WorkoutSessionCreatedBy")
+  leadsAssigned               Lead[]                    @relation("LeadAssignedTo")
+  leadFollowUpsCreated        LeadFollowUp[]            @relation("LeadFollowUpCreatedBy")
+  dietPlansCreated            DietPlan[]                @relation("DietPlanCreatedBy")
+  dietAssignmentsMade         DietAssignment[]          @relation("DietAssignedBy")
+  stockMovementsRecorded      StockMovement[]           @relation("StockMovementRecordedBy")
+  aiUsageLogs                 AiUsageLog[]              @relation("AiUsageActor")
+  memberNotesAuthored         MemberNote[]              @relation("MemberNoteAuthor")
+  memberConsentsRecorded      MemberConsent[]           @relation("MemberConsentRecordedBy")
+  memberFollowUpsCreated      MemberFollowUp[]          @relation("MemberFollowUpCreatedBy")
+  memberFollowUpsAssigned     MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
+  memberStatusChangesMade     MemberStatusHistory[]     @relation("MemberStatusChangedBy")
+  membershipStatusChangesMade MembershipStatusHistory[] @relation("MembershipStatusChangedBy")
+  memberBranchChangesMade     MemberBranchHistory[]     @relation("MemberBranchChangedBy")
+  memberTrainerChangesMade    MemberTrainerHistory[]    @relation("MemberTrainerChangedBy")
+  memberTrainerHistoryFrom    MemberTrainerHistory[]    @relation("MemberTrainerHistoryFrom")
+  memberTrainerHistoryTo      MemberTrainerHistory[]    @relation("MemberTrainerHistoryTo")
+  assessmentsConducted        MemberAssessment[]        @relation("AssessmentConductedBy")
+  measurementsRecorded        MemberMeasurement[]       @relation("MeasurementRecordedBy")
+  fitnessTestsRecorded        MemberFitnessTestResult[] @relation("FitnessTestRecordedBy")
+  screeningsRecorded          MemberScreening[]         @relation("ScreeningRecordedBy")
+  goalsCreated                MemberGoal[]              @relation("GoalCreatedBy")
+  filesUploaded               File[]                    @relation("FileUploadedBy")
+  aiActionsProposed           AiAction[]                @relation("AiActionProposedBy")
+  aiActionsDecided            AiAction[]                @relation("AiActionDecidedBy")
+  aiConversations             AiConversation[]
+  memberDocumentsReviewed     MemberDocument[]          @relation("MemberDocumentReviewedBy")
+  appointmentsCreated         Appointment[]             @relation("AppointmentCreatedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -291,6 +300,10 @@ model StaffProfile {
   updatedAt DateTime @updatedAt
 
   ptSessions PtSession[] @relation("PtSession")
+
+  appointments      Appointment[]             @relation("AppointmentStaff")
+  availabilityRules TrainerAvailabilityRule[] @relation("TrainerAvailabilityStaff")
+  timeOffs          TrainerTimeOff[]          @relation("TrainerTimeOffStaff")
 
   @@index([organizationId])
   @@index([branchId])
@@ -552,25 +565,26 @@ model Member {
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
 
-  addresses         MemberAddress[]
-  emergencyContacts MemberEmergencyContact[]
-  memberNotes       MemberNote[]
-  consents          MemberConsent[]
-  statusHistory     MemberStatusHistory[]
-  branchHistory     MemberBranchHistory[]
-  trainerHistory    MemberTrainerHistory[]
-  assessments       MemberAssessment[]
-  measurements      MemberMeasurement[]
-  fitnessResults    MemberFitnessTestResult[]
-  screenings        MemberScreening[]
-  goals             MemberGoal[]
-  documents         MemberDocument[]
-  messageLogs       MessageLog[]
-  followUps         MemberFollowUp[]
-  tagAssignments    MemberTagAssignment[]
-  riskProfile       MemberRiskProfile?
+  addresses          MemberAddress[]
+  emergencyContacts  MemberEmergencyContact[]
+  memberNotes        MemberNote[]
+  consents           MemberConsent[]
+  statusHistory      MemberStatusHistory[]
+  branchHistory      MemberBranchHistory[]
+  trainerHistory     MemberTrainerHistory[]
+  assessments        MemberAssessment[]
+  measurements       MemberMeasurement[]
+  fitnessResults     MemberFitnessTestResult[]
+  screenings         MemberScreening[]
+  goals              MemberGoal[]
+  documents          MemberDocument[]
+  messageLogs        MessageLog[]
+  followUps          MemberFollowUp[]
+  tagAssignments     MemberTagAssignment[]
+  riskProfile        MemberRiskProfile?
   segmentAssignments MemberSegmentAssignment[]
   recommendedActions RecommendedAction[]
+  appointments       Appointment[]             @relation("AppointmentMember")
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -871,8 +885,36 @@ enum MembershipStatus {
   PENDING
   ACTIVE
   FROZEN
+  PAUSED
   EXPIRED
   CANCELLED
+}
+
+/// Append-only record of every membership lifecycle transition
+/// (activate/freeze/resume/extend/upgrade/downgrade/transfer/renew/
+/// expire/cancel), the same pattern as MemberStatusHistory: the
+/// Membership row holds current state, this table holds the trail.
+model MembershipStatusHistory {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membershipId   String
+  membership     Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  fromStatus MembershipStatus?
+  toStatus   MembershipStatus
+
+  /// What changed besides status, when it did: freeze days, extension
+  /// days, new plan on an upgrade, new branch on a transfer, etc.
+  detail String?
+
+  changedByUserId String?
+  changedByUser   User?   @relation("MembershipStatusChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, membershipId, createdAt])
+  @@map("membership_status_history")
 }
 
 /// A member's subscription to a plan. Price is snapshotted at purchase time
@@ -915,6 +957,8 @@ model Membership {
   updatedAt DateTime @updatedAt
 
   payments Payment[]
+
+  statusHistory MembershipStatusHistory[]
 
   @@index([organizationId, branchId])
   @@index([memberId])
@@ -1287,6 +1331,7 @@ enum LeadStatus {
   CONTACTED
   QUALIFIED
   TRIAL
+  PROPOSAL
   WON
   LOST
 }
@@ -1310,6 +1355,15 @@ model Lead {
   status    LeadStatus @default(NEW)
   notes     String?
 
+  /// Set when status moves to LOST -- captures why the deal died so
+  /// /analytics/sales/lost-reasons can report real loss causes.
+  lostReason String?
+
+  /// Optional booking timestamp for the TRIAL stage (walk-in trial class).
+  /// Kept on the lead -- trialists are not Members yet, so Attendance rows
+  /// are not created for them (tenant safety).
+  trialScheduledFor DateTime?
+
   assignedToUserId String?
   assignedToUser   User?   @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
@@ -1322,7 +1376,8 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  followUps LeadFollowUp[]
+  followUps    LeadFollowUp[]
+  appointments Appointment[]  @relation("AppointmentLead")
 
   @@index([organizationId, status])
   @@index([assignedToUserId])
@@ -1846,9 +1901,9 @@ model MemberDocument {
   status           MemberDocumentStatus @default(DRAFT)
   submittedAt      DateTime?            @map("submitted_at")
   reviewedAt       DateTime?            @map("reviewed_at")
-  reviewedByUserId String?               @map("reviewed_by_user_id")
+  reviewedByUserId String?              @map("reviewed_by_user_id")
   reviewedByUser   User?                @relation("MemberDocumentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  rejectionReason  String?               @map("rejection_reason")
+  rejectionReason  String?              @map("rejection_reason")
 
   createdAt DateTime @default(now())
 
@@ -1860,16 +1915,16 @@ model MemberDocument {
 }
 
 model MemberDocumentVersion {
-  id              String       @id @default(uuid())
-  organizationId  String      @map("organization_id")
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  documentId      String      @map("document_id")
-  document        MemberDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  fileId          String      @unique @map("file_id")
-  file            File        @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String         @map("document_id")
+  document       MemberDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fileId         String         @unique @map("file_id")
+  file           File           @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   version     Int
-  changeNotes String?  @map("change_notes")
+  changeNotes String? @map("change_notes")
 
   createdAt DateTime @default(now())
 
@@ -1977,10 +2032,12 @@ model MessageLog {
 /// key below, and what would change that.
 enum AutomationKey {
   MEMBERSHIP_RENEWAL_REMINDER
+  MEMBERSHIP_EXPIRY_NOTICE
   PAYMENT_OVERDUE_REMINDER
   MEMBER_INACTIVE_RECOVERY
   LEAD_FOLLOWUP_REMINDER
   LOW_STOCK_ALERT
+  APPOINTMENT_REMINDER
 }
 
 enum AutomationRunStatus {
@@ -2145,17 +2202,17 @@ enum RiskTrend {
 }
 
 model MemberRiskProfile {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  memberId       String  @unique
-  member         Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  memberId       String       @unique
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  overallScore        Int             @default(0)
-  riskLevel           RiskLevel       @default(LOW)
-  trend               RiskTrend       @default(STABLE)
-  contributingFactors Json            @default("[]")
-  protectiveFactors   String[]        @default([])
+  overallScore        Int       @default(0)
+  riskLevel           RiskLevel @default(LOW)
+  trend               RiskTrend @default(STABLE)
+  contributingFactors Json      @default("[]")
+  protectiveFactors   String[]  @default([])
 
   computedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -2166,14 +2223,14 @@ model MemberRiskProfile {
 }
 
 model MemberSegment {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   name        String
   description String?
   rules       Json
-  isSystem    Boolean  @default(false)
+  isSystem    Boolean @default(false)
 
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -2184,11 +2241,11 @@ model MemberSegment {
 }
 
 model MemberSegmentAssignment {
-  id         String   @id @default(uuid())
-  memberId   String
-  member     Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  segmentId  String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  segmentId String
+  createdAt DateTime @default(now())
 
   @@unique([memberId, segmentId])
   @@map("member_segment_assignments")
@@ -2228,30 +2285,171 @@ enum ActionStatus {
 }
 
 model RecommendedAction {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   memberId       String
-  member         Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  type           ActionType
-  priority       Priority
-  confidence     Float
-  reasoning      String
+  type       ActionType
+  priority   Priority
+  confidence Float
+  reasoning  String
 
   suggestedChannel   ChannelType?
   suggestedContent   String?
-  suggestedOfferType  String?
-  discountPercent     Int?
-  freezeDays          Int?
+  suggestedOfferType String?
+  discountPercent    Int?
+  freezeDays         Int?
 
   status           ActionStatus @default(PENDING)
   assignedToUserId String?
   completedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([organizationId, status])
   @@index([organizationId, memberId])
   @@map("recommended_actions")
+}
+
+// ---------------------------------------------------------------------------
+// Calendar & Appointment OS
+// ---------------------------------------------------------------------------
+
+/// Kind of calendar entry. PT_SESSION entries are projections of the real
+/// PtSession rows (the appointments module never writes PtSessions -- the
+/// pt-sessions module stays the single writer, this calendar reads it).
+enum AppointmentType {
+  TRIAL
+  CONSULTATION
+  ASSESSMENT
+  FOLLOW_UP
+  PT_SESSION
+  OTHER
+}
+
+/// Booking status shared by the appointment lifecycle.
+enum AppointmentStatus {
+  BOOKED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+/// One calendar appointment that is NOT a PT session (trials, consultations,
+/// assessments, generic follow-ups). PT sessions keep their own table and are
+/// merged into the unified calendar feed by the appointments service -- a
+/// separate copy would drift.
+model Appointment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  /// The staff member (trainer/manager) the appointment is with; null =
+  /// unassigned/front-desk appointment.
+  staffId String?
+  staff   StaffProfile? @relation("AppointmentStaff", fields: [staffId], references: [id])
+
+  /// The member this appointment is about, when it is for an existing
+  /// member. Trial appointments for leads use leadId instead.
+  memberId String?
+  member   Member? @relation("AppointmentMember", fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// The lead this trial/consultation appointment came from (CRM link).
+  leadId String?
+  lead   Lead?   @relation("AppointmentLead", fields: [leadId], references: [id], onDelete: SetNull)
+
+  type   AppointmentType   @default(OTHER)
+  status AppointmentStatus @default(BOOKED)
+
+  title              String
+  startTime          DateTime
+  endTime            DateTime
+  /// Free-form notes captured at booking time.
+  notes              String?
+  /// Reason captured when status moves to CANCELLED.
+  cancellationReason String?
+
+  /// Snapshot of the client's contact at booking time so reminders still
+  /// work after lead/member data changes.
+  clientName  String?
+  clientEmail String?
+  clientPhone String?
+
+  /// Reminders already sent for this appointment (one per send).
+  remindersSent Int @default(0)
+
+  createdByUserId String?
+  createdByUser   User?   @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, branchId, startTime])
+  @@index([organizationId, status, startTime])
+  @@index([staffId, startTime])
+  @@index([memberId, startTime])
+  @@index([leadId])
+  @@map("appointments")
+}
+
+/// A recurring weekly availability window for a trainer/staff member:
+/// "Mon-Fri 09:00-17:00 at branch X". Booking checks require the slot to
+/// fall inside at least one rule (when the trainer has any rules at all).
+model TrainerAvailabilityRule {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  staffId String
+  staff   StaffProfile @relation("TrainerAvailabilityStaff", fields: [staffId], references: [id], onDelete: Cascade)
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  /// ISO weekday: 1=Monday ... 7=Sunday (ISO-8601 ordering).
+  dayOfWeek Int
+
+  /// Minutes from midnight, local to the organization timezone.
+  startMinute Int
+  endMinute   Int
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, staffId])
+  @@map("trainer_availability_rules")
+}
+
+/// A dated time-off window (leave, holiday, sick day) blocking bookings for
+/// a trainer/staff member regardless of weekly rules.
+model TrainerTimeOff {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  staffId String
+  staff   StaffProfile @relation("TrainerTimeOffStaff", fields: [staffId], references: [id], onDelete: Cascade)
+
+  /// Null branchId = all branches for this staff member.
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  reason String?
+
+  startAt DateTime
+  endAt   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, staffId, startAt])
+  @@map("trainer_time_offs")
 }

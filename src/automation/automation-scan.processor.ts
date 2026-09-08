@@ -6,8 +6,10 @@ import type { InventoryLowEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
+import { AppointmentReminderScanner } from './scanners/appointment-reminder.scanner';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
+import { MembershipExpiryScanner } from './scanners/membership-expiry.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 
@@ -28,9 +30,11 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly communications: CommunicationsService,
     private readonly runs: AutomationRunService,
     private readonly membershipRenewalScanner: MembershipRenewalScanner,
+    private readonly membershipExpiryScanner: MembershipExpiryScanner,
     private readonly paymentOverdueScanner: PaymentOverdueScanner,
     private readonly memberInactiveScanner: MemberInactiveScanner,
     private readonly leadFollowupScanner: LeadFollowupScanner,
+    private readonly appointmentReminderScanner: AppointmentReminderScanner,
   ) {
     super();
   }
@@ -39,12 +43,16 @@ export class AutomationScanProcessor extends WorkerHost {
     switch (job.name) {
       case JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS:
         return this.membershipRenewalScanner.scan();
+      case JOB_NAMES.SCAN_MEMBERSHIP_EXPIRY:
+        return this.membershipExpiryScanner.scan();
       case JOB_NAMES.SCAN_PAYMENT_OVERDUE:
         return this.paymentOverdueScanner.scan();
       case JOB_NAMES.SCAN_MEMBER_INACTIVE:
         return this.memberInactiveScanner.scan();
       case JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE:
         return this.leadFollowupScanner.scan();
+      case JOB_NAMES.SCAN_APPOINTMENT_REMINDERS:
+        return this.appointmentReminderScanner.scan();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:
         return this.sendLowStockAlert(job.data as InventoryLowEvent);
       default:

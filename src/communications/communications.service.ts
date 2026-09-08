@@ -242,6 +242,46 @@ export class CommunicationsService {
     });
   }
 
+  sendMembershipExpiredNotice(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: { firstName: string; planName: string; endDate: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'membership_expired_notice',
+      recipient: to,
+      memberId,
+      variables,
+    });
+  }
+
+  sendAppointmentReminder(
+    organizationId: string,
+    memberId: string | null,
+    to: string,
+    variables: {
+      firstName: string;
+      title: string;
+      appointmentTime: string;
+      branchName: string;
+      staffName: string;
+    },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'appointment_reminder',
+      recipient: to,
+      memberId: memberId ?? undefined,
+      variables,
+    });
+  }
+
   sendPaymentOverdueReminder(
     organizationId: string,
     memberId: string,

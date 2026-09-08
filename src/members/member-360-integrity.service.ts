@@ -61,7 +61,9 @@ export class Member360IntegrityService extends Member360Service {
     // base Member360Service: due = price - discount, never gross price.
     const totalDue = memberships.reduce(
       (sum, membership) =>
-        sum.plus(membership.price.sub(membership.discount ?? new Prisma.Decimal(0))),
+        sum.plus(
+          membership.price.sub(membership.discount ?? new Prisma.Decimal(0)),
+        ),
       new Prisma.Decimal(0),
     );
     const totalPaid = payments.reduce(
@@ -78,7 +80,9 @@ export class Member360IntegrityService extends Member360Service {
       (membership) => membership.status === 'ACTIVE',
     );
     const activePayments = activeMembership
-      ? payments.filter((payment) => payment.membershipId === activeMembership.id)
+      ? payments.filter(
+          (payment) => payment.membershipId === activeMembership.id,
+        )
       : [];
     const activeRefunds = activeMembership
       ? refunds.filter((refund) =>

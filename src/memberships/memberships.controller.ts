@@ -18,11 +18,19 @@ import { MembershipsService } from './memberships.service';
 @Controller('memberships')
 @Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class MembershipsController {
-  constructor(private readonly membershipsService: MembershipsService, private readonly lifecycle: MembershipLifecycleService) {}
+  constructor(
+    private readonly membershipsService: MembershipsService,
+    private readonly lifecycle: MembershipLifecycleService,
+  ) {}
 
   @Get()
   @RequireAnyPermission('memberships.read', 'memberships.read_assigned')
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListMembershipsQueryDto, @CurrentBranchScope() branchScope: string | null, @CurrentAssignmentScope() assignmentScope: string | null) {
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListMembershipsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
     return this.membershipsService.list(user.organizationId!, query, query.memberId, branchScope, assignmentScope);
   }
 
@@ -38,17 +46,35 @@ export class MembershipsController {
     return this.lifecycle.renewalReminders(user.organizationId!, branchScope, query.days ?? 7);
   }
 
+  @Get('history/:id')
+  @RequireAnyPermission('memberships.read', 'memberships.read_assigned')
+  getHistory(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    // getHistory validates org ownership (and 404s cross-tenant) through
+    // getOne; branch/assignment scope is intentionally not applied since
+    // history is an org-level audit trail.
+    return this.membershipsService.getHistory(user.organizationId!, id);
+  }
+
   @Get(':id')
   @RequireAnyPermission('memberships.read', 'memberships.read_assigned')
-  getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @CurrentBranchScope() branchScope: string | null, @CurrentAssignmentScope() assignmentScope: string | null) {
+  getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
     return this.membershipsService.getOne(user.organizationId!, id, branchScope, assignmentScope);
   }
 
   @Post()
   @RequirePermissions('memberships.create')
   @Audited({ resource: 'membership', action: 'create' })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMembershipDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.membershipsService.create(user.organizationId!, dto, branchScope);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.create(user.organizationId!, dto, branchScope, user.id);
   }
 
   @Post(':id/activate')
@@ -65,18 +91,30 @@ export class MembershipsController {
     return this.lifecycle.pause(user.organizationId!, id, dto, branchScope, user.id);
   }
 
+  @Post(':id/unpause')
+  @RequirePermissions('memberships.update')
+  @Audited({ resource: 'membership', action: 'unpause' })
+  unpause(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @CurrentBranchScope() branchScope: string | null) {
+    return this.lifecycle.unpause(user.organizationId!, id, branchScope, user.id);
+  }
+
   @Post(':id/freeze')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'freeze' })
-  freeze(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: FreezeMembershipDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.membershipsService.freeze(user.organizationId!, id, dto, branchScope);
+  freeze(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: FreezeMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.freeze(user.organizationId!, id, dto, branchScope, user.id);
   }
 
   @Post(':id/resume')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'resume' })
   resume(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @CurrentBranchScope() branchScope: string | null) {
-    return this.lifecycle.resume(user.organizationId!, id, branchScope, user.id);
+    return this.membershipsService.resume(user.organizationId!, id, branchScope, user.id);
   }
 
   @Post(':id/extend')
@@ -90,14 +128,24 @@ export class MembershipsController {
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'upgrade' })
   upgrade(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: MembershipPlanChangeDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.lifecycle.changePlan(user.organizationId!, id, dto, branchScope, user.id);
+    return this.lifecycle.changePlan(user.organizationId!, id, dto, branchScope, user.id, 'UPGRADE');
   }
 
   @Post(':id/downgrade')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'downgrade' })
   downgrade(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: MembershipPlanChangeDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.lifecycle.changePlan(user.organizationId!, id, dto, branchScope, user.id);
+    return this.lifecycle.changePlan(user.organizationId!, id, dto, branchScope, user.id, 'DOWNGRADE');
+  }
+
+  @Post(':id/change-plan')
+  @RequirePermissions('memberships.update')
+  @Audited({ resource: 'membership', action: 'change_plan' })
+  changePlan(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: MembershipPlanChangeDto, @CurrentBranchScope() branchScope: string | null) {
+    // Alias of :id/upgrade and :id/downgrade kept for API discoverability;
+    // direction is derived server-side from plan prices. Returns the
+    // proration breakdown alongside the new membership row.
+    return this.lifecycle.changePlanDetailed(user.organizationId!, id, dto, branchScope, user.id);
   }
 
   @Post(':id/transfer')
@@ -110,15 +158,25 @@ export class MembershipsController {
   @Post(':id/cancel')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'cancel' })
-  cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: CancelMembershipDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.membershipsService.cancel(user.organizationId!, id, dto, branchScope);
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CancelMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.cancel(user.organizationId!, id, dto, branchScope, user.id);
   }
 
   @Post(':id/renew')
   @RequirePermissions('memberships.update')
   @Audited({ resource: 'membership', action: 'renew' })
-  renew(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RenewMembershipDto, @CurrentBranchScope() branchScope: string | null) {
-    return this.membershipsService.renew(user.organizationId!, id, dto, branchScope);
+  renew(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RenewMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipsService.renew(user.organizationId!, id, dto, branchScope, user.id);
   }
 
   @Post(':id/payment-failed')

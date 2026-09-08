@@ -48,6 +48,18 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     body: 'Hi {{firstName}},\n\nYour {{planName}} membership expires on {{expiryDate}}. Renew soon to keep your access uninterrupted.',
   },
   {
+    key: 'membership_expired_notice',
+    channel: 'EMAIL',
+    subject: 'Your membership at {{organizationName}} has expired',
+    body: 'Hi {{firstName}},\n\nYour {{planName}} membership ended on {{endDate}} and has now expired. Renew anytime to reactivate your access.',
+  },
+  {
+    key: 'appointment_reminder',
+    channel: 'EMAIL',
+    subject: 'Reminder: {{title}} at {{organizationName}}',
+    body: 'Hi {{firstName}},\n\nThis is a reminder for your "{{title}}" at {{branchName}} on {{appointmentTime}} with {{staffName}}. See you soon!',
+  },
+  {
     key: 'payment_overdue_reminder',
     channel: 'EMAIL',
     subject: 'Payment reminder from {{organizationName}}',
@@ -64,6 +76,12 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     channel: 'EMAIL',
     subject: 'Follow up due: {{leadName}}',
     body: 'A follow-up with {{leadName}} is due on {{dueDate}}.\n\nNote: {{note}}',
+  },
+  {
+    key: 'lead_outreach',
+    channel: 'EMAIL',
+    subject: 'A message from {{organizationName}}',
+    body: '{{customBody}}',
   },
   {
     key: 'low_stock_alert',

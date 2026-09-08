@@ -41,6 +41,11 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { name: JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS },
       ),
       this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_EXPIRY,
+        { pattern },
+        { name: JOB_NAMES.SCAN_MEMBERSHIP_EXPIRY },
+      ),
+      this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_PAYMENT_OVERDUE,
         { pattern },
         { name: JOB_NAMES.SCAN_PAYMENT_OVERDUE },
@@ -60,10 +65,15 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { pattern },
         { name: JOB_NAMES.SCAN_DATA_RETENTION },
       ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_APPOINTMENT_REMINDERS,
+        { pattern },
+        { name: JOB_NAMES.SCAN_APPOINTMENT_REMINDERS },
+      ),
     ]);
 
     this.logger.log(
-      `Registered 5 daily automation scan schedulers (${pattern} UTC)`,
+      `Registered 7 daily automation scan schedulers (${pattern} UTC)`,
     );
   }
 }

@@ -150,7 +150,9 @@ export class MembersService {
     let member;
     for (let attempt = 0; ; attempt++) {
       const candidate =
-        attempt === 0 ? memberCode : await this.generateMemberCode(organizationId);
+        attempt === 0
+          ? memberCode
+          : await this.generateMemberCode(organizationId);
       try {
         member = await this.createWithCode(
           organizationId,

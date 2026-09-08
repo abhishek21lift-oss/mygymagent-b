@@ -51,12 +51,21 @@ import { CommunicationsModule } from '../communications/communications.module';
     MemberDetailsService,
     MemberAssessmentsService,
     MemberGoalsService,
-    { provide: MemberDocumentsService, useClass: MemberDocumentsIntegrityService },
+    {
+      provide: MemberDocumentsService,
+      useClass: MemberDocumentsIntegrityService,
+    },
     { provide: Member360Service, useClass: Member360IntegrityService },
     MemberDuplicateService,
-    { provide: MemberFollowUpsService, useClass: MemberFollowUpsIntegrityService },
+    {
+      provide: MemberFollowUpsService,
+      useClass: MemberFollowUpsIntegrityService,
+    },
     MemberTagsService,
-    { provide: MemberCommunicationsService, useClass: MemberCommunicationsIntegrityService },
+    {
+      provide: MemberCommunicationsService,
+      useClass: MemberCommunicationsIntegrityService,
+    },
   ],
   exports: [
     MembersService,

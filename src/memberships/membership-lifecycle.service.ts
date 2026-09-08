@@ -2,121 +2,130 @@ import { PaymentStatus, Prisma } from '@prisma/client';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
-import { DomainEvent } from '../events/domain-events';
 import type { ExtendMembershipDto, MembershipPlanChangeDto, PauseMembershipDto, PaymentFailureDto, TransferMembershipDto } from './dto/membership-lifecycle.dto';
+import { ChangeMembershipPlanDto } from './dto/change-membership-plan.dto';
+import { MembershipsService } from './memberships.service';
 
 const DAY = 86_400_000;
 
+/**
+ * Thin adapter over MembershipsService. All state-changing mechanics
+ * (transactions, status history, member sync, domain events, proration)
+ * live in MembershipsService — the single source of truth. This service
+ * exists to keep the remote-shipped route/DTO contracts
+ * (pause {days,reason}, upgrade/downgrade {membershipPlanId,...},
+ * transfer {memberId,...}, flat analytics summary) working unchanged,
+ * plus the small read-only helpers (renewal watchlist, payment-failure
+ * audit record) that have no counterpart in the core service.
+ */
 @Injectable()
 export class MembershipLifecycleService {
-  constructor(private readonly prisma: PrismaService, private readonly events: EventEmitter2) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
+    private readonly membershipsService: MembershipsService,
+  ) {}
 
-  private async get(organizationId: string, id: string, branchScope: string | null) {
-    const row = await this.prisma.membership.findFirst({ where: { id, organizationId, ...(branchScope ? { branchId: branchScope } : {}) }, include: { membershipPlan: true, member: true } });
-    if (!row) throw new NotFoundException('Membership not found');
-    return row;
-  }
-
-  private async successorExists(organizationId: string, id: string) {
-    return (await this.prisma.membership.count({ where: { organizationId, previousMembershipId: id } })) > 0;
-  }
-
-  private audit(organizationId: string, branchId: string, action: string, id: string, beforeState: unknown, afterState: unknown, actorUserId?: string) {
+  private async audit(organizationId: string, branchId: string, action: string, id: string, beforeState: unknown, afterState: unknown, actorUserId?: string) {
     return this.prisma.auditLog.create({ data: { organizationId, branchId, actorUserId: actorUserId ?? null, action, resource: 'membership', resourceId: id, beforeState: beforeState as Prisma.InputJsonValue, afterState: afterState as Prisma.InputJsonValue } });
   }
 
-  async activate(organizationId: string, id: string, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (row.status === 'ACTIVE') return row;
-    if (row.status !== 'PENDING') throw new BadRequestException(`Cannot activate membership in ${row.status} state`);
-    const updated = await this.prisma.membership.update({ where: { id }, data: { status: 'ACTIVE' } });
-    await this.audit(organizationId, updated.branchId, 'membership.activated', id, { status: row.status }, { status: updated.status }, actorUserId);
-    this.events.emit(DomainEvent.MembershipStarted, { organizationId, branchId: updated.branchId, membershipId: updated.id, memberId: updated.memberId, membershipPlanId: updated.membershipPlanId });
-    return updated;
+  activate(organizationId: string, id: string, branchScope: string | null, actorUserId?: string) {
+    return this.membershipsService.activate(organizationId, id, branchScope, actorUserId ?? null);
   }
 
-  async pause(organizationId: string, id: string, dto: PauseMembershipDto, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (row.status !== 'ACTIVE') throw new BadRequestException('Only an active membership can be paused');
-    const remaining = row.membershipPlan.maxFreezeDays - row.totalFreezeDaysUsed;
-    if (dto.days > remaining) throw new BadRequestException(`Requested pause exceeds ${remaining} remaining freeze days`);
-    const start = new Date(); const end = new Date(start.getTime() + dto.days * DAY);
-    const updated = await this.prisma.membership.update({ where: { id }, data: { status: 'FROZEN', freezeStartDate: start, freezeEndDate: end } });
-    await this.audit(organizationId, updated.branchId, 'membership.paused', id, { status: row.status }, { status: updated.status, pauseDays: dto.days, reason: dto.reason ?? null }, actorUserId);
-    return updated;
+  /** Remote contract: pause {days, reason}. Semantics: administrative
+   * open-ended PAUSED hold (never consumes the plan freeze quota); the
+   * requested duration and reason are recorded in the trail. Unpause
+   * computes the actual elapsed days and extends endDate accordingly. */
+  pause(organizationId: string, id: string, dto: PauseMembershipDto, branchScope: string | null, actorUserId?: string) {
+    const detail = [
+      'Administrative pause',
+      dto?.days ? `requested duration: ${dto.days} day(s)` : null,
+      dto?.reason ?? null,
+    ]
+      .filter(Boolean)
+      .join(' — ');
+    return this.membershipsService.pause(organizationId, id, branchScope, actorUserId ?? null, detail);
   }
 
-  async resume(organizationId: string, id: string, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (row.status !== 'FROZEN' || !row.freezeStartDate) throw new BadRequestException('Membership is not paused/frozen');
-    const end = row.freezeEndDate && row.freezeEndDate.getTime() < Date.now() ? row.freezeEndDate : new Date();
-    const days = Math.max(0, Math.ceil((end.getTime() - row.freezeStartDate.getTime()) / DAY));
-    const updated = await this.prisma.membership.update({ where: { id }, data: { status: 'ACTIVE', endDate: new Date(row.endDate.getTime() + days * DAY), freezeStartDate: null, freezeEndDate: null, totalFreezeDaysUsed: row.totalFreezeDaysUsed + days } });
-    await this.audit(organizationId, updated.branchId, 'membership.resumed', id, { status: row.status }, { status: updated.status, frozenDays: days }, actorUserId);
-    return updated;
+  unpause(organizationId: string, id: string, branchScope: string | null, actorUserId?: string) {
+    return this.membershipsService.unpause(organizationId, id, branchScope, actorUserId ?? null);
   }
 
-  async extend(organizationId: string, id: string, dto: ExtendMembershipDto, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (row.status === 'CANCELLED') throw new BadRequestException('Cancelled membership cannot be extended');
-    const updated = await this.prisma.membership.update({ where: { id }, data: { endDate: new Date(row.endDate.getTime() + dto.days * DAY) } });
-    await this.audit(organizationId, updated.branchId, 'membership.extended', id, { endDate: row.endDate.toISOString() }, { endDate: updated.endDate.toISOString(), days: dto.days }, actorUserId);
-    return updated;
+  resume(organizationId: string, id: string, branchScope: string | null, actorUserId?: string) {
+    return this.membershipsService.resume(organizationId, id, branchScope, actorUserId ?? null);
   }
 
-  async changePlan(organizationId: string, id: string, dto: MembershipPlanChangeDto, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (!['ACTIVE', 'FROZEN'].includes(row.status)) throw new BadRequestException('Only active/frozen memberships can change plans');
-    if (row.membershipPlanId === dto.membershipPlanId) throw new BadRequestException('Membership is already on this plan');
-    if (await this.successorExists(organizationId, id)) throw new BadRequestException('Membership already has a successor');
-    const plan = await this.prisma.membershipPlan.findFirst({ where: { id: dto.membershipPlanId, organizationId, isActive: true } });
-    if (!plan) throw new NotFoundException('Target membership plan not found or inactive');
-    if (branchScope && plan.branchId && plan.branchId !== branchScope) throw new BadRequestException('Target plan is outside your assigned branch');
-    const now = new Date();
-    const remainingDays = Math.max(0, Math.ceil((row.endDate.getTime() - now.getTime()) / DAY));
-    const credit = row.price.div(row.membershipPlan.durationDays).mul(remainingDays);
-    const discount = dto.discount ? new Prisma.Decimal(dto.discount) : new Prisma.Decimal(0);
-    const price = Prisma.Decimal.max(new Prisma.Decimal(0), plan.price.sub(discount).sub(credit));
-    const paymentAmount = dto.initialPayment ? new Prisma.Decimal(dto.initialPayment) : new Prisma.Decimal(0);
-    const result = await this.prisma.$transaction(async tx => {
-      const next = await tx.membership.create({ data: { organizationId, branchId: plan.branchId ?? row.branchId, memberId: row.memberId, membershipPlanId: plan.id, status: 'ACTIVE', startDate: now, endDate: new Date(now.getTime() + plan.durationDays * DAY), price, discount: discount.add(credit), currency: plan.currency, autoRenew: row.autoRenew, previousMembershipId: row.id } });
-      if (paymentAmount.gt(0)) await tx.payment.create({ data: { organizationId, memberId: row.memberId, membershipId: next.id, amount: paymentAmount, currency: plan.currency, method: dto.paymentMethod ?? 'CASH', status: PaymentStatus.COMPLETED } });
-      await tx.membership.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: now, cancellationReason: 'PLAN_CHANGE' } });
-      return next;
-    });
-    await this.audit(organizationId, result.branchId, 'membership.plan_changed', id, { planId: row.membershipPlanId, price: row.price.toString(), remainingDays }, { planId: result.membershipPlanId, price: result.price.toString(), credit: credit.toString(), direction: plan.price.gte(row.membershipPlan.price) ? 'UPGRADE' : 'DOWNGRADE', successorId: result.id }, actorUserId);
-    return result;
+  extend(organizationId: string, id: string, dto: ExtendMembershipDto, branchScope: string | null, actorUserId?: string) {
+    return this.membershipsService.extend(organizationId, id, { days: dto.days }, branchScope, actorUserId ?? null);
   }
 
-  async transfer(organizationId: string, id: string, dto: TransferMembershipDto, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
-    if (row.status === 'CANCELLED') throw new BadRequestException('Cancelled membership cannot be transferred');
-    if (await this.successorExists(organizationId, id)) throw new BadRequestException('Membership already has a successor');
-    if (row.memberId === dto.memberId) throw new BadRequestException('Target member is already the membership owner');
-    const target = await this.prisma.member.findFirst({ where: { id: dto.memberId, organizationId, deletedAt: null } });
-    if (!target) throw new NotFoundException('Target member not found');
-    if (branchScope && target.primaryBranchId !== branchScope) throw new BadRequestException('Target member is outside your assigned branch');
-    const next = await this.prisma.$transaction(async tx => {
-      const created = await tx.membership.create({ data: { organizationId, branchId: target.primaryBranchId, memberId: target.id, membershipPlanId: row.membershipPlanId, status: row.status, startDate: row.startDate, endDate: row.endDate, freezeStartDate: row.freezeStartDate, freezeEndDate: row.freezeEndDate, totalFreezeDaysUsed: row.totalFreezeDaysUsed, price: row.price, discount: row.discount, currency: row.currency, autoRenew: row.autoRenew, previousMembershipId: row.id } });
-      await tx.payment.updateMany({ where: { organizationId, membershipId: row.id }, data: { membershipId: created.id, memberId: target.id, branchId: target.primaryBranchId } });
-      await tx.membership.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'TRANSFERRED' } });
-      return created;
-    });
-    await this.audit(organizationId, next.branchId, 'membership.transferred', id, { memberId: row.memberId }, { memberId: next.memberId, successorId: next.id, reason: dto.reason ?? null }, actorUserId);
-    return next;
+  /** Remote contracts POST /memberships/:id/upgrade and /:id/downgrade,
+   * both resolved to the canonical prorated plan change. Returns the new
+   * membership row (remote contract). */
+  async changePlan(organizationId: string, id: string, dto: MembershipPlanChangeDto, branchScope: string | null, actorUserId?: string, direction?: 'UPGRADE' | 'DOWNGRADE') {
+    const result = await this.changePlanDetailed(organizationId, id, dto, branchScope, actorUserId, direction);
+    return result.newMembership;
   }
 
+  /** Richer contract for POST /memberships/:id/change-plan, returning
+   * the proration breakdown alongside the new membership row. */
+  async changePlanDetailed(organizationId: string, id: string, dto: MembershipPlanChangeDto, branchScope: string | null, actorUserId?: string, direction?: 'UPGRADE' | 'DOWNGRADE') {
+    let dir = direction;
+    if (!dir) {
+      // Direction is derived server-side from the plan prices, matching
+      // the audit convention of the shipped implementation.
+      const [current, target] = await Promise.all([
+        this.prisma.membership.findFirst({ where: { id, organizationId }, select: { membershipPlanId: true, price: true } }),
+        this.prisma.membershipPlan.findFirst({ where: { id: dto.membershipPlanId, organizationId, isActive: true }, select: { price: true } }),
+      ]);
+      if (!current) throw new NotFoundException('Membership not found');
+      if (!target) throw new NotFoundException('Target membership plan not found or inactive');
+      dir = target.price.gte(current.price) ? 'UPGRADE' : 'DOWNGRADE';
+    }
+    const mapped: ChangeMembershipPlanDto = {
+      newMembershipPlanId: dto.membershipPlanId,
+      direction: dir,
+      discount: dto.discount,
+      initialPayment: dto.initialPayment,
+      paymentMethod: dto.paymentMethod,
+    };
+    return this.membershipsService.changePlan(organizationId, id, mapped, branchScope, actorUserId ?? null);
+  }
+
+  /** Remote contract: transfer {memberId, reason}. Delegates to the
+   * canonical transfer, which chains a new membership row for the
+   * recipient and closes the original as CANCELLED. Payments stay
+   * attached to the original row — settlement is an explicit
+   * refund-and-rerecord, never a silent balance move. */
+  transfer(organizationId: string, id: string, dto: TransferMembershipDto, branchScope: string | null, actorUserId?: string) {
+    return this.membershipsService.transfer(organizationId, id, { toMemberId: dto.memberId, reason: dto.reason }, branchScope, actorUserId ?? null);
+  }
+
+  /** Remote contract: expire due memberships, optionally within one
+   * branch. Delegates to the canonical expiry, which records the status
+   * trail, syncs member rollup status, and emits MembershipExpired. */
   async expireDue(organizationId: string, branchScope: string | null, actorUserId?: string) {
-    const now = new Date();
-    const rows = await this.prisma.membership.findMany({ where: { organizationId, status: 'ACTIVE', endDate: { lt: now }, ...(branchScope ? { branchId: branchScope } : {}) }, select: { id: true, branchId: true, endDate: true } });
-    if (!rows.length) return { expired: 0 };
-    const result = await this.prisma.$transaction(tx => tx.membership.updateMany({ where: { organizationId, id: { in: rows.map(r => r.id) } }, data: { status: 'EXPIRED' } }));
-    for (const row of rows) await this.audit(organizationId, row.branchId, 'membership.expired', row.id, { status: 'ACTIVE', endDate: row.endDate.toISOString() }, { status: 'EXPIRED' }, actorUserId);
-    return { expired: result.count };
+    if (!branchScope) {
+      const expired = await this.membershipsService.expireAllDue(organizationId);
+      return { expired };
+    }
+    const due = await this.prisma.membership.findMany({
+      where: { organizationId, branchId: branchScope, status: 'ACTIVE', endDate: { lt: new Date() } },
+      select: { id: true },
+    });
+    let expired = 0;
+    for (const row of due) {
+      const result = await this.membershipsService.expire(organizationId, row.id, actorUserId ?? null);
+      if (result) expired++;
+    }
+    return { expired };
   }
 
   async recordPaymentFailure(organizationId: string, id: string, dto: PaymentFailureDto, branchScope: string | null, actorUserId?: string) {
-    const row = await this.get(organizationId, id, branchScope);
+    const row = await this.prisma.membership.findFirst({ where: { id, organizationId, ...(branchScope ? { branchId: branchScope } : {}) } });
+    if (!row) throw new NotFoundException('Membership not found');
     const failure = { amount: dto.amount ?? null, reason: dto.reason ?? null, attemptedAt: dto.attemptedAt ?? new Date().toISOString() };
     await this.audit(organizationId, row.branchId, 'membership.payment_failed', id, null, failure, actorUserId);
     this.events.emit('membership.payment_failed', { organizationId, membershipId: id, memberId: row.memberId, ...failure });
@@ -128,6 +137,7 @@ export class MembershipLifecycleService {
     return this.prisma.membership.findMany({ where: { organizationId, status: 'ACTIVE', endDate: { gt: now, lte: cutoff }, ...(branchScope ? { branchId: branchScope } : {}) }, orderBy: { endDate: 'asc' }, include: { membershipPlan: true, member: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } } } });
   }
 
+  /** Flat summary consumed by the shipped MembershipLifecyclePage. */
   async analytics(organizationId: string, branchScope: string | null) {
     const where = { organizationId, ...(branchScope ? { branchId: branchScope } : {}) };
     const [counts, financial, expiring, nonCompletedPayments] = await Promise.all([

@@ -11,11 +11,13 @@ export const QUEUE_NAMES = {
 export const JOB_NAMES = {
   SEND_WELCOME_EMAIL: 'send-welcome-email',
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals',
+  SCAN_MEMBERSHIP_EXPIRY: 'scan-membership-expiry',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due',
   SEND_LOW_STOCK_ALERT: 'send-low-stock-alert',
   SCAN_DATA_RETENTION: 'scan-data-retention',
+  SCAN_APPOINTMENT_REMINDERS: 'scan-appointment-reminders',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -25,8 +27,10 @@ export const JOB_NAMES = {
  * today, but kept separate since that won't always be true. */
 export const JOB_SCHEDULER_IDS = {
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals-daily',
+  SCAN_MEMBERSHIP_EXPIRY: 'scan-membership-expiry-daily',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue-daily',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive-daily',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due-daily',
   SCAN_DATA_RETENTION: 'scan-data-retention-daily',
+  SCAN_APPOINTMENT_REMINDERS: 'scan-appointment-reminders-daily',
 } as const;

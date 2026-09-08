@@ -6,6 +6,7 @@ export const DomainEvent = {
   MemberCreated: 'member.created',
   MembershipStarted: 'membership.started',
   MembershipCancelled: 'membership.cancelled',
+  MembershipExpired: 'membership.expired',
   AttendanceRecorded: 'attendance.recorded',
   PaymentRecorded: 'payment.recorded',
   PaymentRefunded: 'payment.refunded',
@@ -40,6 +41,14 @@ export interface MembershipCancelledEvent {
   organizationId: string;
   membershipId: string;
   memberId: string;
+}
+
+export interface MembershipExpiredEvent {
+  organizationId: string;
+  membershipId: string;
+  memberId: string;
+  membershipPlanId: string;
+  endDate: string;
 }
 
 export interface AttendanceRecordedEvent {
