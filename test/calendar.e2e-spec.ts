@@ -14,8 +14,20 @@ describe('Calendar & Appointment OS (e2e)', () => {
   let prisma: PrismaService;
   let closeApp: () => Promise<void>;
 
+  /** Returns a supertest agent bound to the app with the auth header preset.
+   * Use like: authed(token).get('/branches') — the header applies to the
+   * request built by the verb call. */
   function authed(token: string) {
-    return request(app.getHttpServer()).set('Authorization', `Bearer ${token}`);
+    const server = app.getHttpServer();
+    const agent = request(server);
+    const wrap = (verb: string) => (path: string) =>
+      agent[verb](path).set('Authorization', `Bearer ${token}`);
+    return {
+      get: wrap('get'),
+      post: wrap('post'),
+      patch: wrap('patch'),
+      delete: wrap('delete'),
+    };
   }
 
   async function registerOrg(name: string): Promise<RegisteredAccount> {
