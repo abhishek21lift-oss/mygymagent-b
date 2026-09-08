@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEmail, IsOptional, IsString } from 'class-validator';
 
 export class CreateLeadDto {
   @IsString()
@@ -30,4 +30,9 @@ export class CreateLeadDto {
   @IsOptional()
   @IsString()
   assignedToUserId?: string;
+
+  /// Optional trial booking timestamp (TRIAL stage walk-in).
+  @IsOptional()
+  @IsDateString()
+  trialScheduledFor?: string;
 }

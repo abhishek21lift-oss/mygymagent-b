@@ -6,15 +6,18 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Prisma } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
+import { CommunicationsService } from '../communications/communications.service';
 import { DomainEvent, type LeadConvertedEvent } from '../events/domain-events';
 import { MembersService } from '../members/members.service';
 import { PrismaService } from '../prisma/prisma.service';
-import type { ConvertLeadDto } from './dto/convert-lead.dto';
-import type { CreateFollowUpDto } from './dto/create-follow-up.dto';
-import type { CreateLeadDto } from './dto/create-lead.dto';
-import type { ListLeadsQueryDto } from './dto/list-leads-query.dto';
-import type { UpdateLeadDto } from './dto/update-lead.dto';
-import type { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
+import { ConvertLeadDto } from './dto/convert-lead.dto';
+import { CreateFollowUpDto } from './dto/create-follow-up.dto';
+import { CreateLeadDto } from './dto/create-lead.dto';
+import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
+import { SendLeadMessageDto } from './dto/send-lead-message.dto';
+import { UpdateLeadDto } from './dto/update-lead.dto';
+import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
+import { LeadScoringService, type LeadScore } from './lead-scoring.service';
 
 @Injectable()
 export class LeadsService {
@@ -22,6 +25,8 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly membersService: MembersService,
     private readonly events: EventEmitter2,
+    private readonly scoring: LeadScoringService,
+    private readonly communications: CommunicationsService,
   ) {}
 
   async list(
@@ -91,10 +96,14 @@ export class LeadsService {
       dto.branchId ?? branchScope ?? undefined,
       dto.assignedToUserId,
     );
+    const { trialScheduledFor, ...rest } = dto;
     return this.prisma.lead.create({
       data: {
         organizationId,
-        ...dto,
+        ...rest,
+        ...(trialScheduledFor
+          ? { trialScheduledFor: new Date(trialScheduledFor) }
+          : {}),
         branchId: dto.branchId ?? branchScope ?? undefined,
       },
     });
@@ -121,7 +130,19 @@ export class LeadsService {
       dto.branchId ?? existing.branchId ?? branchScope ?? undefined,
       dto.assignedToUserId,
     );
-    return this.prisma.lead.update({ where: { id }, data: dto });
+    const { trialScheduledFor, ...rest } = dto;
+    return this.prisma.lead.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(trialScheduledFor !== undefined
+          ? {
+              trialScheduledFor:
+                trialScheduledFor === null ? null : new Date(trialScheduledFor),
+            }
+          : {}),
+      },
+    });
   }
 
   async updateStatus(
@@ -136,9 +157,69 @@ export class LeadsService {
         'A won lead has already been converted; its status cannot be changed directly',
       );
     }
-    return this.prisma.lead.update({
-      where: { id },
-      data: { status: dto.status },
+    if (dto.status === 'LOST' && !dto.reason?.trim()) {
+      throw new BadRequestException(
+        'A reason is required when marking a lead lost',
+      );
+    }
+    const data: Prisma.LeadUpdateInput = { status: dto.status };
+    if (dto.status === 'LOST') {
+      data.lostReason = dto.reason!.trim();
+    } else {
+      // Leaving the lost state: clear the stale reason so reports stay clean.
+      data.lostReason = null;
+    }
+    return this.prisma.lead.update({ where: { id }, data });
+  }
+
+  /** Deterministic, explainable score for one lead (leads.read). */
+  async getScore(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ): Promise<LeadScore> {
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      include: { followUps: { select: { completedAt: true } } },
+    });
+    if (!lead) throw new NotFoundException('Lead not found');
+    return this.scoring.score(lead as never);
+  }
+
+  /**
+   * Sends an outreach EMAIL or WHATSAPP message to a lead. Leads are not
+   * members, so the member-consent gate does not apply; every send is
+   * persisted to MessageLog for auditability.
+   */
+  async sendMessage(
+    organizationId: string,
+    id: string,
+    dto: SendLeadMessageDto,
+    branchScope: string | null = null,
+  ) {
+    const lead = await this.getOne(organizationId, id, branchScope);
+    if (dto.channel === 'EMAIL' && !lead.email) {
+      throw new BadRequestException('This lead has no email on file');
+    }
+    if (dto.channel === 'WHATSAPP' && !lead.phone) {
+      throw new BadRequestException('This lead has no phone on file');
+    }
+    if (!dto.customBody?.trim()) {
+      throw new BadRequestException('A message body is required');
+    }
+    return this.communications.send({
+      organizationId,
+      channel: dto.channel,
+      // Manual one-off outreach to a prospect -- transactional messaging.
+      category: 'TRANSACTIONAL',
+      templateKey: 'lead_outreach',
+      recipient: dto.channel === 'EMAIL' ? lead.email! : lead.phone!,
+      customSubject: dto.subject ?? `A message from your gym`,
+      customBody: dto.customBody,
     });
   }
 

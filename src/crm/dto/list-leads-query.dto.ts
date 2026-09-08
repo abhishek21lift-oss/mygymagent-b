@@ -7,6 +7,7 @@ const STATUSES: LeadStatus[] = [
   'CONTACTED',
   'QUALIFIED',
   'TRIAL',
+  'PROPOSAL',
   'WON',
   'LOST',
 ];

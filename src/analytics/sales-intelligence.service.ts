@@ -23,6 +23,21 @@ export interface SalesSourcePerformance {
   conversionRatePct: string;
 }
 
+export interface SalesLostReason {
+  reason: string;
+  lostLeads: number;
+}
+
+export interface SalesAssigneePerformance {
+  assigneeId: string | null;
+  assigneeName: string;
+  totalLeads: number;
+  wonLeads: number;
+  lostLeads: number;
+  openLeads: number;
+  conversionRatePct: string;
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -155,6 +170,106 @@ export class SalesIntelligenceService {
     return [...grouped.entries()]
       .map(([source, value]) => ({
         source,
+        ...value,
+        conversionRatePct:
+          value.totalLeads > 0
+            ? ((value.wonLeads / value.totalLeads) * 100).toFixed(2)
+            : '0.00',
+      }))
+      .sort((a, b) => b.totalLeads - a.totalLeads || b.wonLeads - a.wonLeads);
+  }
+
+  /** Why deals die: real lostReason values from LOST leads. */
+  async getLostReasons(
+    organizationId: string,
+    branchScope: string | null,
+    query: { from?: string; to?: string },
+  ): Promise<SalesLostReason[]> {
+    const dateFilter =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to ? { lte: new Date(query.to) } : {}),
+          }
+        : undefined;
+    const rows = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        status: 'LOST',
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { updatedAt: dateFilter } : {}),
+      },
+      select: { lostReason: true },
+    });
+    const grouped = new Map<string, number>();
+    for (const row of rows) {
+      const reason = row.lostReason?.trim() || 'Unspecified';
+      grouped.set(reason, (grouped.get(reason) ?? 0) + 1);
+    }
+    return [...grouped.entries()]
+      .map(([reason, lostLeads]) => ({ reason, lostLeads }))
+      .sort((a, b) => b.lostLeads - a.lostLeads);
+  }
+
+  /** Per-rep pipeline performance from real Lead rows. */
+  async getAssigneePerformance(
+    organizationId: string,
+    branchScope: string | null,
+    query: { from?: string; to?: string },
+  ): Promise<SalesAssigneePerformance[]> {
+    const dateFilter =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to ? { lte: new Date(query.to) } : {}),
+          }
+        : undefined;
+    const rows = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: {
+        status: true,
+        assignedToUserId: true,
+        assignedToUser: {
+          select: { firstName: true, lastName: true },
+        },
+      },
+    });
+    const grouped = new Map<
+      string,
+      {
+        assigneeId: string | null;
+        assigneeName: string;
+        totalLeads: number;
+        wonLeads: number;
+        lostLeads: number;
+        openLeads: number;
+      }
+    >();
+    for (const row of rows) {
+      const key = row.assignedToUserId ?? 'unassigned';
+      const name = row.assignedToUser
+        ? `${row.assignedToUser.firstName} ${row.assignedToUser.lastName}`.trim()
+        : 'Unassigned';
+      const current = grouped.get(key) ?? {
+        assigneeId: row.assignedToUserId,
+        assigneeName: name,
+        totalLeads: 0,
+        wonLeads: 0,
+        lostLeads: 0,
+        openLeads: 0,
+      };
+      current.totalLeads += 1;
+      if (row.status === 'WON') current.wonLeads += 1;
+      else if (row.status === 'LOST') current.lostLeads += 1;
+      else current.openLeads += 1;
+      grouped.set(key, current);
+    }
+    return [...grouped.values()]
+      .map((value) => ({
         ...value,
         conversionRatePct:
           value.totalLeads > 0
