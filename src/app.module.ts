@@ -35,6 +35,7 @@ import { AiActionsModule } from './ai-actions/ai-actions.module';
 import { NutritionModule } from './nutrition/nutrition.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PtSessionsModule } from './pt-sessions/pt-sessions.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
@@ -93,6 +94,7 @@ import { BriefingModule } from './briefing/briefing.module';
     NutritionModule,
     InventoryModule,
     PtSessionsModule,
+    AppointmentsModule,
     PtPackagesModule,
     NotificationsModule,
     SearchModule,

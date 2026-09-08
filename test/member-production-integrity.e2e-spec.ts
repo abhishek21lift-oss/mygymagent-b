@@ -81,10 +81,12 @@ describe('Member OS production integrity (e2e)', () => {
       request(app.getHttpServer()).get(`/members/${memberA}/status-history`),
     ).expect(200);
 
-    expect(history.body.data.some(
-      (entry: { fromStatus: string; toStatus: string }) =>
-        entry.fromStatus === 'ACTIVE' && entry.toStatus === 'INACTIVE',
-    )).toBe(true);
+    expect(
+      history.body.data.some(
+        (entry: { fromStatus: string; toStatus: string }) =>
+          entry.fromStatus === 'ACTIVE' && entry.toStatus === 'INACTIVE',
+      ),
+    ).toBe(true);
   });
 
   it('bulk tag assignment rejects a foreign-tenant tag without changing assignments', async () => {
@@ -103,14 +105,22 @@ describe('Member OS production integrity (e2e)', () => {
     const before = await authed(orgA.accessToken)(
       request(app.getHttpServer()).get(`/members/${memberA}/tags`),
     ).expect(200);
-    expect(before.body.data.some((assignment: { tagId: string }) => assignment.tagId === tagA)).toBe(true);
+    expect(
+      before.body.data.some(
+        (assignment: { tagId: string }) => assignment.tagId === tagA,
+      ),
+    ).toBe(true);
 
     await authed(orgB.accessToken)(
-      request(app.getHttpServer()).post('/members/tags').send({ name: 'Foreign' }),
+      request(app.getHttpServer())
+        .post('/members/tags')
+        .send({ name: 'Foreign' }),
     ).expect(201);
-    const foreignTag = (await authed(orgB.accessToken)(
-      request(app.getHttpServer()).get('/members/tags'),
-    ).expect(200)).body.data.find((tag: { name: string }) => tag.name === 'Foreign');
+    const foreignTag = (
+      await authed(orgB.accessToken)(
+        request(app.getHttpServer()).get('/members/tags'),
+      ).expect(200)
+    ).body.data.find((tag: { name: string }) => tag.name === 'Foreign');
 
     await authed(orgA.accessToken)(
       request(app.getHttpServer())
@@ -121,7 +131,11 @@ describe('Member OS production integrity (e2e)', () => {
     const after = await authed(orgA.accessToken)(
       request(app.getHttpServer()).get(`/members/${memberA}/tags`),
     ).expect(200);
-    expect(after.body.data.some((assignment: { tagId: string }) => assignment.tagId === tagA)).toBe(true);
+    expect(
+      after.body.data.some(
+        (assignment: { tagId: string }) => assignment.tagId === tagA,
+      ),
+    ).toBe(true);
   });
 
   it('bulk operations never mutate a foreign-tenant member', async () => {
@@ -139,9 +153,10 @@ describe('Member OS production integrity (e2e)', () => {
 
   it('follow-up assignment rejects a user from another tenant', async () => {
     await authed(orgA.accessToken)(
-      request(app.getHttpServer())
-        .post(`/members/${memberA}/follow-ups`)
-        .send({ title: 'Cross tenant assignment', assignedToUserId: orgB.userId }),
+      request(app.getHttpServer()).post(`/members/${memberA}/follow-ups`).send({
+        title: 'Cross tenant assignment',
+        assignedToUserId: orgB.userId,
+      }),
     ).expect(400);
   });
 });

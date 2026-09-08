@@ -57,7 +57,9 @@ export class DietAssignmentsService {
           ? {
               member: {
                 ...(branchScope ? { primaryBranchId: branchScope } : {}),
-                ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+                ...(assignmentScope
+                  ? { assignedTrainerId: assignmentScope }
+                  : {}),
               },
             }
           : {}),

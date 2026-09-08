@@ -108,44 +108,52 @@ describe('PT sessions (e2e)', () => {
 
   it('books a session and rejects overlapping ones for the same member', async () => {
     const booked = await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId,
-        branchId,
-        startTime: todayAt(10),
-        endTime: todayAt(11),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId,
+          branchId,
+          startTime: todayAt(10),
+          endTime: todayAt(11),
+        }),
     ).expect(201);
     expect(booked.body.data.status).toBe('SCHEDULED');
 
     await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId,
-        branchId,
-        startTime: todayAt(10),
-        endTime: todayAt(11),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId,
+          branchId,
+          startTime: todayAt(10),
+          endTime: todayAt(11),
+        }),
     ).expect(400);
   });
 
   it('rejects booking for a member from another org', async () => {
     await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId: '00000000-0000-0000-0000-000000000000',
-        branchId,
-        startTime: todayAt(14),
-        endTime: todayAt(15),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId: '00000000-0000-0000-0000-000000000000',
+          branchId,
+          startTime: todayAt(14),
+          endTime: todayAt(15),
+        }),
     ).expect(400);
   });
 
   it('rejects invalid transitions from terminal states', async () => {
     const booked = await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId,
-        branchId,
-        startTime: todayAt(12),
-        endTime: todayAt(13),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId,
+          branchId,
+          startTime: todayAt(12),
+          endTime: todayAt(13),
+        }),
     ).expect(201);
     const id = booked.body.data.id;
 
@@ -175,12 +183,14 @@ describe('PT sessions (e2e)', () => {
 
   it('rejects transitioning a cancelled session to completed', async () => {
     const booked = await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId,
-        branchId,
-        startTime: todayAt(16),
-        endTime: todayAt(17),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId,
+          branchId,
+          startTime: todayAt(16),
+          endTime: todayAt(17),
+        }),
     ).expect(201);
     const id = booked.body.data.id;
 
@@ -196,20 +206,24 @@ describe('PT sessions (e2e)', () => {
   it('assignment-scopes trainer reads to their own members', async () => {
     // Owner books for both members; the trainer only sees the assigned one.
     const assigned = await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId,
-        branchId,
-        startTime: todayAt(18),
-        endTime: todayAt(19),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId,
+          branchId,
+          startTime: todayAt(18),
+          endTime: todayAt(19),
+        }),
     ).expect(201);
     await asOwner(
-      request(app.getHttpServer()).post('/pt-sessions').send({
-        memberId: unassignedMemberId,
-        branchId,
-        startTime: todayAt(18),
-        endTime: todayAt(19),
-      }),
+      request(app.getHttpServer())
+        .post('/pt-sessions')
+        .send({
+          memberId: unassignedMemberId,
+          branchId,
+          startTime: todayAt(18),
+          endTime: todayAt(19),
+        }),
     ).expect(201);
 
     const list = await asTrainer(
@@ -230,9 +244,7 @@ describe('PT sessions (e2e)', () => {
       (s: { memberId: string }) => s.memberId === unassignedMemberId,
     );
     await asTrainer(
-      request(app.getHttpServer()).get(
-        `/pt-sessions/${unassignedSession.id}`,
-      ),
+      request(app.getHttpServer()).get(`/pt-sessions/${unassignedSession.id}`),
     ).expect(404);
     await asTrainer(
       request(app.getHttpServer()).get(`/pt-sessions/${assigned.body.data.id}`),

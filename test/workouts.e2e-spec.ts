@@ -210,21 +210,17 @@ describe('Workouts (e2e)', () => {
 
   it('returns 404 from exercise-history for another org member or exercise', async () => {
     await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .get('/workouts/exercise-history')
-        .query({
-          memberId: '00000000-0000-0000-0000-000000000000',
-          exerciseId,
-        }),
+      request(app.getHttpServer()).get('/workouts/exercise-history').query({
+        memberId: '00000000-0000-0000-0000-000000000000',
+        exerciseId,
+      }),
     ).expect(404);
 
     await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .get('/workouts/exercise-history')
-        .query({
-          memberId,
-          exerciseId: '00000000-0000-0000-0000-000000000000',
-        }),
+      request(app.getHttpServer()).get('/workouts/exercise-history').query({
+        memberId,
+        exerciseId: '00000000-0000-0000-0000-000000000000',
+      }),
     ).expect(404);
   });
 });

@@ -81,7 +81,9 @@ export class WorkoutAssignmentsService {
         ...(assignmentScope || branchScope
           ? {
               member: {
-                ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+                ...(assignmentScope
+                  ? { assignedTrainerId: assignmentScope }
+                  : {}),
                 ...(branchScope ? { primaryBranchId: branchScope } : {}),
               },
             }
