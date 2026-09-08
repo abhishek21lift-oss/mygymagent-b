@@ -42,9 +42,10 @@ export class TransferMembershipDto {
 }
 
 export class PauseMembershipDto {
+  @IsOptional()
   @IsNumber()
   @IsPositive()
-  days!: number;
+  days?: number;
 
   @IsOptional()
   @IsString()
