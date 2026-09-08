@@ -201,10 +201,15 @@ describe('Membership lifecycle (e2e)', () => {
 
   describe('freeze and resume', () => {
     it('freezes within quota and resumes with endDate credit', async () => {
+      const freezePlanId = await createPlan('Freeze Monthly', 30, 100);
+      await prisma.membershipPlan.update({
+        where: { id: freezePlanId },
+        data: { maxFreezeDays: 10 },
+      });
       const created = await asOwner(
         request(app.getHttpServer()).post('/memberships').send({
           memberId,
-          membershipPlanId: planId,
+          membershipPlanId: freezePlanId,
         }),
       ).expect(201);
       const id = created.body.data.id;
@@ -216,12 +221,15 @@ describe('Membership lifecycle (e2e)', () => {
         }),
       ).expect(201);
 
-      // Simulate 2 days passing, then resume: 2 days credited back.
+      // Simulate 2 days passing (with a 2h buffer so the ceil() math is
+      // deterministic), then resume: 2 days credited back.
+      const DAY = 24 * 60 * 60 * 1000;
+      const HOUR = 60 * 60 * 1000;
       await prisma.membership.update({
         where: { id },
         data: {
-          freezeStartDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-          freezeEndDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+          freezeStartDate: new Date(Date.now() - 2 * DAY + 2 * HOUR),
+          freezeEndDate: new Date(Date.now() + 3 * DAY),
         },
       });
 
@@ -275,11 +283,13 @@ describe('Membership lifecycle (e2e)', () => {
       ).expect(201);
       expect(paused.body.data.status).toBe('PAUSED');
 
-      // Simulate 3 paused days.
+      // Simulate 3 paused days (2h buffer for deterministic ceil math).
+      const DAY = 24 * 60 * 60 * 1000;
+      const HOUR = 60 * 60 * 1000;
       await prisma.membership.update({
         where: { id },
         data: {
-          freezeStartDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+          freezeStartDate: new Date(Date.now() - 3 * DAY + 2 * HOUR),
         },
       });
 
@@ -324,7 +334,6 @@ describe('Membership lifecycle (e2e)', () => {
       const extended = await asOwner(
         request(app.getHttpServer()).post(`/memberships/${id}/extend`).send({
           days: 15,
-          reason: 'Goodwill',
         }),
       ).expect(201);
       expect(daysBetween(before, new Date(extended.body.data.endDate))).toBe(
@@ -373,8 +382,7 @@ describe('Membership lifecycle (e2e)', () => {
         request(app.getHttpServer())
           .post(`/memberships/${id}/change-plan`)
           .send({
-            newMembershipPlanId: premiumPlanId,
-            direction: 'UPGRADE',
+            membershipPlanId: premiumPlanId,
             initialPayment: 10,
             paymentMethod: 'CARD',
           }),
@@ -413,8 +421,7 @@ describe('Membership lifecycle (e2e)', () => {
         request(app.getHttpServer())
           .post(`/memberships/${id}/change-plan`)
           .send({
-            newMembershipPlanId: basicPlanId,
-            direction: 'DOWNGRADE',
+            membershipPlanId: basicPlanId,
           }),
       ).expect(201);
       expect(Number(downgraded.body.data.amountDue)).toBe(0);
@@ -434,8 +441,7 @@ describe('Membership lifecycle (e2e)', () => {
         request(app.getHttpServer())
           .post(`/memberships/${id}/change-plan`)
           .send({
-            newMembershipPlanId: premiumPlanId,
-            direction: 'UPGRADE',
+            membershipPlanId: premiumPlanId,
           }),
       ).expect(400);
 
@@ -443,8 +449,7 @@ describe('Membership lifecycle (e2e)', () => {
         request(app.getHttpServer())
           .post(`/memberships/${id}/change-plan`)
           .send({
-            newMembershipPlanId: basicPlanId,
-            direction: 'DOWNGRADE',
+            membershipPlanId: basicPlanId,
             initialPayment: 5000,
           }),
       ).expect(400);
@@ -556,7 +561,7 @@ describe('Membership lifecycle (e2e)', () => {
 
       const transferred = await asOwner(
         request(app.getHttpServer()).post(`/memberships/${id}/transfer`).send({
-          toMemberId: otherMemberId,
+          memberId: otherMemberId,
           reason: 'Family',
         }),
       ).expect(201);
@@ -590,7 +595,7 @@ describe('Membership lifecycle (e2e)', () => {
 
       await asOwner(
         request(app.getHttpServer()).post(`/memberships/${id}/transfer`).send({
-          toMemberId: memberId,
+          memberId: memberId,
         }),
       ).expect(400);
     });
@@ -715,7 +720,7 @@ describe('Membership lifecycle (e2e)', () => {
 
       await asOther(
         request(app.getHttpServer()).post(`/memberships/${id}/transfer`).send({
-          toMemberId: memberId,
+          memberId,
         }),
       ).expect(404);
     });
@@ -731,11 +736,11 @@ describe('Membership lifecycle (e2e)', () => {
 
       // otherMemberId belongs to owner's org, so this is a valid same-org
       // transfer; the cross-org case is covered by the 404 member lookup
-      // when toMemberId is a foreign member id (uuid) not in this org.
+      // when the target is a foreign member id (uuid) not in this org.
       const foreignMemberId = '00000000-0000-0000-0000-000000000000';
       await asOwner(
         request(app.getHttpServer()).post(`/memberships/${id}/transfer`).send({
-          toMemberId: foreignMemberId,
+          memberId: foreignMemberId,
         }),
       ).expect(404);
     });

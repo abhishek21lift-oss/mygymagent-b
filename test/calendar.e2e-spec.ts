@@ -1,5 +1,5 @@
-import { INestApplication } from '@nestjs/testing';
-import * as request from 'supertest';
+import type { INestApplication } from '@nestjs/common';
+import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, RegisteredAccount } from './utils/test-app';
 
@@ -313,8 +313,8 @@ describe('Calendar & Appointment OS (e2e)', () => {
         staffId: trainer.staffProfileId,
         type: 'TRIAL',
         title: 'Blocked trial',
-        startTime: iso(new Date(nextMonday.getTime() + 48 * 3600 * 1000)),
-        endTime: iso(new Date(nextMonday.getTime() + 49 * 3600 * 1000)),
+        startTime: iso(new Date(nextMonday.getTime() + 4 * 3600 * 1000)),
+        endTime: iso(new Date(nextMonday.getTime() + 5 * 3600 * 1000)),
       })
       .expect(400);
     expect(blocked.body.message).toMatch(/time off/i);

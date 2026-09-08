@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
+import { createTestApp } from './utils/test-app';
 
 describe('CRM pipeline (e2e)', () => {
   let app: INestApplication;
@@ -15,10 +16,9 @@ describe('CRM pipeline (e2e)', () => {
     req.set('Authorization', `Bearer ${otherToken}`);
 
   beforeAll(async () => {
-    const { createTestApp } = await import('./utils/test-app');
-    const { app: testApp, prisma: client } = await createTestApp();
+    const { app: testApp } = await createTestApp();
     app = testApp;
-    prisma = client;
+    prisma = new PrismaClient();
 
     const suffix = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const register = await request(app.getHttpServer())
@@ -53,6 +53,7 @@ describe('CRM pipeline (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+    await prisma.$disconnect();
   });
 
   let leadId: string;
