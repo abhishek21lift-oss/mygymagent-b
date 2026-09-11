@@ -41,75 +41,22 @@ import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    EventEmitterModule.forRoot(),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60_000,
-        limit: 120, // Default limit for general endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 20, // Strict limit for auth endpoints (already set in controllers)
-      },
-      {
-        ttl: 60_000,
-        limit: 30, // Limit for analytics endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 40, // Limit for member endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 50, // Limit for billing endpoints
-      },
-    ]),
-    PrismaModule,
-    QueueModule,
-    FilesModule,
-    AuditModule,
-    RbacModule,
-    AuthModule,
-    HealthModule,
-    OrganizationsModule,
-    BranchesModule,
-    UsersModule,
-    MembersModule,
-    MembershipsModule,
-    MembershipPlansModule,
-    AttendanceModule,
-    PlatformModule,
-    BillingModule,
-    WorkoutsModule,
-    WorkoutSessionsModule,
-    CrmModule,
-    AiModule,
-    AiActionsModule,
-    NutritionModule,
-    InventoryModule,
-    PtSessionsModule,
-    PtPackagesModule,
-    NotificationsModule,
-    SearchModule,
-    AnalyticsModule,
-    AutomationModule,
-    BriefingModule,
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }), EventEmitterModule.forRoot(),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }, { ttl: 60_000, limit: 20 }, { ttl: 60_000, limit: 30 }, { ttl: 60_000, limit: 40 }, { ttl: 60_000, limit: 50 }]),
+    PrismaModule, QueueModule, FilesModule, AuditModule, RbacModule, AuthModule, HealthModule,
+    OrganizationsModule, BranchesModule, UsersModule, MembersModule, MembershipsModule, MembershipPlansModule,
+    AttendanceModule, PlatformModule, BillingModule, WorkoutsModule, WorkoutSessionsModule, CrmModule, AiModule,
+    AiActionsModule, NutritionModule, InventoryModule, PtSessionsModule, PtPackagesModule, NotificationsModule,
+    SearchModule, AnalyticsModule, AutomationModule, BriefingModule, AppointmentsModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: TestableThrottlerGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: PermissionsGuard },
-    { provide: APP_GUARD, useClass: PlatformRoleGuard },
-    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
-    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    { provide: APP_GUARD, useClass: TestableThrottlerGuard }, { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard }, { provide: APP_GUARD, useClass: PlatformRoleGuard },
+    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor }, { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
-export class AppModule implements NestModule {
-  configure(reader: MiddlewareConsumer) {
-    reader.apply(RequestIdMiddleware).forRoutes('*');
-  }
-}
+export class AppModule implements NestModule { configure(reader: MiddlewareConsumer) { reader.apply(RequestIdMiddleware).forRoutes('*'); } }
