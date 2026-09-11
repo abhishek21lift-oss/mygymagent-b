@@ -41,32 +41,18 @@ import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot([
-      {
-        ttl: 60_000,
-        limit: 120, // Default limit for general endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 20, // Strict limit for auth endpoints (already set in controllers)
-      },
-      {
-        ttl: 60_000,
-        limit: 30, // Limit for analytics endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 40, // Limit for member endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 50, // Limit for billing endpoints
-      },
+      { ttl: 60_000, limit: 120 },
+      { ttl: 60_000, limit: 20 },
+      { ttl: 60_000, limit: 30 },
+      { ttl: 60_000, limit: 40 },
+      { ttl: 60_000, limit: 50 },
     ]),
     PrismaModule,
     QueueModule,
@@ -98,6 +84,7 @@ import { BriefingModule } from './briefing/briefing.module';
     AnalyticsModule,
     AutomationModule,
     BriefingModule,
+    AppointmentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
