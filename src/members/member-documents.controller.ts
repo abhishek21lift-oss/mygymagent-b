@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -20,6 +21,10 @@ import {
 } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDocumentDto } from './dto/member-document.dto';
+import {
+  ReviewMemberDocumentDto,
+  UploadDocumentVersionDto,
+} from './dto/member-document-review.dto';
 import {
   MAX_DOCUMENT_SIZE_BYTES,
   MemberDocumentsService,
@@ -94,6 +99,72 @@ export class MemberDocumentsController {
       user.organizationId!,
       memberId,
       documentId,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Post(':documentId/submit')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'submit' })
+  submit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.submit(
+      user.organizationId!,
+      memberId,
+      documentId,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Patch(':documentId/review')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'review' })
+  review(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: ReviewMemberDocumentDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.documents.review(
+      user.organizationId!,
+      memberId,
+      documentId,
+      dto,
+      user.id,
+      branchScope,
+    );
+  }
+
+  @Post(':documentId/versions')
+  @RequirePermissions('members.update')
+  @Audited({ resource: 'member_document', action: 'upload_version' })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }),
+  )
+  uploadVersion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: UploadDocumentVersionDto,
+    @UploadedFile() file: UploadedFileInput,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.documents.uploadVersion(
+      user.organizationId!,
+      memberId,
+      documentId,
+      user.id,
+      file,
+      dto.changeNotes,
       branchScope,
       assignmentScope,
     );

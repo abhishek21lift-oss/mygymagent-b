@@ -20,6 +20,29 @@ export interface SalesFunnel {
   };
 }
 
+export interface SalesSourcePerformance {
+  source: string;
+  totalLeads: number;
+  wonLeads: number;
+  lostLeads: number;
+  conversionRatePct: string;
+}
+
+export interface SalesLostReason {
+  reason: string;
+  lostLeads: number;
+}
+
+export interface SalesAssigneePerformance {
+  assigneeId: string | null;
+  assigneeName: string;
+  totalLeads: number;
+  wonLeads: number;
+  lostLeads: number;
+  openLeads: number;
+  conversionRatePct: string;
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -115,5 +138,174 @@ export class SalesIntelligenceService {
             : '0.00',
       },
     };
+  }
+
+  /**
+   * Per-source lead performance (walk-in vs referral vs Instagram ...).
+   * Null/blank sources collapse to "Unknown" so the chart never shows a
+   * blank slice -- the underlying Lead.source stays untouched.
+   */
+  async getSourcePerformance(
+    organizationId: string,
+    branchScope: string | null,
+    query: { from?: string; to?: string },
+  ): Promise<SalesSourcePerformance[]> {
+    const dateFilter =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to ? { lte: new Date(query.to) } : {}),
+          }
+        : undefined;
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: { source: true, status: true },
+    });
+
+    const bySource = new Map<
+      string,
+      { total: number; won: number; lost: number }
+    >();
+    for (const lead of leads) {
+      const source = lead.source?.trim() ? lead.source.trim() : 'Unknown';
+      const entry = bySource.get(source) ?? { total: 0, won: 0, lost: 0 };
+      entry.total += 1;
+      if (lead.status === 'WON') entry.won += 1;
+      if (lead.status === 'LOST') entry.lost += 1;
+      bySource.set(source, entry);
+    }
+
+    return [...bySource.entries()]
+      .map(([source, entry]) => ({
+        source,
+        totalLeads: entry.total,
+        wonLeads: entry.won,
+        lostLeads: entry.lost,
+        conversionRatePct:
+          entry.total > 0
+            ? ((entry.won / entry.total) * 100).toFixed(2)
+            : '0.00',
+      }))
+      .sort((a, b) => b.totalLeads - a.totalLeads);
+  }
+
+  /**
+   * Why LOST leads were lost, from Lead.lostReason (set by
+   * PATCH /leads/:id/status with a required reason). Leads lost before
+   * the lostReason column existed group under "Unspecified".
+   */
+  async getLostReasons(
+    organizationId: string,
+    branchScope: string | null,
+    query: { from?: string; to?: string },
+  ): Promise<SalesLostReason[]> {
+    const dateFilter =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to ? { lte: new Date(query.to) } : {}),
+          }
+        : undefined;
+
+    const lost = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        status: 'LOST',
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: { lostReason: true },
+    });
+
+    const byReason = new Map<string, number>();
+    for (const lead of lost) {
+      const reason = lead.lostReason?.trim()
+        ? lead.lostReason.trim()
+        : 'Unspecified';
+      byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+    }
+
+    return [...byReason.entries()]
+      .map(([reason, lostLeads]) => ({ reason, lostLeads }))
+      .sort((a, b) => b.lostLeads - a.lostLeads);
+  }
+
+  /**
+   * Per-salesperson pipeline performance. Unassigned leads group under a
+   * null assigneeId / "Unassigned" row so no lead is silently dropped
+   * from the report.
+   */
+  async getAssigneePerformance(
+    organizationId: string,
+    branchScope: string | null,
+    query: { from?: string; to?: string },
+  ): Promise<SalesAssigneePerformance[]> {
+    const dateFilter =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to ? { lte: new Date(query.to) } : {}),
+          }
+        : undefined;
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+      select: {
+        status: true,
+        assignedToUserId: true,
+        assignedToUser: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    const byAssignee = new Map<
+      string,
+      {
+        assigneeId: string | null;
+        assigneeName: string;
+        total: number;
+        won: number;
+        lost: number;
+      }
+    >();
+    for (const lead of leads) {
+      const key = lead.assignedToUserId ?? '__unassigned__';
+      const entry = byAssignee.get(key) ?? {
+        assigneeId: lead.assignedToUserId,
+        assigneeName: lead.assignedToUser
+          ? `${lead.assignedToUser.firstName} ${lead.assignedToUser.lastName}`
+          : 'Unassigned',
+        total: 0,
+        won: 0,
+        lost: 0,
+      };
+      entry.total += 1;
+      if (lead.status === 'WON') entry.won += 1;
+      if (lead.status === 'LOST') entry.lost += 1;
+      byAssignee.set(key, entry);
+    }
+
+    return [...byAssignee.values()]
+      .map((entry) => ({
+        assigneeId: entry.assigneeId,
+        assigneeName: entry.assigneeName,
+        totalLeads: entry.total,
+        wonLeads: entry.won,
+        lostLeads: entry.lost,
+        openLeads: entry.total - entry.won - entry.lost,
+        conversionRatePct:
+          entry.total > 0
+            ? ((entry.won / entry.total) * 100).toFixed(2)
+            : '0.00',
+      }))
+      .sort((a, b) => b.totalLeads - a.totalLeads);
   }
 }

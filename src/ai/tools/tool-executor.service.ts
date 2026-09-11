@@ -7,8 +7,12 @@ import { AiActionsService } from '../../ai-actions/ai-actions.service';
 import { AssignPlanPayloadDto } from '../../ai-actions/dto/assign-plan-payload.dto';
 import { FinanceService } from '../../analytics/finance.service';
 import { DailyBriefingService } from '../../briefing/daily-briefing.service';
+import { OwnerOsService } from '../../briefing/owner-os.service';
+import { AppointmentsService } from '../../appointments/appointments.service';
+import { ExpensesService } from '../../expenses/expenses.service';
 import { InventoryIntelligenceService } from '../../analytics/inventory-intelligence.service';
 import { MemberIntelligenceService } from '../../analytics/member-intelligence.service';
+import { MembershipLifecycleService } from '../../analytics/membership-lifecycle.service';
 import { SalesIntelligenceService } from '../../analytics/sales-intelligence.service';
 import { TrainerIntelligenceService } from '../../analytics/trainer-intelligence.service';
 import { AttendanceService } from '../../attendance/attendance.service';
@@ -19,10 +23,15 @@ import { DietPlansService } from '../../nutrition/diet-plans.service';
 import { PermissionsService } from '../../rbac/permissions.service';
 import { CreateWorkoutPlanDto } from '../../workouts/dto/create-workout-plan.dto';
 import { MembersService } from '../../members/members.service';
+import { MemberFollowUpsService } from '../../members/member-follow-ups.service';
 import { WorkoutAssignmentsService } from '../../workouts/workout-assignments.service';
 import { WorkoutPlansService } from '../../workouts/workout-plans.service';
 import { CreateFollowupArgsDto } from './dto/create-followup-args.dto';
 import { EmptyArgsDto } from './dto/empty-args.dto';
+import {
+  CreateMemberFollowupArgsDto,
+  LeadIdArgsDto,
+} from './dto/member-followup-args.dto';
 import { MemberIdArgsDto } from './dto/member-id-args.dto';
 import type { AiToolName } from './tool-definitions';
 import { validateToolArgs } from './validate-tool-args';
@@ -53,6 +62,11 @@ export class ToolExecutorService {
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly aiActionsService: AiActionsService,
     private readonly dailyBriefingService: DailyBriefingService,
+    private readonly appointmentsService: AppointmentsService,
+    private readonly expensesService: ExpensesService,
+    private readonly membershipLifecycle: MembershipLifecycleService,
+    private readonly ownerOsService: OwnerOsService,
+    private readonly memberFollowUpsService: MemberFollowUpsService,
   ) {}
 
   private async resolveAccess(
@@ -118,6 +132,18 @@ export class ToolExecutorService {
         return this.proposeAssignWorkoutPlan(rawArgs, context);
       case 'propose_assign_diet_plan':
         return this.proposeAssignDietPlan(rawArgs, context);
+      case 'get_todays_schedule':
+        return this.getTodaysSchedule(rawArgs, context);
+      case 'get_expense_summary':
+        return this.getExpenseSummary(rawArgs, context);
+      case 'get_membership_lifecycle':
+        return this.getMembershipLifecycle(rawArgs, context);
+      case 'get_owner_briefing':
+        return this.getOwnerBriefing(rawArgs, context);
+      case 'create_member_followup':
+        return this.createMemberFollowup(rawArgs, context);
+      case 'get_lead_score':
+        return this.getLeadScore(rawArgs, context);
       default: {
         const _exhaustive: never = name;
         throw new NotFoundException(`Unknown tool: ${String(_exhaustive)}`);
@@ -409,5 +435,114 @@ export class ToolExecutorService {
       'ASSIGN_DIET_PLAN',
       payload,
     );
+  }
+
+  private async getTodaysSchedule(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope, matchedKey } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['appointments.read', 'appointments.read_assigned'],
+    );
+    const now = new Date();
+    const startOfToday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const endOfToday = new Date(startOfToday.getTime() + MS_PER_DAY);
+    return this.appointmentsService.calendarFeed(
+      organizationId,
+      {
+        from: startOfToday.toISOString(),
+        to: endOfToday.toISOString(),
+      },
+      branchScope,
+      matchedKey === 'appointments.read_assigned' ? userId : null,
+    );
+  }
+
+  private async getExpenseSummary(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.expensesService.getSummary(organizationId, {}, branchScope);
+  }
+
+  private async getMembershipLifecycle(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.membershipLifecycle.getLifecycle(organizationId, branchScope);
+  }
+
+  private async getOwnerBriefing(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    validateToolArgs(EmptyArgsDto, rawArgs);
+    await this.resolveAccess(userId, organizationId, requestedBranchId, [
+      'reports.view',
+    ]);
+    return this.ownerOsService.getBriefing(organizationId);
+  }
+
+  private async createMemberFollowup(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    const { memberId, title, description, dueAt, priority } = validateToolArgs(
+      CreateMemberFollowupArgsDto,
+      rawArgs,
+    );
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['members.update'],
+    );
+    const followUp = await this.memberFollowUpsService.create(
+      organizationId,
+      memberId,
+      { title, description, dueAt, priority },
+      userId,
+      branchScope,
+    );
+    await this.audit.record({
+      organizationId,
+      actorUserId: userId,
+      action: 'ai_tool.create_member_followup',
+      resource: 'member_follow_up',
+      resourceId: followUp.id,
+      afterState: { memberId, title },
+    });
+    return { id: followUp.id, title: followUp.title };
+  }
+
+  private async getLeadScore(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    const { leadId } = validateToolArgs(LeadIdArgsDto, rawArgs);
+    await this.resolveAccess(userId, organizationId, requestedBranchId, [
+      'leads.read',
+    ]);
+    return this.leadsService.getScore(organizationId, leadId);
   }
 }

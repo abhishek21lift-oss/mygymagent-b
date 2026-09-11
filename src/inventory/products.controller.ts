@@ -36,6 +36,18 @@ export class ProductsController {
     return this.productsService.list(user.organizationId!, query);
   }
 
+  /// Barcode/QR scan lookup by exact SKU (the inventory scanner posts
+  /// what the camera decoded). 404 with a clear message when unknown --
+  /// the scanner UI turns that into its "add this product" affordance.
+  @Get('scan/:code')
+  @RequirePermissions('inventory.read')
+  scanByCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('code') code: string,
+  ) {
+    return this.productsService.getBySku(user.organizationId!, code);
+  }
+
   @Get(':id')
   @RequirePermissions('inventory.read')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

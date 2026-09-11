@@ -253,6 +253,89 @@ export const AI_TOOL_DEFINITIONS = [
       },
     },
   },
+  // -- Full-OS coverage tools (appointments, expenses, membership
+  // lifecycle, owner briefing, member follow-ups, lead scoring) -- same
+  // honesty rules as the P2 tools: real rows, per-currency buckets,
+  // explicit notComputable where the schema cannot answer.
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_todays_schedule',
+      description:
+        "Get today's gym calendar: appointments (trials, consultations, assessments, follow-ups) merged with PT sessions in one timeline, soonest first. Cancelled appointments are excluded.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_expense_summary',
+      description:
+        'Get gym spend for an optional period: per-currency totals (approved and paid expenses only), per-category breakdown, and counts by approval status. Pending and rejected rows are not spend yet and are counted, not summed.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_membership_lifecycle',
+      description:
+        'Get membership lifecycle health: counts by status, active-plan distribution, renewal rate, freeze utilization, memberships expiring within 30 days, new vs renewed in the last 90 days, average closed tenure, and outstanding balances per currency.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_owner_briefing',
+      description:
+        'Get the executive owner briefing: headline member/membership/attendance/revenue/expiry/outstanding metrics in the organization currency, severity-ranked alerts, and advisory recommendations with links. Use this when asked "how is the business doing" rather than one specific number.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_member_followup',
+      description:
+        'Schedule a follow-up task against a gym member (call about renewal, share a diet chart). Executes immediately like create_followup -- it only creates a task, never moves money or changes programs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          memberId: { type: 'string', description: 'The member id' },
+          title: { type: 'string', description: 'Short task title' },
+          description: {
+            type: 'string',
+            description: 'Optional longer detail',
+          },
+          dueAt: {
+            type: 'string',
+            description: 'Optional ISO 8601 due date/time',
+          },
+          priority: {
+            type: 'string',
+            enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
+          },
+        },
+        required: ['memberId', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_lead_score',
+      description:
+        'Get a deterministic 0-100 lead score (HOT/WARM/COLD) with per-factor point explanations: recency, pipeline stage, follow-up discipline, contactability, and staleness.',
+      parameters: {
+        type: 'object',
+        properties: {
+          leadId: { type: 'string', description: 'The lead id' },
+        },
+        required: ['leadId'],
+      },
+    },
+  },
 ] as const;
 
 export type AiToolName =

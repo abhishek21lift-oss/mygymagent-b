@@ -17,6 +17,7 @@ import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { CreateFollowUpDto } from './dto/create-follow-up.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
+import { SendLeadMessageDto } from './dto/send-lead-message.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
 import { LeadsService } from './leads.service';
@@ -44,6 +45,29 @@ export class LeadsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.leadsService.getOne(user.organizationId!, id, branchScope);
+  }
+
+  @Get(':id/score')
+  @RequirePermissions('leads.read')
+  getScore(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.leadsService.getScore(user.organizationId!, id);
+  }
+
+  @Post(':id/message')
+  @RequirePermissions('leads.manage')
+  @Audited({ resource: 'lead_message', action: 'send' })
+  sendMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: SendLeadMessageDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.leadsService.sendMessage(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post()

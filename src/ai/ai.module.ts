@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { AiActionsModule } from '../ai-actions/ai-actions.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { AppointmentsModule } from '../appointments/appointments.module';
 import { AttendanceModule } from '../attendance/attendance.module';
 import { BriefingModule } from '../briefing/briefing.module';
 import { CrmModule } from '../crm/crm.module';
+import { ExpensesModule } from '../expenses/expenses.module';
 import { MembersModule } from '../members/members.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
 import { RbacModule } from '../rbac/rbac.module';
@@ -41,6 +43,8 @@ import { GlobalAiCommandService } from './global-ai-command.service';
     AnalyticsModule,
     AiActionsModule,
     BriefingModule,
+    AppointmentsModule,
+    ExpensesModule,
   ],
   controllers: [
     AiController,

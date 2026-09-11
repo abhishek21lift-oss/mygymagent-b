@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { CommunicationsModule } from '../communications/communications.module';
 import { MembersModule } from '../members/members.module';
+import { LeadFollowUpsController } from './lead-follow-ups.controller';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
 
@@ -10,8 +12,8 @@ import { LeadsService } from './leads.service';
  * README) are deferred -- see README.md.
  */
 @Module({
-  imports: [MembersModule],
-  controllers: [LeadsController],
+  imports: [MembersModule, CommunicationsModule],
+  controllers: [LeadsController, LeadFollowUpsController],
   providers: [LeadsService],
   exports: [LeadsService],
 })

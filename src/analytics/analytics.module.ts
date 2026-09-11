@@ -3,6 +3,7 @@ import { AnalyticsController } from './analytics.controller';
 import { FinanceService } from './finance.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
+import { MembershipLifecycleService } from './membership-lifecycle.service';
 import { SalesIntelligenceService } from './sales-intelligence.service';
 import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
@@ -19,6 +20,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
     SalesIntelligenceService,
     TrainerIntelligenceService,
     InventoryIntelligenceService,
+    MembershipLifecycleService,
   ],
   exports: [
     FinanceService,
@@ -26,6 +28,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
     SalesIntelligenceService,
     TrainerIntelligenceService,
     InventoryIntelligenceService,
+    MembershipLifecycleService,
   ],
 })
 export class AnalyticsModule {}

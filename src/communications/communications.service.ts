@@ -174,6 +174,117 @@ export class CommunicationsService {
     return this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
+  /**
+   * Staff-composed one-off message (the CRM / Member 360 "write a message"
+   * box), as opposed to send()'s template-keyed sends. Same pipeline --
+   * consent gating, delivery logging, provider dispatch -- except the
+   * subject/body come from the caller and are only variable-rendered,
+   * never template-resolved. Logged under templateKey 'ad_hoc' so the
+   * audit trail distinguishes composed mail from template mail.
+   *
+   * WHATSAPP/SMS/PUSH still throw via their UnimplementedChannelProvider
+   * until a real provider is wired (the failure is recorded in
+   * MessageLog, never silently swallowed) -- EMAIL sends for real today.
+   */
+  async sendAdHoc(input: {
+    organizationId: string;
+    channel: CommunicationChannel;
+    category: MessageCategory;
+    recipient: string;
+    memberId?: string;
+    subject?: string;
+    body: string;
+    variables?: Record<string, string>;
+  }) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: input.organizationId },
+      select: { name: true, emailFromName: true, emailReplyTo: true },
+    });
+    const variables = {
+      organizationName: organization?.name ?? '',
+      ...input.variables,
+    };
+
+    if (input.category === 'MARKETING' && input.memberId) {
+      const consent = await this.prisma.memberConsent.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          memberId: input.memberId,
+          type: 'MARKETING',
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!consent?.granted) {
+        return this.prisma.messageLog.create({
+          data: {
+            organizationId: input.organizationId,
+            channel: input.channel,
+            category: input.category,
+            templateKey: 'ad_hoc',
+            recipient: input.recipient,
+            memberId: input.memberId,
+            status: 'SKIPPED_NO_CONSENT',
+          },
+        });
+      }
+    }
+
+    const subject = input.subject
+      ? this.templates.render(input.subject, variables)
+      : undefined;
+    const body = this.templates.render(input.body, variables);
+
+    const log = await this.prisma.messageLog.create({
+      data: {
+        organizationId: input.organizationId,
+        channel: input.channel,
+        category: input.category,
+        templateKey: 'ad_hoc',
+        recipient: input.recipient,
+        memberId: input.memberId,
+        status: 'PENDING',
+      },
+    });
+
+    try {
+      if (input.channel === 'EMAIL') {
+        await this.emailProvider.send({
+          to: input.recipient,
+          subject: subject ?? '',
+          text: body,
+          fromName: organization?.emailFromName ?? undefined,
+          replyTo: organization?.emailReplyTo ?? undefined,
+        });
+      } else {
+        const provider = {
+          WHATSAPP: this.whatsappProvider,
+          SMS: this.smsProvider,
+          PUSH: this.pushProvider,
+        }[input.channel];
+        await provider.send({ to: input.recipient, text: body });
+      }
+      return this.prisma.messageLog.update({
+        where: { id: log.id },
+        data: {
+          status: 'SENT',
+          sentAt: new Date(),
+          attempts: { increment: 1 },
+        },
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to send ad-hoc ${input.channel} to ${input.recipient}: ${errorMessage}`,
+      );
+      await this.prisma.messageLog.update({
+        where: { id: log.id },
+        data: { status: 'FAILED', attempts: { increment: 1 }, errorMessage },
+      });
+      throw error;
+    }
+  }
+
   // -- Transactional convenience wrappers, replacing the old MailerService --
 
   sendWelcomeEmail(

@@ -10,6 +10,7 @@ import { GetSalesFunnelQueryDto } from './dto/get-sales-funnel-query.dto';
 import { FinanceService } from './finance.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
+import { MembershipLifecycleService } from './membership-lifecycle.service';
 import { SalesIntelligenceService } from './sales-intelligence.service';
 import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
@@ -27,6 +28,7 @@ export class AnalyticsController {
     private readonly salesIntelligence: SalesIntelligenceService,
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
+    private readonly membershipLifecycle: MembershipLifecycleService,
   ) {}
 
   @Get('revenue')
@@ -92,6 +94,60 @@ export class AnalyticsController {
       user.organizationId!,
       branchScope,
       query,
+    );
+  }
+
+  @Get('sales/sources')
+  @RequirePermissions('reports.view')
+  getSalesSources(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getSourcePerformance(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
+  @Get('sales/lost-reasons')
+  @RequirePermissions('reports.view')
+  getSalesLostReasons(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getLostReasons(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
+  @Get('sales/assignees')
+  @RequirePermissions('reports.view')
+  getSalesAssignees(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: GetSalesFunnelQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getAssigneePerformance(
+      user.organizationId!,
+      branchScope,
+      query,
+    );
+  }
+
+  @Get('memberships/lifecycle')
+  @RequirePermissions('reports.view')
+  getMembershipLifecycle(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipLifecycle.getLifecycle(
+      user.organizationId!,
+      branchScope,
     );
   }
 

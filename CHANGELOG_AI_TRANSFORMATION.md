@@ -552,3 +552,104 @@ command interface" (frontend-only scope; this session has worked exclusively in 
 and the backend already exposes everything a frontend surface would need).
 
 This completes the master prompt's full P0 -> P3 sequence.
+
+## 2026-09-11 — Full-OS completion: every frontend screen backed by a real API, AI tools across all domains
+
+**Source:** frontend/backend contract audit (every `api.get/post/patch/delete` URL in
+`mygymagent-f/src/lib` + `src/app` traced against every `@Controller` in `mygymagent-b/src`).
+Found 30+ frontend-built screens calling endpoints with no backend (appointments, WhatsApp,
+owner-OS, member 360 overview/timeline, tags, follow-ups, bulk, communications, documents
+review, duplicates merge, membership lifecycle, sales breakdowns, expenses, lead score/message,
+product scan), plus two wired-nowhere modules (`Client360Module`, `OnlinePaymentController`).
+Fixed by building the backend to the frontend contract (not vice versa), so no UI was redesigned.
+
+### 1. Critical wiring (no schema changes)
+
+- Changed: `src/app.module.ts` (+`CommunicationsModule`, `Client360Module`, `AppointmentsModule`,
+  `ExpensesModule`, `WhatsappModule`), `src/billing/billing.module.ts` (+`OnlinePaymentController`
+  -- `POST /payments/online/intent` was previously unreachable).
+- `GET /client-360/:memberId` and online payment intents now serve instead of 404ing.
+
+### 2. New domains (schema + migration `20260911000000_add_appointments_expenses_whatsapp_member_extras`)
+
+- New: `src/appointments/` (bookings CRUD, reschedule/cancel/complete/no-show, availability
+  rules, time off, free-slot computation, calendar feed merging PT sessions read-only),
+  `src/expenses/` (PENDING -> APPROVED -> PAID lifecycle, per-currency summary, PAID immutability),
+  `src/whatsapp/` (Meta embedded-signup code exchange, WABA metadata storage, message
+  history/send via the communications pipeline).
+- New tables: `appointments`, `trainer_availability_rules`, `trainer_time_offs`, `expenses`,
+  `whatsapp_integrations`, `member_tags`, `member_tag_assignments`, `member_follow_ups`; `leads`
+  gains `lostReason`; `member_documents` gains the review workflow (`status`, `submittedAt`,
+  `reviewedAt/By`, `rejectionReason`, `currentVersion`) plus `member_document_versions`; the
+  `MemberDocumentCategory` enum gains the long-accepted `DOCUMENT` value (transactional-safe
+  type swap -- `ALTER TYPE ... ADD VALUE` cannot run inside Prisma Migrate's transaction).
+- Changed: `src/rbac/permissions.catalog.ts` (+`appointments.*`, `expenses.*`, `whatsapp.*`),
+  `src/rbac/roles.catalog.ts` (grants for branch manager / head trainer / trainer /
+  receptionist / sales / accountant), `src/config/env.validation.ts` (+optional
+  `META_APP_ID`/`META_APP_SECRET`/`WHATSAPP_GRAPH_VERSION`), `.env.example`.
+
+### 3. Contract gaps closed on existing tables (no new tables)
+
+- Analytics: `GET /analytics/sales/sources|lost-reasons|assignees`,
+  `GET /analytics/memberships/lifecycle` (SalesIntelligenceService extensions +
+  new MembershipLifecycleService).
+- Owner OS: `GET /owner-os/briefing` (new OwnerOsService -- org-currency headline metrics,
+  severity-ranked alerts, advisory recommendations).
+- Memberships: `analytics/summary`, `renewal-reminders`, `history/:id` (audit-log trail),
+  `activate`, `pause`/`unpause` (freeze aliases), `extend`, `change-plan` (pro-rata chained
+  row with credit/amountDue), `upgrade`, `downgrade`, `transfer`, `payment-failed` (FAILED
+  payment row). `PATCH /leads/:id/status` now requires and persists `reason` on LOST.
+- Members: `overview`, `timeline` (new Member360Service), `tags` + `:memberId/tags`,
+  `:memberId/follow-ups` (+complete/uncomplete), `bulk/status|tags|export` (CSV),
+  `:memberId/communications` (+`send` via a new `CommunicationsService.sendAdHoc`),
+  `:memberId/duplicates` + `duplicates/preview-merge|execute-merge` (heuristic candidates,
+  per-field resolution, child-row move, source soft-delete), documents `submit`/`review`/
+  `versions`. Inventory: `GET /products/scan/:code`. CRM: `GET /leads/:id/score`
+  (deterministic HOT/WARM/COLD with factors), `POST /leads/:id/message`,
+  `GET /lead-follow-ups`.
+- AI tools (14 -> 20, all permission-gated through the existing `resolveAccess()` pattern):
+  `get_todays_schedule`, `get_expense_summary`, `get_membership_lifecycle`,
+  `get_owner_briefing`, `create_member_followup`, `get_lead_score`.
+  Changed: `src/ai/tools/tool-definitions.ts`, `src/ai/tools/tool-executor.service.ts`,
+  `src/ai/ai.module.ts` (+`AppointmentsModule`, `ExpensesModule`), `src/members/members.module.ts`
+  (exports `MemberFollowUpsService`).
+
+### 4. Frontend brought into contract (no redesign)
+
+- Changed (`mygymagent-f`): deleted the legacy duplicate `src/app/%28app%29/ai-actions`;
+  dashboard drops fabricated weekly/type/activity datasets and the hardcoded studio brand
+  (revenue-trend months, member-status breakdown, org name, "Data unavailable" empty states,
+  no fake trend deltas); fixed dead links (`/insights` -> `/intelligence`,
+  `/finance` -> `/billing`, `/sales` -> `/crm`); Owner-OS nav permission
+  `organizations.read` -> `reports.view` (matches the backend gate); WhatsApp types +
+  settings page aligned from snake_case to the backend's camelCase contract.
+- New (`mygymagent-f`): `use-expenses.ts`, `use-pt-packages.ts` hooks; `ExpensesSection`
+  wired into the Finance OS billing page; `PtPackagesSection` wired into the PT OS page.
+
+### Verification
+
+```
+# backend (mygymagent-b)
+npx tsc --noEmit -p tsconfig.json   # clean
+npm run lint:ci                      # clean
+npm test                             # 40/40 unit tests passing (9 suites)
+npm run build                        # webpack compiled successfully
+npm run test:e2e                     # PENDING -- needs real Postgres/Redis (none available in
+                                     # this environment); new endpoints follow the same
+                                     # permission/scoping patterns as the covered routes.
+# frontend (mygymagent-f)
+tsc --noEmit                         # clean
+eslint "src/**/*.{ts,tsx}"           # 0 errors (16 pre-existing React-Compiler warnings)
+jest                                 # 7/7 passing
+npm run build                        # all routes compiled successfully
+```
+
+### Honest remaining gaps (documented, not oversights)
+
+- WhatsApp Cloud-API message DELIVERY (provider + credential vault) -- sends record a FAILED
+  MessageLog row with the clear provider error; EMAIL delivers for real today.
+- Payroll/commission-payout models -- expenses complete the spend side; per-staff payroll and
+  commission payouts remain unmodeled (trainer workload still flags PT-revenue/commission as
+  notComputable for the same reason).
+- E2E suite for the new endpoints against real Postgres/Redis -- must run in CI before a
+  production-safety claim.

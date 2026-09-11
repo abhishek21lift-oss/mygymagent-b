@@ -69,6 +69,14 @@ export const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM_ADDRESS: z.string().optional(),
+
+  // WhatsApp Business onboarding (src/whatsapp/), via Meta Cloud API --
+  // all optional. Unset means POST /whatsapp/integration/embedded-signup
+  // returns a clear 503 naming the missing variables instead of failing
+  // mid-exchange, the same check-together-at-call-time pattern SMTP uses.
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

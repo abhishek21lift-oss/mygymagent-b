@@ -44,6 +44,17 @@ export class ProductsService {
     return product;
   }
 
+  async getBySku(organizationId: string, code: string) {
+    const sku = code.trim();
+    if (!sku) throw new NotFoundException('Product not found');
+    const product = await this.prisma.product.findFirst({
+      where: { organizationId, sku },
+    });
+    if (!product)
+      throw new NotFoundException(`No product found for code "${sku}"`);
+    return product;
+  }
+
   // Duplicate SKUs within an org are rejected by the DB's unique
   // constraint (organizationId, sku) -> AllExceptionsFilter maps the
   // resulting P2002 to a 409, same convention as every other module here.

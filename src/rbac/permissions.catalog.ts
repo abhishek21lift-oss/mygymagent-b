@@ -107,6 +107,24 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     create: 'Create/sell a PT package',
     update: 'Update a PT package',
   }),
+  ...resource('appointments', {
+    read: 'View appointments and calendar',
+    read_assigned: 'View appointments for assigned clients',
+    create: 'Book an appointment',
+    update:
+      'Update, reschedule, complete, cancel, or mark an appointment no-show',
+    manage_availability: 'Manage trainer availability rules and time off',
+  }),
+  ...resource('expenses', {
+    read: 'View expenses',
+    create: 'Record an expense',
+    update: 'Update or approve an expense',
+    delete: 'Delete an expense record',
+  }),
+  ...resource('whatsapp', {
+    read: 'View WhatsApp integration status and messages',
+    manage: 'Connect/disconnect WhatsApp and send messages',
+  }),
   ...resource('reports', { view: 'View analytics and business reports' }),
   ...resource('ai', {
     generate: 'Invoke AI generation features',

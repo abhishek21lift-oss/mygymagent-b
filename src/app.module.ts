@@ -41,6 +41,11 @@ import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
+import { Client360Module } from './client-360/client-360.module';
+import { CommunicationsModule } from './communications/communications.module';
+import { AppointmentsModule } from './appointments/appointments.module';
+import { ExpensesModule } from './expenses/expenses.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -98,6 +103,11 @@ import { BriefingModule } from './briefing/briefing.module';
     AnalyticsModule,
     AutomationModule,
     BriefingModule,
+    CommunicationsModule,
+    Client360Module,
+    AppointmentsModule,
+    ExpensesModule,
+    WhatsappModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
