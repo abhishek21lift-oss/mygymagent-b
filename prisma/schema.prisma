@@ -130,6 +130,8 @@ model Organization {
   memberTags              MemberTag[]
   memberTagAssignments    MemberTagAssignment[]
   memberFollowUps         MemberFollowUp[]
+  invoices                Invoice[]
+  invoiceSequences        InvoiceSequence[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -180,6 +182,7 @@ model Branch {
   expenses                Expense[]
   ptPackageTemplates      PtPackageTemplate[]
   ptPackages              PtPackage[]
+  invoices                Invoice[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -587,6 +590,7 @@ model Member {
   tagAssignments    MemberTagAssignment[]
   followUps         MemberFollowUp[]          @relation("MemberFollowUpMember")
   ptPackages        PtPackage[]
+  invoices          Invoice[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -865,6 +869,7 @@ model Membership {
   updatedAt DateTime @updatedAt
 
   payments Payment[]
+  invoices Invoice[]
 
   @@index([organizationId, branchId])
   @@index([memberId])
@@ -948,6 +953,11 @@ model Payment {
   membership            Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
   /// Stripe Payment Intent ID for idempotency and linking to Stripe
   stripePaymentIntentId String?      @unique
+  /// Razorpay payment entity id (e.g. `pay_...`) for webhook idempotency --
+  /// duplicate or out-of-order `payment.captured` deliveries for the same
+  /// provider payment resolve to the existing row instead of creating a
+  /// second Payment.
+  providerPaymentId     String?      @unique
 
   amount   Decimal       @db.Decimal(10, 2)
   currency String        @default("USD")
@@ -960,7 +970,8 @@ model Payment {
 
   createdAt DateTime @default(now())
 
-  refunds Refund[]
+  refunds      Refund[]
+  invoiceLinks InvoicePayment[]
 
   @@index([organizationId, createdAt])
   @@index([organizationId, memberId, createdAt])
@@ -991,6 +1002,144 @@ model Refund {
   @@index([organizationId, createdAt])
   @@index([paymentId])
   @@map("refunds")
+}
+
+// ----------------------------------------------------------------------------
+// Gym operational billing: invoices (accounts receivable, WS-1). A Payment
+// is money that already moved; an Invoice is money that is owed -- the two
+// meet in InvoicePayment, which links an immutable Payment row against the
+// invoice(s) it settles. Totals are always computed server-side from `lines`
+// at creation time, never trusted from the client. Numbering is per-org
+// (`INV-{YYYY}-{0000}`) via InvoiceSequence, allocated inside the same
+// interactive transaction that creates the invoice.
+// ----------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PART_PAID
+  PAID
+  OVERDUE
+  VOID
+  WRITTEN_OFF
+}
+
+/// An amount owed by a member to the gym (membership fee, PT package,
+/// product, ...). DRAFT rows are editable scaffolding; ISSUED rows are the
+/// receivable. Status is derived by InvoicesService.recomputeInvoiceStatus()
+/// from linked InvoicePayment rows vs. grandTotal, never set directly by
+/// callers -- except VOID/WRITTEN_OFF, which are terminal staff decisions.
+model Invoice {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// Nullable: an invoice can be a one-off (product, drop-in) not tied to
+  /// a membership, mirroring Payment.membershipId.
+  membershipId   String?
+  membership     Membership?  @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+
+  /// Per-org human-readable number (`INV-{YYYY}-{0000}`), allocated from
+  /// InvoiceSequence. Unique per org, not globally -- two gyms both have
+  /// an INV-2026-0001.
+  number String
+  status InvoiceStatus @default(DRAFT)
+
+  /// Server-computed from `lines` at creation: subtotal is the line sum,
+  /// grandTotal is subtotal - discountTotal + taxTotal. Stored (not
+  /// recomputed on read) so the issued figure is stable history even if
+  /// pricing inputs change later.
+  subtotal      Decimal @db.Decimal(10, 2)
+  discountTotal Decimal @db.Decimal(10, 2)
+  taxTotal      Decimal @db.Decimal(10, 2)
+  grandTotal    Decimal @db.Decimal(10, 2)
+  currency      String  @default("USD")
+
+  /// The priced line items this invoice was issued from
+  /// (`[{label, amount, qty}]`) -- the audit trail for the stored totals
+  /// above, same denormalized-JSON reasoning as WorkoutPlan.exercises.
+  lines      Json  @default("[]")
+  /// Optional per-rate tax split (`[{label, rate, amount}]`), informational
+  /// only -- taxTotal remains the authoritative tax figure.
+  taxBreakup Json?
+
+  /// Razorpay order id (`order_...`) created for online collection of the
+  /// outstanding balance -- null until the first
+  /// POST /payments/online/razorpay/order for this invoice.
+  providerOrderId String?
+
+  issuedAt DateTime?
+  dueAt    DateTime?
+  paidAt   DateTime?
+  voidedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  paymentLinks    InvoicePayment[]
+  dunningAttempts DunningAttempt[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, dueAt])
+  @@index([memberId])
+  @@map("invoices")
+}
+
+/// Links an immutable Payment row against the invoice it settles. A payment
+/// can split across invoices and an invoice can collect several payments --
+/// `amount` is how much of this payment applies to this invoice, so partial
+/// and split payments stay exactly accounted for.
+model InvoicePayment {
+  id        String  @id @default(uuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  amount Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([invoiceId, paymentId])
+  @@map("invoice_payments")
+}
+
+/// One collection nudge sent (or attempted) against an invoice -- the audit
+/// trail behind the dunning scanner and the Razorpay `payment.failed`
+/// webhook path. `channel` records the channel actually used (EMAIL in v1;
+/// WHATSAPP has no real provider yet, see src/communications/README.md).
+model DunningAttempt {
+  id        String  @id @default(uuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  channel     CommunicationChannel
+  templateKey String
+  status      MessageStatus
+  sentAt      DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId, sentAt])
+  @@map("dunning_attempts")
+}
+
+/// Per-organization invoice number counter. `lastNumber` is only ever
+/// advanced inside the same interactive transaction that creates the
+/// invoice consuming the number (InvoicesService.create), so a crash
+/// between "allocate number" and "create invoice" can never burn a number
+/// without an invoice to show for it.
+model InvoiceSequence {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  lastNumber Int @default(0)
+
+  @@map("invoice_sequences")
 }
 
 /// Personal training sessions booked between members and trainers
@@ -2038,6 +2187,7 @@ enum AutomationKey {
   MEMBER_INACTIVE_RECOVERY
   LEAD_FOLLOWUP_REMINDER
   LOW_STOCK_ALERT
+  INVOICE_DUE_REMINDER
 }
 
 enum AutomationRunStatus {

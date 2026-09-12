@@ -83,6 +83,17 @@ export const envSchema = z.object({
   // the missing secret instead of the app failing to boot over a missing
   // optional integration, same pattern as OPENROUTER_API_KEY.
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Razorpay online collection (src/payments/razorpay.service.ts,
+  // src/invoices/) -- optional at boot, same
+  // check-together-at-call-time pattern as STRIPE_*. Unset means
+  // POST /payments/online/razorpay/order (and invoice retry-collection)
+  // return a clear 503 naming the missing variables, and the Razorpay
+  // webhook endpoint rejects with a 500, rather than the app failing to
+  // boot over a missing optional integration.
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

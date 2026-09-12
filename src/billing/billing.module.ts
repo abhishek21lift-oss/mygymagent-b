@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InvoicesModule } from '../invoices/invoices.module';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { StripeService } from '../payments/stripe.service';
@@ -18,6 +19,7 @@ import { StripeWebhookController } from '../payments/stripe-webhook.controller';
  * written against.
  */
 @Module({
+  imports: [InvoicesModule],
   controllers: [
     PaymentsController,
     OnlinePaymentController,

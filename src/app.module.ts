@@ -27,6 +27,7 @@ import { MembershipsModule } from './memberships/memberships.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { PlatformModule } from './platform/platform.module';
 import { BillingModule } from './billing/billing.module';
+import { InvoicesModule } from './invoices/invoices.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
 import { CrmModule } from './crm/crm.module';
@@ -89,6 +90,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     AttendanceModule,
     PlatformModule,
     BillingModule,
+    InvoicesModule,
     WorkoutsModule,
     WorkoutSessionsModule,
     CrmModule,

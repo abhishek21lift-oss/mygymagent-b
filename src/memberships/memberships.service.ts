@@ -298,6 +298,16 @@ export class MembershipsService {
           previousMembershipId: membership.id,
         },
       });
+      // Post-commit like create(): the invoice auto-raise listener treats
+      // every started membership the same, whether first sale or renewal.
+      const payload: MembershipStartedEvent = {
+        organizationId,
+        branchId: newMembership.branchId,
+        membershipId: newMembership.id,
+        memberId: newMembership.memberId,
+        membershipPlanId: newMembership.membershipPlanId,
+      };
+      this.events.emit(DomainEvent.MembershipStarted, payload);
       return newMembership;
     }
     const extendedEndDate = new Date(

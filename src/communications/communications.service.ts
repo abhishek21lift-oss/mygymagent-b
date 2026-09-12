@@ -443,4 +443,50 @@ export class CommunicationsService {
       variables,
     });
   }
+
+  sendPaymentReceipt(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: {
+      firstName: string;
+      amount: string;
+      currency: string;
+      invoiceNumber: string;
+      paymentId: string;
+    },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'payment.receipt',
+      recipient: to,
+      memberId,
+      variables,
+    });
+  }
+
+  sendInvoiceDueReminder(
+    organizationId: string,
+    memberId: string,
+    to: string,
+    variables: {
+      firstName: string;
+      invoiceNumber: string;
+      amount: string;
+      currency: string;
+      dueState: string;
+    },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'invoice_due_reminder',
+      recipient: to,
+      memberId,
+      variables,
+    });
+  }
 }

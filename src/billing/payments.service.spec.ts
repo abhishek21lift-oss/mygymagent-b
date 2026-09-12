@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
+import { InvoicesService } from '../invoices/invoices.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -32,6 +33,15 @@ describe('PaymentsService', () => {
             refund: {
               findMany: jest.fn(),
             },
+            invoice: {
+              findFirst: jest.fn(),
+            },
+            invoicePayment: {
+              create: jest.fn(),
+            },
+            $transaction: jest.fn((cb: (tx: unknown) => unknown) =>
+              cb(prisma),
+            ),
             aiUsageLog: {
               create: jest.fn(),
             },
@@ -42,6 +52,12 @@ describe('PaymentsService', () => {
           provide: EventEmitter2,
           useValue: {
             emit: jest.fn(),
+          },
+        },
+        {
+          provide: InvoicesService,
+          useValue: {
+            recomputeInvoiceStatus: jest.fn(),
           },
         },
       ],

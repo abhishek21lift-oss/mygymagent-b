@@ -71,4 +71,16 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     subject: 'Low stock alert: {{productName}}',
     body: 'Stock for {{productName}} (SKU {{sku}}) at {{organizationName}} has dropped to {{quantityOnHand}}, at or below the reorder level of {{reorderLevel}}.',
   },
+  {
+    key: 'payment.receipt',
+    channel: 'EMAIL',
+    subject: 'Payment receipt from {{organizationName}}',
+    body: 'Hi {{firstName}},\n\nThank you -- we received your payment of {{amount}} {{currency}} against invoice {{invoiceNumber}}. Your receipt reference is {{paymentId}}.',
+  },
+  {
+    key: 'invoice_due_reminder',
+    channel: 'EMAIL',
+    subject: 'Invoice {{invoiceNumber}} from {{organizationName}}',
+    body: 'Hi {{firstName}},\n\nInvoice {{invoiceNumber}} for {{amount}} {{currency}} is {{dueState}}. Please reach out to the front desk to settle it.',
+  },
 ];

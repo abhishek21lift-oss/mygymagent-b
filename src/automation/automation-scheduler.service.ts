@@ -60,10 +60,15 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { pattern },
         { name: JOB_NAMES.SCAN_DATA_RETENTION },
       ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_INVOICE_DUNNING,
+        { pattern },
+        { name: JOB_NAMES.SCAN_INVOICE_DUNNING },
+      ),
     ]);
 
     this.logger.log(
-      `Registered 5 daily automation scan schedulers (${pattern} UTC)`,
+      `Registered 6 daily automation scan schedulers (${pattern} UTC)`,
     );
   }
 }

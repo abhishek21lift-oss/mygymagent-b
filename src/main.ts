@@ -11,7 +11,14 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // `rawBody: true` exposes the untouched request bytes as
+  // `request.rawBody` for webhook signature verification (Razorpay's
+  // `x-razorpay-signature` is HMAC-SHA256 over the raw body -- parsing
+  // then re-serializing would change the bytes and break verification).
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
 

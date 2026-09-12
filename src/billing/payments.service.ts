@@ -16,6 +16,7 @@ import {
   type PaymentRefundedEvent,
 } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvoicesService } from '../invoices/invoices.service';
 import type { CreatePaymentDto } from './dto/create-payment.dto';
 import type { RefundPaymentDto } from './dto/refund-payment.dto';
 
@@ -24,6 +25,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly invoices: InvoicesService,
   ) {}
 
   async list(
@@ -159,6 +161,24 @@ export class PaymentsService {
         'Membership does not belong to the specified member',
       );
     }
+    const invoice = dto.invoiceId
+      ? await this.prisma.invoice.findFirst({
+          where: { id: dto.invoiceId, organizationId },
+        })
+      : null;
+    if (dto.invoiceId && !invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+    if (invoice && invoice.memberId !== dto.memberId) {
+      throw new BadRequestException(
+        'Invoice does not belong to the specified member',
+      );
+    }
+    if (invoice && (invoice.status === 'VOID' || invoice.status === 'WRITTEN_OFF')) {
+      throw new BadRequestException(
+        'Cannot link a payment to a voided invoice',
+      );
+    }
 
     const branchId = membership?.branchId ?? member.primaryBranchId;
     if (branchScope && branchId !== branchScope) {
@@ -167,19 +187,34 @@ export class PaymentsService {
       );
     }
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        organizationId,
-        branchId,
-        memberId: member.id,
-        membershipId: membership?.id,
-        amount: dto.amount,
-        currency: dto.currency ?? organization.currency,
-        method: dto.method ?? 'CASH',
-        note: dto.note,
-        recordedByUserId,
-      },
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.payment.create({
+        data: {
+          organizationId,
+          branchId,
+          memberId: member.id,
+          membershipId: membership?.id,
+          amount: dto.amount,
+          currency: dto.currency ?? organization.currency,
+          method: dto.method ?? 'CASH',
+          note: dto.note,
+          recordedByUserId,
+        },
+      });
+      if (invoice) {
+        await tx.invoicePayment.create({
+          data: {
+            invoiceId: invoice.id,
+            paymentId: created.id,
+            amount: dto.amount,
+          },
+        });
+      }
+      return created;
     });
+    if (invoice) {
+      await this.invoices.recomputeInvoiceStatus(invoice.id);
+    }
 
     const payload: PaymentRecordedEvent = {
       organizationId,

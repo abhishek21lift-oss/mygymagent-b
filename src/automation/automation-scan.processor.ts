@@ -10,6 +10,7 @@ import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
+import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 
 const LOW_STOCK_COOLDOWN_DAYS = 1;
 
@@ -31,6 +32,7 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly paymentOverdueScanner: PaymentOverdueScanner,
     private readonly memberInactiveScanner: MemberInactiveScanner,
     private readonly leadFollowupScanner: LeadFollowupScanner,
+    private readonly invoiceDunningScanner: InvoiceDunningScanner,
   ) {
     super();
   }
@@ -45,6 +47,8 @@ export class AutomationScanProcessor extends WorkerHost {
         return this.memberInactiveScanner.scan();
       case JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE:
         return this.leadFollowupScanner.scan();
+      case JOB_NAMES.SCAN_INVOICE_DUNNING:
+        return this.invoiceDunningScanner.scan();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:
         return this.sendLowStockAlert(job.data as InventoryLowEvent);
       default:
