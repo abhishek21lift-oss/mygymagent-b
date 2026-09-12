@@ -441,6 +441,29 @@ export class CommunicationsService {
     });
   }
 
+  /**
+   * WS-3 speed-to-lead first touch (WHATSAPP `lead.first_touch`). Leads are
+   * not members, so there is no MemberConsent row to gate on -- the send
+   * goes through the normal template pipeline (org override or system
+   * default) and any provider/consent failure is recorded in MessageLog
+   * like every other send. Variables mirror the system-default template:
+   * {{1}} = lead first name, {{2}} = organization name.
+   */
+  sendLeadFirstTouch(
+    organizationId: string,
+    to: string,
+    variables: { firstName: string; organizationName: string },
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'WHATSAPP',
+      category: 'TRANSACTIONAL',
+      templateKey: 'lead.first_touch',
+      recipient: to,
+      variables: { '1': variables.firstName, '2': variables.organizationName },
+    });
+  }
+
   sendLowStockAlert(
     organizationId: string,
     to: string,

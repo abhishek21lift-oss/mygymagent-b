@@ -65,10 +65,23 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { pattern },
         { name: JOB_NAMES.SCAN_INVOICE_DUNNING },
       ),
+      // WS-3: first sub-hourly scan -- BullMQ's `every` (ms interval),
+      // not a cron pattern, since 5-minute cadence has no cron-shape
+      // equivalent in this scheduler's daily-pattern convention.
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_LEAD_FIRST_TOUCH,
+        { every: 5 * 60 * 1000 },
+        { name: JOB_NAMES.SCAN_LEAD_FIRST_TOUCH },
+      ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.ROTATE_QR_TOKENS,
+        { every: 7 * 24 * 60 * 60 * 1000 },
+        { name: JOB_NAMES.ROTATE_QR_TOKENS },
+      ),
     ]);
 
     this.logger.log(
-      `Registered 6 daily automation scan schedulers (${pattern} UTC)`,
+      `Registered 6 daily automation scan schedulers (${pattern} UTC) + lead first-touch every 5m + QR rotation every 7d`,
     );
   }
 }

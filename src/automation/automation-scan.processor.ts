@@ -6,7 +6,9 @@ import type { InventoryLowEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
+import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
+import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
@@ -32,6 +34,8 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly paymentOverdueScanner: PaymentOverdueScanner,
     private readonly memberInactiveScanner: MemberInactiveScanner,
     private readonly leadFollowupScanner: LeadFollowupScanner,
+    private readonly leadFirstTouchScanner: LeadFirstTouchScanner,
+    private readonly qrRotationScanner: QrRotationScanner,
     private readonly invoiceDunningScanner: InvoiceDunningScanner,
   ) {
     super();
@@ -47,6 +51,10 @@ export class AutomationScanProcessor extends WorkerHost {
         return this.memberInactiveScanner.scan();
       case JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE:
         return this.leadFollowupScanner.scan();
+      case JOB_NAMES.SCAN_LEAD_FIRST_TOUCH:
+        return this.leadFirstTouchScanner.scan();
+      case JOB_NAMES.ROTATE_QR_TOKENS:
+        return this.qrRotationScanner.scan();
       case JOB_NAMES.SCAN_INVOICE_DUNNING:
         return this.invoiceDunningScanner.scan();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:

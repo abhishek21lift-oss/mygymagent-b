@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { CommunicationsModule } from '../communications/communications.module';
 import { MembersModule } from '../members/members.module';
+import { CrmController } from './crm.controller';
 import { LeadFollowUpsController } from './lead-follow-ups.controller';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
+import { WhatsappInboundListener } from './whatsapp-inbound.listener';
 
 /**
  * v1 CRM: the lead pipeline (New -> Contacted -> Qualified -> Trial ->
@@ -13,8 +15,8 @@ import { LeadsService } from './leads.service';
  */
 @Module({
   imports: [MembersModule, CommunicationsModule],
-  controllers: [LeadsController, LeadFollowUpsController],
-  providers: [LeadsService],
+  controllers: [LeadsController, LeadFollowUpsController, CrmController],
+  providers: [LeadsService, WhatsappInboundListener],
   exports: [LeadsService],
 })
 export class CrmModule {}

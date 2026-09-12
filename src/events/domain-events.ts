@@ -13,6 +13,7 @@ export const DomainEvent = {
   WorkoutSessionStarted: 'workout.session_started',
   WorkoutSessionCompleted: 'workout.session_completed',
   LeadConverted: 'lead.converted',
+  LeadCreated: 'lead.created',
   DietAssigned: 'diet.assigned',
   InventoryLow: 'inventory.low',
   PtSessionBooked: 'pt.session.booked',
@@ -100,6 +101,13 @@ export interface LeadConvertedEvent {
   organizationId: string;
   leadId: string;
   memberId: string;
+}
+
+export interface LeadCreatedEvent {
+  organizationId: string;
+  leadId: string;
+  branchId?: string | null;
+  channel?: string;
 }
 
 export interface DietAssignedEvent {

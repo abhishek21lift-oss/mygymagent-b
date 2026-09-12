@@ -1,8 +1,9 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
 export class CheckInDto {
+  @IsOptional()
   @IsString()
-  branchId!: string;
+  branchId?: string;
 
   @IsOptional()
   @IsString()
@@ -13,6 +14,10 @@ export class CheckInDto {
   staffUserId?: string;
 
   @IsOptional()
-  @IsIn(['QR', 'MANUAL', 'KIOSK', 'APP', 'STAFF'])
-  method?: 'QR' | 'MANUAL' | 'KIOSK' | 'APP' | 'STAFF';
+  @IsString()
+  qrToken?: string;
+
+  @IsOptional()
+  @IsIn(['QR', 'MANUAL', 'KIOSK', 'APP', 'STAFF', 'BIOMETRIC'])
+  method?: 'QR' | 'MANUAL' | 'KIOSK' | 'APP' | 'STAFF' | 'BIOMETRIC';
 }

@@ -91,6 +91,8 @@ model Organization {
   workoutSessionSets      WorkoutSessionSet[]
   leads                   Lead[]
   leadFollowUps           LeadFollowUp[]
+  leadSourceEvents        LeadSourceEvent[]
+  deviceMaps              DeviceMap[]
   foodItems               FoodItem[]
   dietPlans               DietPlan[]
   dietAssignments         DietAssignment[]
@@ -127,8 +129,8 @@ model Organization {
   ptPackages              PtPackage[]
   ptSessionConsumptions   PtSessionConsumption[]
   whatsappIntegration     WhatsappIntegration?
-  whatsappCredential        WhatsappCredential?
-  inboundMessages           InboundMessage[]
+  whatsappCredential      WhatsappCredential?
+  inboundMessages         InboundMessage[]
   memberTags              MemberTag[]
   memberTagAssignments    MemberTagAssignment[]
   memberFollowUps         MemberFollowUp[]
@@ -163,6 +165,11 @@ model Branch {
   postalCode   String?
   country      String?
 
+  /// Branch device credential for the biometric turnstile (`POST
+  /// /devices/check-in`). Nullable until a key is rotated in; unique so a
+  /// key identifies exactly one branch. Compared timing-safe, never logged.
+  deviceKey String? @unique
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -185,6 +192,7 @@ model Branch {
   ptPackageTemplates      PtPackageTemplate[]
   ptPackages              PtPackage[]
   invoices                Invoice[]
+  deviceMaps              DeviceMap[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -594,6 +602,8 @@ model Member {
   followUps         MemberFollowUp[]          @relation("MemberFollowUpMember")
   ptPackages        PtPackage[]
   invoices          Invoice[]
+  qrToken           MemberQrToken?
+  deviceMaps        DeviceMap[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -886,6 +896,7 @@ enum AttendanceMethod {
   KIOSK
   APP
   STAFF
+  BIOMETRIC
 }
 
 /// Check-in/out for both members and staff (exactly one of memberId /
@@ -906,6 +917,12 @@ model Attendance {
   checkOutAt DateTime?
   method     AttendanceMethod @default(MANUAL)
 
+  /// Set when the turnstile gate denies entry but still records the
+  /// attempt (e.g. "membership expired 2026-09-01", "unpaid invoice
+  /// INV-2026-0007"). Null means allowed. Denied rows are real Attendance
+  /// rows so the live view and audit trail see attempts, not just entries.
+  deniedReason String?
+
   recordedByUserId String?
   recordedByUser   User?   @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
 
@@ -914,6 +931,40 @@ model Attendance {
   @@index([organizationId, branchId, checkInAt])
   @@index([memberId, checkInAt])
   @@map("attendances")
+}
+
+/// WS-3 access gate: per-member QR credential. Only the sha256 hash is
+/// stored -- the plaintext token is returned once at (re)generation and
+/// never again. `rotatesAt` is the expiry; a weekly scheduler regenerates
+/// passed tokens, and check-in rejects unknown/rotated hashes with 410.
+model MemberQrToken {
+  memberId  String   @unique
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  rotatesAt DateTime
+
+  @@map("member_qr_tokens")
+}
+
+/// WS-3 access gate: maps a biometric device's external user id (per
+/// branch) to a member. The device authenticates with the branch
+/// `deviceKey`, not a JWT; unknown external ids resolve to a 200
+/// `{allowed:false}` decision without an Attendance row (no member to
+/// attach it to).
+model DeviceMap {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  externalUserId String
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, branchId, externalUserId])
+  @@map("device_maps")
 }
 
 // ----------------------------------------------------------------------------
@@ -1517,12 +1568,43 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   followUps    LeadFollowUp[]
-  appointments Appointment[]  @relation("AppointmentLead")
+  appointments Appointment[]     @relation("AppointmentLead")
+  sourceEvents LeadSourceEvent[]
 
   @@index([organizationId, status])
   @@index([organizationId, branchId])
   @@index([assignedToUserId])
   @@map("leads")
+}
+
+/// WS-3 speed-to-lead: how each lead entered the system. One row per
+/// capture (web form, manual entry, bulk import; WHATSAPP/WALKIN reserved
+/// for future capture paths). `leadId` is nullable so a rejected/duplicate
+/// capture can still be audited without a lead row; the SLA clock reads
+/// the earliest event per lead (falling back to Lead.createdAt when no
+/// event exists for pre-WS-3 rows).
+enum LeadSourceChannel {
+  WEB_FORM
+  WHATSAPP
+  WALKIN
+  IMPORT
+  MANUAL
+}
+
+model LeadSourceEvent {
+  id             String            @id @default(uuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String?
+  lead           Lead?             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel        LeadSourceChannel
+  payload        Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([leadId])
+  @@map("lead_source_events")
 }
 
 /// A scheduled task against a lead ("call back Tuesday", "send pricing").
@@ -2160,23 +2242,23 @@ model MessageTemplate {
 /// comment. Immutable except for the status/attempts/errorMessage/sentAt
 /// fields, which the sending job updates as it progresses.
 model MessageLog {
-  id             String               @id @default(uuid())
+  id                String               @id @default(uuid())
   /// Nullable, SetNull, mirroring AuditLog -- a platform admin
   /// (`User.organizationId: null`) can also trigger a send (e.g. their own
   /// password reset), and that message log entry should survive an
   /// organization being deleted the same way an audit entry does.
-  organizationId String?
-  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  channel        CommunicationChannel
-  category       MessageCategory
-  templateKey    String
-  recipient      String
-  memberId       String?
-  member         Member?              @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  status         MessageStatus        @default(PENDING)
-  attempts       Int                  @default(0)
-  errorMessage   String?
-  sentAt         DateTime?
+  organizationId    String?
+  organization      Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  channel           CommunicationChannel
+  category          MessageCategory
+  templateKey       String
+  recipient         String
+  memberId          String?
+  member            Member?              @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  status            MessageStatus        @default(PENDING)
+  attempts          Int                  @default(0)
+  errorMessage      String?
+  sentAt            DateTime?
   /// Provider-side id for a sent message (Meta's `wamid` for WHATSAPP, set
   /// by CommunicationsService from the provider's send() return value) --
   /// the join key the WhatsApp status webhook uses to advance a row
@@ -2205,6 +2287,7 @@ enum AutomationKey {
   LEAD_FOLLOWUP_REMINDER
   LOW_STOCK_ALERT
   INVOICE_DUE_REMINDER
+  LEAD_FIRST_TOUCH
 }
 
 enum AutomationRunStatus {

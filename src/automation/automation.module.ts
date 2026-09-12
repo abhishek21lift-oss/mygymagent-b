@@ -7,6 +7,8 @@ import { AutomationSchedulerService } from './automation-scheduler.service';
 import { AutomationScanProcessor } from './automation-scan.processor';
 import { InventoryLowListener } from './inventory-low.listener';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
+import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
+import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
@@ -27,6 +29,8 @@ import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
     PaymentOverdueScanner,
     MemberInactiveScanner,
     LeadFollowupScanner,
+    LeadFirstTouchScanner,
+    QrRotationScanner,
     DataRetentionScanner,
     InvoiceDunningScanner,
   ],

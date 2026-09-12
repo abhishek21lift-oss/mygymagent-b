@@ -11,11 +11,14 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import { CaptureLeadDto } from './dto/capture-lead.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
 import { CreateFollowUpDto } from './dto/create-follow-up.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { ImportLeadsDto } from './dto/import-leads.dto';
 import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
 import { SendLeadMessageDto } from './dto/send-lead-message.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -79,6 +82,37 @@ export class LeadsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.leadsService.create(user.organizationId!, dto, branchScope);
+  }
+
+  /**
+   * Public web-form capture. Throttled to 10/min per client; the `website`
+   * honeypot returns a silent 200 shaped like a success without creating
+   * anything, so bots cannot probe the trap.
+   */
+  @Post('capture')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async capture(@Body() dto: CaptureLeadDto) {
+    if (dto.website?.trim()) {
+      return { received: true };
+    }
+    const lead = await this.leadsService.capturePublic(dto);
+    return { received: true, leadId: lead.id };
+  }
+
+  @Post('import')
+  @RequirePermissions('leads.manage')
+  @Audited({ resource: 'lead', action: 'import' })
+  importLeads(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ImportLeadsDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.leadsService.importLeads(
+      user.organizationId!,
+      dto,
+      branchScope,
+    );
   }
 
   @Patch(':id')

@@ -17,6 +17,8 @@ export const JOB_NAMES = {
   SEND_LOW_STOCK_ALERT: 'send-low-stock-alert',
   SCAN_DATA_RETENTION: 'scan-data-retention',
   SCAN_INVOICE_DUNNING: 'scan-invoice-dunning',
+  SCAN_LEAD_FIRST_TOUCH: 'scan-lead-first-touch',
+  ROTATE_QR_TOKENS: 'rotate-qr-tokens',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -31,4 +33,6 @@ export const JOB_SCHEDULER_IDS = {
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due-daily',
   SCAN_DATA_RETENTION: 'scan-data-retention-daily',
   SCAN_INVOICE_DUNNING: 'scan-invoice-dunning-daily',
+  SCAN_LEAD_FIRST_TOUCH: 'scan-lead-first-touch-5min',
+  ROTATE_QR_TOKENS: 'rotate-qr-tokens-weekly',
 } as const;
