@@ -5,34 +5,42 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePtPackageDto } from './dto/create-pt-package.dto';
+
+function withRemaining<T extends { totalSessions: number; usedSessions: number }>(
+  pkg: T,
+) {
+  return {
+    ...pkg,
+    remainingSessions: Math.max(pkg.totalSessions - pkg.usedSessions, 0),
+  };
+}
 
 @Injectable()
 export class PtPackagesService {
   private readonly logger = new Logger(PtPackagesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(organizationId: string, memberId?: string) {
-    return this.prisma.$queryRawUnsafe<any[]>(
-      `SELECT p.*, GREATEST(p."totalSessions" - p."usedSessions", 0) AS "remainingSessions"
-       FROM "pt_packages" p
-       WHERE p."organizationId" = $1 ${memberId ? 'AND p."memberId" = $2' : ''}
-       ORDER BY p."endDate" ASC`,
-      ...(memberId ? [organizationId, memberId] : [organizationId]),
-    );
+    const packages = await this.prisma.ptPackage.findMany({
+      where: { organizationId, ...(memberId ? { memberId } : {}) },
+      orderBy: { endDate: 'asc' },
+    });
+    return packages.map(withRemaining);
   }
 
   async getOne(organizationId: string, id: string) {
-    const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      `SELECT p.*, GREATEST(p."totalSessions" - p."usedSessions", 0) AS "remainingSessions"
-       FROM "pt_packages" p WHERE p."id" = $1 AND p."organizationId" = $2`,
-      id,
-      organizationId,
-    );
-    if (!rows[0]) throw new NotFoundException('PT package not found');
-    return rows[0];
+    const pkg = await this.prisma.ptPackage.findFirst({
+      where: { id, organizationId },
+    });
+    if (!pkg) throw new NotFoundException('PT package not found');
+    return withRemaining(pkg);
   }
 
   async create(
@@ -59,49 +67,48 @@ export class PtPackagesService {
       throw new BadRequestException('Branch not found in this organization');
 
     if (dto.templateId) {
-      const template = await this.prisma.$queryRawUnsafe<any[]>(
-        `SELECT id FROM "pt_package_templates" WHERE id=$1 AND "organizationId"=$2 AND "isActive"=true`,
-        dto.templateId,
-        organizationId,
-      );
-      if (!template[0])
+      const template = await this.prisma.ptPackageTemplate.findFirst({
+        where: {
+          id: dto.templateId,
+          organizationId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!template)
         throw new BadRequestException(
           'Package template not found or inactive in this organization',
         );
     }
 
-    const id = crypto.randomUUID();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `INSERT INTO "pt_packages" (id,"organizationId","branchId","memberId","templateId",name,"totalSessions","startDate","endDate",price,currency,"status","createdAt","updatedAt")
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
-        id,
+    const created = await this.prisma.ptPackage.create({
+      data: {
         organizationId,
-        dto.branchId,
-        dto.memberId,
-        dto.templateId ?? null,
-        dto.name,
-        dto.totalSessions,
+        branchId: dto.branchId,
+        memberId: dto.memberId,
+        templateId: dto.templateId ?? null,
+        name: dto.name,
+        totalSessions: dto.totalSessions,
         startDate,
         endDate,
-        dto.price,
-        dto.currency ?? 'USD',
-      );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO "audit_logs" (id,"organizationId","actorUserId",action,resource,"resourceId","afterState","createdAt")
-         VALUES ($1,$2,$3,'CREATE','PT_PACKAGE',$4,$5,CURRENT_TIMESTAMP)`,
-        crypto.randomUUID(),
-        organizationId,
-        createdByUserId,
-        id,
-        JSON.stringify({
-          memberId: dto.memberId,
-          branchId: dto.branchId,
-          totalSessions: dto.totalSessions,
-        }),
-      );
+        price: dto.price,
+        currency: dto.currency ?? 'USD',
+        status: 'ACTIVE',
+      },
     });
-    return this.getOne(organizationId, id);
+    await this.audit.record({
+      organizationId,
+      actorUserId: createdByUserId,
+      action: 'CREATE',
+      resource: 'PT_PACKAGE',
+      resourceId: created.id,
+      afterState: {
+        memberId: dto.memberId,
+        branchId: dto.branchId,
+        totalSessions: dto.totalSessions,
+      },
+    });
+    return this.getOne(organizationId, created.id);
   }
 
   /**
@@ -116,33 +123,33 @@ export class PtPackagesService {
     memberId: string,
     sessionStartTime: Date,
   ) {
-    const existing = await tx.$queryRawUnsafe<any[]>(
-      `SELECT id FROM "pt_session_consumptions"
-       WHERE "organizationId"=$1 AND "ptSessionId"=$2 LIMIT 1`,
-      organizationId,
-      ptSessionId,
-    );
-    if (existing[0])
+    const existing = await tx.ptSessionConsumption.findFirst({
+      where: { organizationId, ptSessionId },
+    });
+    if (existing)
       return {
         consumed: false,
-        packageId: existing[0].packageId ?? null,
+        packageId: existing.packageId ?? null,
         alreadyConsumed: true,
       };
 
-    const packages = await tx.$queryRawUnsafe<any[]>(
-      `SELECT id, "totalSessions", "usedSessions", "status"
-       FROM "pt_packages"
-       WHERE "organizationId"=$1 AND "memberId"=$2 AND "status"='ACTIVE'
-         AND "startDate" <= $3 AND "endDate" >= $3
-         AND "usedSessions" < "totalSessions"
-       ORDER BY "endDate" ASC, "createdAt" ASC
-       FOR UPDATE
-       LIMIT 1`,
-      organizationId,
-      memberId,
-      sessionStartTime,
-    );
-    const pkg = packages[0];
+    // Prisma cannot express "usedSessions < totalSessions" as a
+    // column-to-column filter, so fetch time-eligible candidates in
+    // expiry order and pick the first one with remaining capacity --
+    // the same row the old `... AND "usedSessions" < "totalSessions"
+    // ORDER BY "endDate" ASC, "createdAt" ASC LIMIT 1 ... FOR UPDATE`
+    // query would have returned.
+    const candidates = await tx.ptPackage.findMany({
+      where: {
+        organizationId,
+        memberId,
+        status: 'ACTIVE',
+        startDate: { lte: sessionStartTime },
+        endDate: { gte: sessionStartTime },
+      },
+      orderBy: [{ endDate: 'asc' }, { createdAt: 'asc' }],
+    });
+    const pkg = candidates.find((c) => c.usedSessions < c.totalSessions);
     if (!pkg) {
       return { consumed: false, packageId: null, alreadyConsumed: false };
     }
@@ -153,25 +160,23 @@ export class PtPackagesService {
       return { consumed: false, packageId: pkg.id, alreadyConsumed: true };
     }
 
-    const consumptionId = crypto.randomUUID();
-    await tx.$executeRawUnsafe(
-      `INSERT INTO "pt_session_consumptions" (id,"organizationId","packageId","ptSessionId","sessions","createdAt")
-       VALUES ($1,$2,$3,$4,1,CURRENT_TIMESTAMP)`,
-      consumptionId,
-      organizationId,
-      pkg.id,
-      ptSessionId,
-    );
+    await tx.ptSessionConsumption.create({
+      data: {
+        organizationId,
+        packageId: pkg.id,
+        ptSessionId,
+        sessions: 1,
+      },
+    });
 
-    await tx.$executeRawUnsafe(
-      `UPDATE "pt_packages"
-       SET "usedSessions"="usedSessions"+1,
-           "status"=CASE WHEN "usedSessions"+1 >= "totalSessions" THEN 'COMPLETED'::"PtPackageStatus" ELSE "status" END,
-           "updatedAt"=CURRENT_TIMESTAMP
-       WHERE id=$1 AND "organizationId"=$2`,
-      pkg.id,
-      organizationId,
-    );
+    const newUsed = pkg.usedSessions + 1;
+    await tx.ptPackage.update({
+      where: { id: pkg.id },
+      data: {
+        usedSessions: { increment: 1 },
+        status: newUsed >= pkg.totalSessions ? 'COMPLETED' : pkg.status,
+      },
+    });
 
     return { consumed: true, packageId: pkg.id, alreadyConsumed: false };
   }

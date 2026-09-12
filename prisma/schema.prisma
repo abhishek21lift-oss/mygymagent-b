@@ -123,6 +123,9 @@ model Organization {
   availabilityRules       TrainerAvailabilityRule[]
   timeOffs                TrainerTimeOff[]
   expenses                Expense[]
+  ptPackageTemplates      PtPackageTemplate[]
+  ptPackages              PtPackage[]
+  ptSessionConsumptions   PtSessionConsumption[]
   whatsappIntegration     WhatsappIntegration?
   memberTags              MemberTag[]
   memberTagAssignments    MemberTagAssignment[]
@@ -175,6 +178,8 @@ model Branch {
   memberBranchHistoryFrom MemberBranchHistory[] @relation("MemberBranchHistoryFrom")
   appointments            Appointment[]
   expenses                Expense[]
+  ptPackageTemplates      PtPackageTemplate[]
+  ptPackages              PtPackage[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -278,6 +283,7 @@ model User {
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
 
   @@index([organizationId])
+  @@index([organizationId, status])
   @@map("users")
 }
 
@@ -580,10 +586,14 @@ model Member {
   appointments      Appointment[]             @relation("AppointmentMember")
   tagAssignments    MemberTagAssignment[]
   followUps         MemberFollowUp[]          @relation("MemberFollowUpMember")
+  ptPackages        PtPackage[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
   @@index([assignedTrainerId])
+  @@index([organizationId, status])
+  @@index([email])
+  @@index([phone])
   @@map("members")
 }
 
@@ -1020,6 +1030,8 @@ model PtSession {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  consumptions PtSessionConsumption[]
+
   @@index([organizationId, branchId, startTime])
   @@index([memberId, startTime])
   @@index([trainerId, startTime])
@@ -1037,6 +1049,92 @@ enum PtSessionStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+/// PT Packages v1 -- package templates, member purchases, and an
+/// append-only session-consumption ledger. Mirrors
+/// prisma/migrations/20260829160000_pt_packages_v1/migration.sql exactly:
+/// table names via @@map, organizationId onDelete Cascade, and the same
+/// indexes the SQL creates.
+enum PtPackageStatus {
+  ACTIVE
+  EXPIRED
+  COMPLETED
+  CANCELLED
+}
+
+model PtPackageTemplate {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  name         String
+  description  String?
+  sessionCount Int
+  validityDays Int
+  price        Decimal @db.Decimal(10, 2)
+  currency     String  @default("USD")
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  packages PtPackage[]
+
+  @@index([organizationId])
+  @@index([branchId])
+  @@map("pt_package_templates")
+}
+
+model PtPackage {
+  id             String             @id @default(uuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  templateId     String?
+  template       PtPackageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  name          String
+  totalSessions Int
+  usedSessions  Int             @default(0)
+  startDate     DateTime
+  endDate       DateTime
+  price         Decimal         @db.Decimal(10, 2)
+  currency      String          @default("USD")
+  status        PtPackageStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consumptions PtSessionConsumption[]
+
+  @@index([organizationId, memberId, status])
+  @@index([organizationId, endDate])
+  @@map("pt_packages")
+}
+
+model PtSessionConsumption {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  packageId      String
+  package        PtPackage    @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  ptSessionId    String
+  ptSession      PtSession    @relation(fields: [ptSessionId], references: [id], onDelete: Cascade)
+
+  sessions Int @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@unique([packageId, ptSessionId])
+  @@index([organizationId])
+  @@index([ptSessionId])
+  @@map("pt_session_consumptions")
 }
 
 // ----------------------------------------------------------------------------
@@ -1270,6 +1368,7 @@ model Lead {
   appointments Appointment[]  @relation("AppointmentLead")
 
   @@index([organizationId, status])
+  @@index([organizationId, branchId])
   @@index([assignedToUserId])
   @@map("leads")
 }

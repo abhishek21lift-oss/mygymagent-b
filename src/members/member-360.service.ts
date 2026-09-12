@@ -95,7 +95,7 @@ export class Member360Service {
       latestMeasurement,
       activeGoals,
       latestScreening,
-      packageRemaining,
+      ptPackages,
     ] = await Promise.all([
       this.prisma.membership.findMany({
         where: { organizationId, memberId },
@@ -132,11 +132,10 @@ export class Member360Service {
         orderBy: { completedAt: 'desc' },
         select: { completedAt: true, flaggedForMedicalClearance: true },
       }),
-      this.prisma.$queryRawUnsafe<{ remaining: number }[]>(
-        `SELECT COALESCE(SUM(GREATEST("totalSessions" - "usedSessions", 0)), 0) AS "remaining" FROM "pt_packages" WHERE "organizationId" = $1 AND "memberId" = $2 AND "status" = 'ACTIVE'`,
-        organizationId,
-        memberId,
-      ),
+      this.prisma.ptPackage.findMany({
+        where: { organizationId, memberId, status: 'ACTIVE' },
+        select: { totalSessions: true, usedSessions: true },
+      }),
     ]);
 
     const current =
@@ -279,7 +278,10 @@ export class Member360Service {
         upcomingSessions: ptSessions.filter(
           (s) => s.status === 'SCHEDULED' && s.startTime >= now,
         ).length,
-        remainingPackageSessions: Number(packageRemaining[0]?.remaining ?? 0),
+        remainingPackageSessions: ptPackages.reduce(
+          (sum, p) => sum + Math.max(p.totalSessions - p.usedSessions, 0),
+          0,
+        ),
         totalRevenue: ptRevenue.toFixed(2),
       },
       latestAssessment: latestMeasurement

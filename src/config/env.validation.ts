@@ -77,6 +77,12 @@ export const envSchema = z.object({
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
+
+  // Stripe webhooks (src/payments/stripe-webhook.controller.ts) -- optional
+  // at boot. Unset means POST /payments/webhook returns a clear 500 naming
+  // the missing secret instead of the app failing to boot over a missing
+  // optional integration, same pattern as OPENROUTER_API_KEY.
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

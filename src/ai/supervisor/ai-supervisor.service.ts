@@ -30,6 +30,12 @@ export class AiSupervisorService {
     return specialist.executeTool(name, rawArgs, context);
   }
 
+  /**
+   * WARNING: this method self-approves (propose + approve in one call with the
+   * requester as approver). It must not be exposed without human approval --
+   * keep it out of any unauthenticated/self-service shell and route writes
+   * through the Action Center approval flow instead.
+   */
   async executeWithApproval(
     name: AiToolName,
     rawArgs: unknown,
