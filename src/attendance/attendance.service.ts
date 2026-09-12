@@ -97,7 +97,7 @@ export class AttendanceService {
     assignmentScope: string | null = null,
   ) {
     let memberId = dto.memberId;
-    let staffUserId = dto.staffUserId;
+    const staffUserId = dto.staffUserId;
 
     if (dto.qrToken) {
       if (staffUserId) {
@@ -357,11 +357,7 @@ export class AttendanceService {
     if (Number.isNaN(at.getTime())) {
       throw new BadRequestException('Invalid at timestamp');
     }
-    const gate = await this.evaluateGate(
-      branch.organizationId,
-      member.id,
-      at,
-    );
+    const gate = await this.evaluateGate(branch.organizationId, member.id, at);
     const record = await this.prisma.attendance.create({
       data: {
         organizationId: branch.organizationId,

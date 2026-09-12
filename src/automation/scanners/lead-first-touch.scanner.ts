@@ -105,9 +105,7 @@ export class LeadFirstTouchScanner {
             data: {
               organizationId: lead.organizationId,
               leadId: lead.id,
-              dueAt: new Date(
-                Date.now() + FOLLOWUP_DUE_HOURS * 60 * 60 * 1000,
-              ),
+              dueAt: new Date(Date.now() + FOLLOWUP_DUE_HOURS * 60 * 60 * 1000),
               note: 'auto-first-touch',
               createdByUserId: assigneeId ?? undefined,
             },

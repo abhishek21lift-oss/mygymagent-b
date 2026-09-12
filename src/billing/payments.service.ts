@@ -174,7 +174,10 @@ export class PaymentsService {
         'Invoice does not belong to the specified member',
       );
     }
-    if (invoice && (invoice.status === 'VOID' || invoice.status === 'WRITTEN_OFF')) {
+    if (
+      invoice &&
+      (invoice.status === 'VOID' || invoice.status === 'WRITTEN_OFF')
+    ) {
       throw new BadRequestException(
         'Cannot link a payment to a voided invoice',
       );

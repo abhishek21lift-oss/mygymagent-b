@@ -267,7 +267,9 @@ export class LeadsService {
         },
       },
     });
-    const phones = [...new Set(leads.map((l) => l.phone).filter(Boolean))] as string[];
+    const phones = [
+      ...new Set(leads.map((l) => l.phone).filter(Boolean)),
+    ] as string[];
     const logsByRecipient = new Map<string, Date>();
     if (phones.length > 0) {
       const logs = await this.prisma.messageLog.findMany({

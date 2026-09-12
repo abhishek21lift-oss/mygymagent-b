@@ -8,7 +8,12 @@ import { PtSessionsController } from './pt-sessions.controller';
 import { PtSessionsService } from './pt-sessions.service';
 
 @Module({
-  imports: [EventEmitterModule, BranchesModule, PtPackagesModule, MembersModule],
+  imports: [
+    EventEmitterModule,
+    BranchesModule,
+    PtPackagesModule,
+    MembersModule,
+  ],
   controllers: [PtSessionsController],
   providers: [PtSessionsService, PrismaService],
   exports: [PtSessionsService],

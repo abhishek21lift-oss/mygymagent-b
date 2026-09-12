@@ -1,6 +1,10 @@
 import { ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ThrottlerGuard, getOptionsToken, getStorageToken } from '@nestjs/throttler';
+import {
+  ThrottlerGuard,
+  getOptionsToken,
+  getStorageToken,
+} from '@nestjs/throttler';
 import type {
   ThrottlerModuleOptions,
   ThrottlerStorage,

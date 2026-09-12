@@ -54,13 +54,19 @@ export class PtSessionsController {
 
   @Get(':id')
   @RequirePermissions('pt-sessions.read')
-  async getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async getOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.ptSessionsService.getOne(requireOrgId(user), id);
   }
 
   @Post()
   @RequirePermissions('pt-sessions.create')
-  async book(@Body() dto: BookPtSessionDto, @CurrentUser() user: AuthenticatedUser) {
+  async book(
+    @Body() dto: BookPtSessionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.ptSessionsService.book(requireOrgId(user), dto, user.id);
   }
 
@@ -76,7 +82,10 @@ export class PtSessionsController {
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
-  async complete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async complete(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.ptSessionsService.complete(requireOrgId(user), id, user.id);
   }
 
@@ -87,12 +96,20 @@ export class PtSessionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('reason') cancellationReason?: string,
   ) {
-    return this.ptSessionsService.cancel(requireOrgId(user), id, user.id, cancellationReason);
+    return this.ptSessionsService.cancel(
+      requireOrgId(user),
+      id,
+      user.id,
+      cancellationReason,
+    );
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
-  async markNoShow(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async markNoShow(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.ptSessionsService.markNoShow(requireOrgId(user), id, user.id);
   }
 }

@@ -39,9 +39,7 @@ describe('PaymentsService', () => {
             invoicePayment: {
               create: jest.fn(),
             },
-            $transaction: jest.fn((cb: (tx: unknown) => unknown) =>
-              cb(prisma),
-            ),
+            $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
             aiUsageLog: {
               create: jest.fn(),
             },

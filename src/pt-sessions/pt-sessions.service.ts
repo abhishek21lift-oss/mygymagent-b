@@ -98,12 +98,12 @@ export class PtSessionsService {
             memberCode: true,
           },
         },
-trainer: {
-              select: {
-                id: true,
-                user: { select: { firstName: true, lastName: true } },
-              },
-            },
+        trainer: {
+          select: {
+            id: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
         branch: { select: { id: true, name: true } },
       },
     });
@@ -284,12 +284,12 @@ trainer: {
               memberCode: true,
             },
           },
-trainer: {
-              select: {
-                id: true,
-                user: { select: { firstName: true, lastName: true } },
-              },
+          trainer: {
+            select: {
+              id: true,
+              user: { select: { firstName: true, lastName: true } },
             },
+          },
           branch: { select: { id: true, name: true } },
         },
       });

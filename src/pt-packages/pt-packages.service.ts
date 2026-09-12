@@ -9,9 +9,9 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePtPackageDto } from './dto/create-pt-package.dto';
 
-function withRemaining<T extends { totalSessions: number; usedSessions: number }>(
-  pkg: T,
-) {
+function withRemaining<
+  T extends { totalSessions: number; usedSessions: number },
+>(pkg: T) {
   return {
     ...pkg,
     remainingSessions: Math.max(pkg.totalSessions - pkg.usedSessions, 0),
@@ -156,7 +156,9 @@ export class PtPackagesService {
 
     // Guard against consuming a package that is no longer ACTIVE (e.g., already COMPLETED by another transaction)
     if (pkg.status && pkg.status !== 'ACTIVE') {
-      this.logger.warn(`Package ${pkg.id} status is ${pkg.status} – treating as already consumed`);
+      this.logger.warn(
+        `Package ${pkg.id} status is ${pkg.status} – treating as already consumed`,
+      );
       return { consumed: false, packageId: pkg.id, alreadyConsumed: true };
     }
 
