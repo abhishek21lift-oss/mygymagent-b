@@ -77,6 +77,15 @@ export const envSchema = z.object({
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
+  // WS-2 vault + webhook verify tokens (src/whatsapp/). Both optional at
+  // boot, same check-together-at-call-time pattern as META_APP_ID above:
+  // WHATSAPP_TOKEN_KEY is the 32-byte-hex AES-256-GCM key for the
+  // per-org credential vault -- unset means the connect and test-send
+  // endpoints return a clear 503 instead of storing/sending anything.
+  // META_WABA_VERIFY_TOKEN is compared against Meta's hub.verify_token on
+  // GET /whatsapp/webhook -- unset means verification always fails closed.
+  WHATSAPP_TOKEN_KEY: z.string().optional(),
+  META_WABA_VERIFY_TOKEN: z.string().optional(),
 
   // Stripe webhooks (src/payments/stripe-webhook.controller.ts) -- optional
   // at boot. Unset means POST /payments/webhook returns a clear 500 naming

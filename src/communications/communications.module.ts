@@ -8,14 +8,16 @@ import {
 } from './communications.service';
 import { MessageTemplateService } from './message-template.service';
 import { UnimplementedChannelProvider } from './interfaces/message-provider.interface';
+import { MetaWhatsappProvider } from './providers/meta-whatsapp.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
 /**
  * Real, provider-backed communications -- see README.md for what's built
- * (EMAIL, real templates, per-org branding, MARKETING-consent enforcement,
- * delivery logging) vs. deliberately not yet (WHATSAPP/SMS/PUSH have no
- * real provider; the bound `UnimplementedChannelProvider` always throws
- * rather than silently no-opping).
+ * (EMAIL, WHATSAPP via the Meta Cloud API, real templates, per-org
+ * branding, MARKETING-consent enforcement, delivery logging) vs.
+ * deliberately not yet (SMS/PUSH have no real provider; the bound
+ * `UnimplementedChannelProvider` always throws rather than silently
+ * no-opping).
  *
  * `@Global()` is deliberately NOT used here (unlike QueueModule/FilesModule)
  * -- CommunicationsService is a substantial, feature-specific API surface,
@@ -26,10 +28,11 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
   providers: [
     CommunicationsService,
     MessageTemplateService,
+    MetaWhatsappProvider,
     { provide: EMAIL_PROVIDER, useClass: SmtpEmailProvider },
     {
       provide: WHATSAPP_PROVIDER,
-      useValue: new UnimplementedChannelProvider('WhatsApp'),
+      useClass: MetaWhatsappProvider,
     },
     {
       provide: SMS_PROVIDER,

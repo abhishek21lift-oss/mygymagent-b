@@ -34,8 +34,8 @@ interface SendInput {
  * this person" into an actual outbound attempt -- template resolution
  * (org override or system default), per-org branding, consent
  * enforcement, delivery logging, and provider dispatch, in that order.
- * See README.md for what's real (EMAIL, via SmtpEmailProvider) vs. typed
- * but unimplemented (WHATSAPP/SMS/PUSH).
+ * See README.md for what's real (EMAIL via SmtpEmailProvider, WHATSAPP
+ * via MetaWhatsappProvider) vs. typed but unimplemented (SMS/PUSH).
  *
  * Callers fall into two shapes:
  *  - Synchronous, time-sensitive transactional flows (password reset,
@@ -132,6 +132,10 @@ export class CommunicationsService {
     });
 
     try {
+      // A provider that reports its own message id (Meta's `wamid` for
+      // WHATSAPP) has it stored on the log row -- the join key the
+      // delivery-status webhook uses to advance SENT -> DELIVERED -> READ.
+      let providerMessageId: string | undefined;
       if (input.channel === 'EMAIL') {
         await this.emailProvider.send({
           to: input.recipient,
@@ -146,7 +150,12 @@ export class CommunicationsService {
           SMS: this.smsProvider,
           PUSH: this.pushProvider,
         }[input.channel];
-        await provider.send({ to: input.recipient, text: body });
+        const messageId = await provider.send({
+          to: input.recipient,
+          text: body,
+          organizationId: input.organizationId ?? undefined,
+        });
+        if (typeof messageId === 'string') providerMessageId = messageId;
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },
@@ -154,6 +163,7 @@ export class CommunicationsService {
           status: 'SENT',
           sentAt: new Date(),
           attempts: { increment: 1 },
+          ...(providerMessageId ? { providerMessageId } : {}),
         },
       });
     } catch (error) {
@@ -182,9 +192,9 @@ export class CommunicationsService {
    * never template-resolved. Logged under templateKey 'ad_hoc' so the
    * audit trail distinguishes composed mail from template mail.
    *
-   * WHATSAPP/SMS/PUSH still throw via their UnimplementedChannelProvider
-   * until a real provider is wired (the failure is recorded in
-   * MessageLog, never silently swallowed) -- EMAIL sends for real today.
+   * SMS/PUSH still throw via their UnimplementedChannelProvider until a
+   * real provider is wired (the failure is recorded in MessageLog, never
+   * silently swallowed) -- EMAIL and WHATSAPP send for real today.
    */
   async sendAdHoc(input: {
     organizationId: string;
@@ -247,6 +257,7 @@ export class CommunicationsService {
     });
 
     try {
+      let providerMessageId: string | undefined;
       if (input.channel === 'EMAIL') {
         await this.emailProvider.send({
           to: input.recipient,
@@ -261,7 +272,12 @@ export class CommunicationsService {
           SMS: this.smsProvider,
           PUSH: this.pushProvider,
         }[input.channel];
-        await provider.send({ to: input.recipient, text: body });
+        const messageId = await provider.send({
+          to: input.recipient,
+          text: body,
+          organizationId: input.organizationId,
+        });
+        if (typeof messageId === 'string') providerMessageId = messageId;
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },
@@ -269,6 +285,7 @@ export class CommunicationsService {
           status: 'SENT',
           sentAt: new Date(),
           attempts: { increment: 1 },
+          ...(providerMessageId ? { providerMessageId } : {}),
         },
       });
     } catch (error) {

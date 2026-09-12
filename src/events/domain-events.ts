@@ -18,6 +18,7 @@ export const DomainEvent = {
   PtSessionBooked: 'pt.session.booked',
   PtSessionCompleted: 'pt.session.completed',
   PtSessionCancelled: 'pt.session.cancelled',
+  WhatsappReceived: 'whatsapp.received',
 } as const;
 
 export interface MemberCreatedEvent {
@@ -147,4 +148,11 @@ export interface PtSessionCancelledEvent {
   branchId: string;
   cancelledByUserId: string;
   cancellationReason?: string;
+}
+
+export interface WhatsappReceivedEvent {
+  organizationId: string;
+  inboundMessageId: string;
+  from: string;
+  matchedMemberId: string | null;
 }

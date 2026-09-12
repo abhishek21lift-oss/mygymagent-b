@@ -22,3 +22,9 @@ export class SendWhatsAppMessageDto {
   @IsString()
   text!: string;
 }
+
+export class TestSendWhatsAppDto {
+  /** Recipient phone number in international format, e.g. `15551234567`. */
+  @IsString()
+  to!: string;
+}

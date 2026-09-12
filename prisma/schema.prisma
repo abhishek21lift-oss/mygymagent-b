@@ -127,6 +127,8 @@ model Organization {
   ptPackages              PtPackage[]
   ptSessionConsumptions   PtSessionConsumption[]
   whatsappIntegration     WhatsappIntegration?
+  whatsappCredential        WhatsappCredential?
+  inboundMessages           InboundMessage[]
   memberTags              MemberTag[]
   memberTagAssignments    MemberTagAssignment[]
   memberFollowUps         MemberFollowUp[]
@@ -586,6 +588,7 @@ model Member {
   goals             MemberGoal[]
   documents         MemberDocument[]
   messageLogs       MessageLog[]
+  inboundMessages   InboundMessage[]
   appointments      Appointment[]             @relation("AppointmentMember")
   tagAssignments    MemberTagAssignment[]
   followUps         MemberFollowUp[]          @relation("MemberFollowUpMember")
@@ -2118,6 +2121,13 @@ enum MessageCategory {
 enum MessageStatus {
   PENDING
   SENT
+  /// Meta Cloud API `delivered` status callback for a sent WhatsApp message
+  /// (matched via MessageLog.providerMessageId) -- see WhatsappService's
+  /// webhook handler. EMAIL never reaches this state (SMTP has no
+  /// delivery-receipt seam in SmtpEmailProvider).
+  DELIVERED
+  /// Meta Cloud API `read` status callback -- same path as DELIVERED.
+  READ
   FAILED
   /// A MARKETING-category send whose recipient's latest MARKETING consent
   /// is `granted: false` -- never attempted, not a delivery failure.
@@ -2167,11 +2177,18 @@ model MessageLog {
   attempts       Int                  @default(0)
   errorMessage   String?
   sentAt         DateTime?
+  /// Provider-side id for a sent message (Meta's `wamid` for WHATSAPP, set
+  /// by CommunicationsService from the provider's send() return value) --
+  /// the join key the WhatsApp status webhook uses to advance a row
+  /// SENT -> DELIVERED -> READ. Null for channels/providers that don't
+  /// report one (EMAIL today).
+  providerMessageId String?
 
   createdAt DateTime @default(now())
 
   @@index([organizationId, createdAt])
   @@index([memberId])
+  @@index([providerMessageId])
   @@map("message_logs")
 }
 
@@ -2521,6 +2538,49 @@ model WhatsappIntegration {
   updatedAt DateTime @updatedAt
 
   @@map("whatsapp_integrations")
+}
+
+/// Encrypted per-organization Meta system-user token for WhatsApp sending
+/// (the credential vault). Only `accessTokenEnc` (AES-256-GCM ciphertext,
+/// key from the `WHATSAPP_TOKEN_KEY` env var) is ever stored -- the
+/// plaintext token lives only in memory between the embedded-signup
+/// exchange and encryption, or between decryption and the Graph API call,
+/// and is never logged or returned by any endpoint (see
+/// src/whatsapp/whatsapp-token.vault.ts).
+model WhatsappCredential {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  accessTokenEnc String
+  expiresAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_credentials")
+}
+
+/// One inbound WhatsApp text message received on an org's connected number
+/// (via POST /whatsapp/webhook). `matchedMemberId` is set when the
+/// sender's number matches a Member's phone by digits-suffix, else null --
+/// those unmatched rows are the CRM unmatched queue
+/// (GET /whatsapp/inbound?matched=false).
+model InboundMessage {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  from String
+  body String
+
+  matchedMemberId String?
+  matchedMember   Member? @relation(fields: [matchedMemberId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("inbound_messages")
 }
 
 // ----------------------------------------------------------------------------
