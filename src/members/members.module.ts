@@ -59,6 +59,10 @@ import { MembersService } from './members.service';
     MemberCommunicationsService,
     Member360Service,
   ],
-  exports: [MembersService, MemberFollowUpsService],
+  exports: [
+    MembersService,
+    MemberDetailsService,
+    MemberFollowUpsService,
+  ],
 })
 export class MembersModule {}
