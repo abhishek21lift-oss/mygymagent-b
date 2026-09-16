@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ExercisesController } from './exercises.controller';
 import { ExercisesService } from './exercises.service';
+import { ExerciseHistoryController } from './exercise-history.controller';
+import { ExerciseHistoryService } from './exercise-history.service';
 import { WorkoutAssignmentsController } from './workout-assignments.controller';
 import { WorkoutAssignmentsService } from './workout-assignments.service';
 import { WorkoutPlansController } from './workout-plans.controller';
@@ -16,10 +18,21 @@ import { WorkoutPlansService } from './workout-plans.service';
 @Module({
   controllers: [
     ExercisesController,
+    ExerciseHistoryController,
     WorkoutPlansController,
     WorkoutAssignmentsController,
   ],
-  providers: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
-  exports: [ExercisesService, WorkoutPlansService, WorkoutAssignmentsService],
+  providers: [
+    ExercisesService,
+    ExerciseHistoryService,
+    WorkoutPlansService,
+    WorkoutAssignmentsService,
+  ],
+  exports: [
+    ExercisesService,
+    ExerciseHistoryService,
+    WorkoutPlansService,
+    WorkoutAssignmentsService,
+  ],
 })
 export class WorkoutsModule {}
