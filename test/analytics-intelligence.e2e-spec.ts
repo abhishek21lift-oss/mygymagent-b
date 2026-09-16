@@ -1,7 +1,11 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createTestApp, type RegisteredAccount } from './utils/test-app';
+import {
+  createTestApp,
+  grantActiveMembership,
+  type RegisteredAccount,
+} from './utils/test-app';
 
 /** Exercises the P2 Member/Sales/Trainer/Inventory intelligence
  * endpoints against real Postgres data -- see src/analytics/README.md
@@ -75,6 +79,10 @@ describe('Analytics / intelligence (e2e)', () => {
         lastName: 'Member',
       }),
     ).expect(201);
+    // The access gate denies a check-in for a member with no active
+    // membership, and a denial answers 200, not 201 -- the "recently
+    // visited" half of this test needs the visit to really happen.
+    await grantActiveMembership(app, org.accessToken, fresh.body.data.id);
     await authed(org.accessToken)(
       request(app.getHttpServer()).post('/attendance/check-in').send({
         memberId: fresh.body.data.id,

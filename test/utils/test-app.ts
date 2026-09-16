@@ -7,6 +7,7 @@ import {
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
+import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 
@@ -71,4 +72,53 @@ export interface RegisteredAccount {
   organizationId: string;
   userId: string;
   branchId: string;
+}
+
+/**
+ * Gives an existing member an ACTIVE membership, so that
+ * POST /attendance/check-in is actually allowed.
+ *
+ * AttendanceService#evaluateGate denies a check-in for a member with no
+ * active membership, and the controller answers a denial with 200 + a
+ * decision body rather than a 4xx (turnstiles need a decision, not an
+ * error). A test that creates a bare member and expects 201 from a
+ * check-in is therefore asserting against the pre-gate behaviour and
+ * will fail on the 200 -- give the member a membership here instead of
+ * relaxing the assertion, so the check-in under test is a real one.
+ *
+ * Goes through the public endpoints rather than writing rows directly:
+ * POST /memberships already creates with status ACTIVE, startDate now
+ * and endDate now + durationDays, which is exactly what the gate looks
+ * for.
+ */
+export async function grantActiveMembership(
+  app: INestApplication,
+  accessToken: string,
+  memberId: string,
+  durationDays = 30,
+): Promise<{ membershipId: string; membershipPlanId: string }> {
+  const authed = (req: request.Test) =>
+    req.set('Authorization', `Bearer ${accessToken}`);
+
+  const plan = await authed(
+    request(app.getHttpServer())
+      .post('/membership-plans')
+      .send({
+        name: `Gate Pass ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        durationDays,
+        price: 50,
+      }),
+  ).expect(201);
+
+  const membership = await authed(
+    request(app.getHttpServer()).post('/memberships').send({
+      memberId,
+      membershipPlanId: plan.body.data.id,
+    }),
+  ).expect(201);
+
+  return {
+    membershipId: membership.body.data.id,
+    membershipPlanId: plan.body.data.id,
+  };
 }
