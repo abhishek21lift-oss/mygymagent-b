@@ -5,14 +5,11 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
-import {
-  PaginationQueryDto,
-  paginate,
-  skipTake,
-} from '../common/dto/pagination-query.dto';
+import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateMemberDto } from './dto/create-member.dto';
+import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
 
 @Injectable()
@@ -24,15 +21,38 @@ export class MembersService {
 
   async list(
     organizationId: string,
-    query: PaginationQueryDto,
+    query: ListMembersQueryDto,
     branchId?: string,
     assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       organizationId,
       deletedAt: null,
-      ...(branchId ? { primaryBranchId: branchId } : {}),
-      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      ...(branchId
+        ? { primaryBranchId: branchId }
+        : query.branchId?.length
+          ? { primaryBranchId: { in: query.branchId } }
+          : {}),
+      ...(assignmentScope
+        ? { assignedTrainerId: assignmentScope }
+        : query.trainerId?.length
+          ? { assignedTrainerId: { in: query.trainerId } }
+          : {}),
+      ...(query.status?.length ? { status: { in: query.status } } : {}),
+      ...(query.memberType?.length
+        ? { memberType: { in: query.memberType } }
+        : {}),
+      ...(query.tagIds?.length
+        ? { tagAssignments: { some: { tagId: { in: query.tagIds } } } }
+        : {}),
+      ...(query.joinedFrom || query.joinedTo
+        ? {
+            joinedAt: {
+              ...(query.joinedFrom ? { gte: new Date(query.joinedFrom) } : {}),
+              ...(query.joinedTo ? { lte: new Date(query.joinedTo) } : {}),
+            },
+          }
+        : {}),
       ...(query.search
         ? {
             OR: [
@@ -49,7 +69,7 @@ export class MembersService {
       this.prisma.member.findMany({
         where,
         ...skipTake(query),
-        orderBy: { createdAt: query.order ?? 'desc' },
+        orderBy: { [query.orderBy ?? 'createdAt']: query.order ?? 'desc' },
         include: { primaryBranch: { select: { id: true, name: true } } },
       }),
       this.prisma.member.count({ where }),
