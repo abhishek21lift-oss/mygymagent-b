@@ -136,6 +136,9 @@ model Organization {
   memberFollowUps         MemberFollowUp[]
   invoices                Invoice[]
   invoiceSequences        InvoiceSequence[]
+  riskProfiles            MemberRiskProfile[]
+  segments                MemberSegment[]
+  recommendedActions      RecommendedAction[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -582,28 +585,31 @@ model Member {
   /// side of Lead.convertedMemberId.
   convertedFromLead  Lead?
 
-  addresses         MemberAddress[]
-  emergencyContacts MemberEmergencyContact[]
-  memberNotes       MemberNote[]
-  consents          MemberConsent[]
-  statusHistory     MemberStatusHistory[]
-  branchHistory     MemberBranchHistory[]
-  trainerHistory    MemberTrainerHistory[]
-  assessments       MemberAssessment[]
-  measurements      MemberMeasurement[]
-  fitnessResults    MemberFitnessTestResult[]
-  screenings        MemberScreening[]
-  goals             MemberGoal[]
-  documents         MemberDocument[]
-  messageLogs       MessageLog[]
-  inboundMessages   InboundMessage[]
-  appointments      Appointment[]             @relation("AppointmentMember")
-  tagAssignments    MemberTagAssignment[]
-  followUps         MemberFollowUp[]          @relation("MemberFollowUpMember")
-  ptPackages        PtPackage[]
-  invoices          Invoice[]
-  qrToken           MemberQrToken?
-  deviceMaps        DeviceMap[]
+  addresses          MemberAddress[]
+  emergencyContacts  MemberEmergencyContact[]
+  memberNotes        MemberNote[]
+  consents           MemberConsent[]
+  statusHistory      MemberStatusHistory[]
+  branchHistory      MemberBranchHistory[]
+  trainerHistory     MemberTrainerHistory[]
+  assessments        MemberAssessment[]
+  measurements       MemberMeasurement[]
+  fitnessResults     MemberFitnessTestResult[]
+  screenings         MemberScreening[]
+  goals              MemberGoal[]
+  documents          MemberDocument[]
+  messageLogs        MessageLog[]
+  inboundMessages    InboundMessage[]
+  appointments       Appointment[]             @relation("AppointmentMember")
+  tagAssignments     MemberTagAssignment[]
+  followUps          MemberFollowUp[]          @relation("MemberFollowUpMember")
+  riskProfile        MemberRiskProfile?
+  segmentAssignments MemberSegmentAssignment[]
+  recommendedActions RecommendedAction[]
+  ptPackages         PtPackage[]
+  invoices           Invoice[]
+  qrToken            MemberQrToken?
+  deviceMaps         DeviceMap[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -2739,4 +2745,137 @@ model MemberFollowUp {
   @@index([organizationId, memberId, dueAt])
   @@index([organizationId, memberId, completedAt])
   @@map("member_follow_ups")
+}
+
+// ----------------------------------------------------------------------------
+// Member Intelligence OS — churn risk, segmentation and recommended actions.
+// Ported from the member-intelligence work on origin/main.
+// ----------------------------------------------------------------------------
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskTrend {
+  IMPROVING
+  STABLE
+  WORSENING
+}
+
+enum ActionType {
+  OUTREACH_CHURN_RISK
+  RENEWAL_NUDGE
+  PAYMENT_PLAN
+  FREEZE_OFFER
+  UPGRADE_PITCH
+  ASSESSMENT_BOOK
+  LOYALTY_REWARD
+  RE_ENGAGEMENT
+}
+
+enum Priority {
+  P0
+  P1
+  P2
+}
+
+/// Suggested channel for a recommended action. Distinct from
+/// CommunicationChannel, which is limited to channels the system can actually
+/// deliver on -- this one also covers human follow-up (IN_PERSON, CALL).
+enum ChannelType {
+  WHATSAPP
+  SMS
+  EMAIL
+  IN_PERSON
+  CALL
+}
+
+enum ActionStatus {
+  PENDING
+  ASSIGNED
+  COMPLETED
+  DISMISSED
+  AUTOMATED
+}
+
+model MemberRiskProfile {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String       @unique
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  overallScore        Int       @default(0)
+  riskLevel           RiskLevel @default(LOW)
+  trend               RiskTrend @default(STABLE)
+  contributingFactors Json      @default("[]")
+  protectiveFactors   String[]  @default([])
+
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([organizationId, riskLevel])
+  @@index([organizationId, computedAt])
+  @@map("member_risk_profiles")
+}
+
+model MemberSegment {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  rules       Json
+  isSystem    Boolean @default(false)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, isSystem])
+  @@map("member_segments")
+}
+
+model MemberSegmentAssignment {
+  id        String   @id @default(uuid())
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  segmentId String
+  createdAt DateTime @default(now())
+
+  @@unique([memberId, segmentId])
+  @@map("member_segment_assignments")
+}
+
+model RecommendedAction {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type       ActionType
+  priority   Priority
+  confidence Float
+  reasoning  String
+
+  suggestedChannel   ChannelType?
+  suggestedContent   String?
+  suggestedOfferType String?
+  discountPercent    Int?
+  freezeDays         Int?
+
+  status           ActionStatus @default(PENDING)
+  assignedToUserId String?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, memberId])
+  @@map("recommended_actions")
 }

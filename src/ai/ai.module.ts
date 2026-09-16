@@ -61,5 +61,8 @@ import { BriefingSpecialistService } from './specialists/briefing-specialist.ser
     ActionsSpecialistService,
     BriefingSpecialistService,
   ],
+  // MemberIntelligenceModule's AiInsightsService calls the model directly
+  // rather than going through AiService's tool-calling loop.
+  exports: [OpenRouterProvider],
 })
 export class AiModule {}
