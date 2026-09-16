@@ -1,0 +1,11 @@
+-- schema.prisma has declared PaymentStatus.FAILED for some time, but no
+-- migration ever added it to the database type, which still only had
+-- COMPLETED / REFUNDED / PARTIALLY_REFUNDED. Anything writing or querying
+-- FAILED therefore died with:
+--   invalid input value for enum "PaymentStatus": "FAILED"
+-- That includes the Stripe recording path in PaymentsService.recordFromStripe,
+-- so a genuinely failed Stripe payment could not be recorded at all.
+--
+-- IF NOT EXISTS keeps this idempotent for any environment where the value was
+-- already added out of band.
+ALTER TYPE "PaymentStatus" ADD VALUE IF NOT EXISTS 'FAILED';
