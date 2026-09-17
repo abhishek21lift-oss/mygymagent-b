@@ -5,7 +5,9 @@
 
 -- Lost-reason capture for LOST leads (required by the frontend lost-lead
 -- flow and GET /analytics/sales/lost-reasons).
-ALTER TABLE "leads" ADD COLUMN "lostReason" TEXT;
+-- This column already exists in some production databases, so keep this
+-- migration idempotent at the schema-drift boundary.
+ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "lostReason" TEXT;
 
 CREATE TYPE "AppointmentType" AS ENUM ('TRIAL', 'CONSULTATION', 'ASSESSMENT', 'FOLLOW_UP', 'PT_SESSION', 'OTHER');
 CREATE TYPE "AppointmentStatus" AS ENUM ('BOOKED', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED');
@@ -153,9 +155,6 @@ CREATE TABLE "member_tag_assignments" (
   "assignedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "member_tag_assignments_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "member_tag_assignments_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "member_tag_assignments_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "member_tag_assignments_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "member_tags"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "member_tag_assignments_assignedByUserId_fkey" FOREIGN KEY ("assignedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT "member_tag_assignments_memberId_tagId_key" UNIQUE ("memberId", "tagId")
 );
 CREATE INDEX "member_tag_assignments_organizationId_memberId_idx" ON "member_tag_assignments"("organizationId", "memberId");
