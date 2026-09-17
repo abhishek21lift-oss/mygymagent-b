@@ -72,6 +72,20 @@ describe('Owner Daily Briefing (e2e)', () => {
         lastName: 'Member',
       }),
     ).expect(201);
+    // The WS-3 turnstile gate only allows check-ins with an ACTIVE
+    // membership covering now -- without one this check-in is denied (200)
+    // and never counts toward today's briefing.
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/membership-plans')
+        .send({ name: 'Standard', durationDays: 30, price: 100 }),
+    ).expect(201);
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/memberships').send({
+        memberId: member.body.data.id,
+        membershipPlanId: plan.body.data.id,
+      }),
+    ).expect(201);
     await authed(org.accessToken)(
       request(app.getHttpServer()).post('/attendance/check-in').send({
         memberId: member.body.data.id,
