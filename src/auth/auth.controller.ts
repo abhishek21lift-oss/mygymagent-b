@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -67,6 +68,43 @@ export class AuthController {
     res.cookie(REFRESH_COOKIE, token, this.cookieOptions(expiresAt));
   }
 
+  /** Allowed browser origins for the cookie-authenticated endpoints below
+   * (refresh/logout). The refresh cookie is `SameSite=None` in production
+   * so cross-site pages can trigger these endpoints with the victim's
+   * cookie attached (logout CSRF / forced rotation) -- CORS alone does not
+   * stop that, since the state change happens whether or not the attacker
+   * can read the response. Requests without Origin/Referer (curl, tests,
+   * native apps) are allowed; browser requests must exactly match an
+   * origin the API already trusts for credentialed CORS. */
+  private allowedOrigins(): Set<string> {
+    const corsOrigins = (this.config.get<string>('CORS_ORIGIN') ?? '')
+      .split(',')
+      .map((o) => o.trim().replace(/\/$/, ''))
+      .filter(Boolean);
+    const frontendUrl = (this.config.get<string>('FRONTEND_URL') ?? '')
+      .trim()
+      .replace(/\/$/, '');
+    return new Set([...corsOrigins, ...(frontendUrl ? [frontendUrl] : [])]);
+  }
+
+  private assertSafeOrigin(req: Request): void {
+    const origin = req.headers.origin;
+    const referer = req.headers.referer;
+    if (!origin && !referer) return; // non-browser client
+    const allowed = this.allowedOrigins();
+    const normalize = (value: string) => value.trim().replace(/\/$/, '');
+    if (origin && allowed.has(normalize(origin))) return;
+    if (referer) {
+      try {
+        const url = new URL(referer);
+        if (allowed.has(`${url.protocol}//${url.host}`)) return;
+      } catch {
+        // fall through to Forbidden below
+      }
+    }
+    throw new ForbiddenException('Cross-origin request not allowed');
+  }
+
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
@@ -103,6 +141,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.assertSafeOrigin(req);
     const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     if (!token) throw new BadRequestException('Missing refresh token');
     const result = await this.authService.refresh(token, this.requestMeta(req));
@@ -114,6 +153,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.assertSafeOrigin(req);
     const token = req.cookies?.[REFRESH_COOKIE] as string | undefined;
     if (token) await this.authService.logout(token);
     res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
@@ -123,8 +163,10 @@ export class AuthController {
   @Post('logout-all')
   async logoutAll(
     @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.assertSafeOrigin(req);
     await this.authService.logoutAll(user.id);
     res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
   }

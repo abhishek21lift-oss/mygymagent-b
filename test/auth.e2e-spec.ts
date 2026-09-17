@@ -116,6 +116,33 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
+  it('revokes the whole token family when a rotated-out refresh token is replayed', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+
+    const firstCookie = login.headers['set-cookie'][0];
+
+    const refreshed = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', firstCookie)
+      .expect(201);
+    const secondCookie = refreshed.headers['set-cookie'][0];
+
+    // Replaying the rotated-out token is a compromise signal: the entire
+    // session family must die, including the still-fresh second cookie.
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', firstCookie)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', secondCookie)
+      .expect(401);
+  });
+
   it('locks the account after repeated failed logins', async () => {
     const lockEmail = `lockout-e2e-${Date.now()}@example.com`;
     await request(app.getHttpServer())

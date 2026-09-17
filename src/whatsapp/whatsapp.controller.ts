@@ -3,13 +3,16 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Post,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -157,11 +160,24 @@ export class WhatsappController {
    * app secret, not a user JWT) and always 200 once the payload parses --
    * even for unknown numbers -- so Meta stops retrying undeliverable
    * events, the same ack-even-if-unknown pattern as the Razorpay webhook.
+   * The `X-Hub-Signature-256` HMAC is verified first: without it the
+   * phone_number_id in the body is attacker-controlled routing, not proof
+   * of origin (a forged payload would land in another org's CRM queue).
    */
   @Post('webhook')
   @Public()
   @HttpCode(HttpStatus.OK)
-  handleWebhook(@Body() body: unknown) {
+  handleWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('x-hub-signature-256') signature: string | undefined,
+    @Body() body: unknown,
+  ) {
+    // Signature is over the raw bytes -- re-serializing the parsed body
+    // would change whitespace/key order and break verification (same
+    // pattern as the Stripe webhook controller).
+    const rawBody: Buffer =
+      req.rawBody ?? Buffer.from(JSON.stringify((body ?? {}) as unknown));
+    this.whatsapp.verifyInboundSignature(rawBody, signature);
     return this.whatsapp.handleWebhook(body);
   }
 }

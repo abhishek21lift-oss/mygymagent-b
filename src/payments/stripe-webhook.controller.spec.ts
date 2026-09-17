@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { StripeService } from './stripe.service';
 import { PaymentsService } from '../billing/payments.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import {
   UnauthorizedException,
@@ -28,6 +29,7 @@ describe('StripeWebhookController', () => {
   let controller: StripeWebhookController;
   let stripeService: StripeService;
   let paymentsService: PaymentsService;
+  let prismaService: PrismaService;
   let configService: ConfigService;
   let _logger: Logger;
 
@@ -55,6 +57,13 @@ describe('StripeWebhookController', () => {
           },
         },
         {
+          provide: PrismaService,
+          useValue: {
+            member: { findFirst: jest.fn() },
+            membership: { findFirst: jest.fn() },
+          },
+        },
+        {
           provide: Logger,
           useValue: {
             log: jest.fn(),
@@ -69,8 +78,17 @@ describe('StripeWebhookController', () => {
     );
     stripeService = moduleRef.get<StripeService>(StripeService);
     paymentsService = moduleRef.get<PaymentsService>(PaymentsService);
+    prismaService = moduleRef.get<PrismaService>(PrismaService);
     configService = moduleRef.get<ConfigService>(ConfigService);
     _logger = moduleRef.get<Logger>(Logger);
+
+    // Default: referenced member/membership belong to the metadata org.
+    (prismaService.member.findFirst as jest.Mock).mockResolvedValue({
+      id: 'member_1',
+    });
+    (prismaService.membership.findFirst as jest.Mock).mockResolvedValue({
+      id: 'membership_1',
+    });
   });
 
   describe('handleWebhook', () => {
@@ -376,6 +394,41 @@ describe('StripeWebhookController', () => {
       expect(logSpy).toHaveBeenCalledWith(
         'Unhandled event type charge.succeeded',
       );
+    });
+
+    it('should ignore a payment whose member does not belong to the metadata org', async () => {
+      // Arrange
+      (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      const mockEvent = {
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_foreign',
+            amount: 1000,
+            currency: 'usd',
+            metadata: {
+              organizationId: 'org_1',
+              userId: 'user_1',
+              memberId: 'member_other_org',
+            },
+          },
+        },
+      };
+      (stripeService.constructEvent as jest.Mock).mockReturnValue(mockEvent);
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue(
+        null,
+      );
+      (prismaService.member.findFirst as jest.Mock).mockResolvedValue(null);
+
+      // Act
+      const result = await controller.handleWebhook(
+        webhookRequest(),
+        'signature',
+      );
+
+      // Assert
+      expect(paymentsService.createStripePayment).not.toHaveBeenCalled();
+      expect(result).toEqual({ received: true });
     });
   });
 });
