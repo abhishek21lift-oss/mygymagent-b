@@ -78,21 +78,79 @@ export class TokensService {
     return { token, expiresAt };
   }
 
-  async findValidRefreshToken(token: string) {
-    const tokenHash = hashOpaqueToken(token);
-    const record = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash },
-    });
-    if (!record || record.revokedAt || record.expiresAt < new Date())
-      return null;
-    return record;
-  }
-
   async revokeRefreshToken(token: string): Promise<void> {
     const tokenHash = hashOpaqueToken(token);
     await this.prisma.refreshToken.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+  }
+
+  /**
+   * Atomically rotates one refresh token: look up, revoke, and issue the
+   * replacement inside a single transaction so two concurrent presentations
+   * of the same token cannot both mint a session.
+   *
+   * Reuse detection: presenting an already-revoked (but unexpired) token
+   * means the token was compromised and replayed -- the whole token family
+   * for that user is revoked so the attacker session dies too. Returns
+   * `{ reused: true }` in that case; the caller must reject with 401 and
+   * should audit the event. An unknown or expired token returns null.
+   */
+  async rotateRefreshToken(
+    token: string,
+    meta: { deviceName?: string; ipAddress?: string; userAgent?: string },
+  ): Promise<
+    | { reused: false; userId: string; token: string; expiresAt: Date }
+    | { reused: true; userId: string }
+    | null
+  > {
+    const tokenHash = hashOpaqueToken(token);
+    const refreshExpiresIn = this.config.get<string>(
+      'JWT_REFRESH_EXPIRES_IN',
+      '30d',
+    );
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const record = await tx.refreshToken.findUnique({
+        where: { tokenHash },
+        select: { id: true, userId: true, revokedAt: true, expiresAt: true },
+      });
+      if (!record || record.expiresAt < now) return null;
+      if (record.revokedAt) {
+        await tx.refreshToken.updateMany({
+          where: { userId: record.userId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        return { reused: true as const, userId: record.userId };
+      }
+
+      await tx.refreshToken.update({
+        where: { id: record.id },
+        data: { revokedAt: now },
+      });
+
+      const newToken = randomBytes(64).toString('hex');
+      const expiresAt = new Date(
+        Date.now() + ms(refreshExpiresIn as Parameters<typeof ms>[0]),
+      );
+      await tx.refreshToken.create({
+        data: {
+          userId: record.userId,
+          tokenHash: hashOpaqueToken(newToken),
+          deviceName: meta.deviceName,
+          ipAddress: meta.ipAddress,
+          userAgent: meta.userAgent,
+          expiresAt,
+        },
+      });
+      return {
+        reused: false as const,
+        userId: record.userId,
+        token: newToken,
+        expiresAt,
+      };
     });
   }
 

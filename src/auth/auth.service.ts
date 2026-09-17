@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
+import { randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { slugifyWithSuffix } from '../common/utils/slugify';
@@ -22,6 +23,14 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Lazily-computed argon2 hash used only to equalize login timing for
+ * unknown emails (see login() below). Computed once, then reused. */
+let dummyPasswordHash: Promise<string> | null = null;
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHash ??= argon2.hash(`dummy:${randomUUID()}`);
+  return dummyPasswordHash;
+}
 
 export interface RequestMeta {
   ipAddress?: string;
@@ -158,7 +167,15 @@ export class AuthService {
     });
 
     // Constant-shaped failure path to avoid leaking whether the email exists.
+    // A dummy argon2 verification keeps the response time indistinguishable
+    // from a real password mismatch -- without it, unknown emails return
+    // immediately while known emails pay the argon2 cost, letting an
+    // attacker enumerate accounts by latency.
     if (!user || !user.passwordHash) {
+      const dummyHash = await getDummyPasswordHash().catch(() => null);
+      if (dummyHash) {
+        await argon2.verify(dummyHash, dto.password).catch(() => false);
+      }
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -219,30 +236,42 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string, meta: RequestMeta) {
-    const record = await this.tokens.findValidRefreshToken(refreshToken);
-    if (!record)
+    // Atomic rotate-and-revoke (see TokensService.rotateRefreshToken): a
+    // replayed token revokes the whole token family instead of silently
+    // 401ing, so a stolen refresh token cannot coexist with the victim's
+    // session undetected.
+    const rotated = await this.tokens.rotateRefreshToken(refreshToken, meta);
+    if (!rotated)
       throw new UnauthorizedException('Invalid or expired refresh token');
+    if (rotated.reused) {
+      await this.audit
+        .record({
+          organizationId: null,
+          actorUserId: rotated.userId,
+          action: 'refresh_token_reuse_detected',
+          resource: 'user',
+          resourceId: rotated.userId,
+          ipAddress: meta.ipAddress,
+          userAgent: meta.userAgent,
+        })
+        .catch(() => undefined);
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
     const user = await this.prisma.user.findUnique({
-      where: { id: record.userId },
+      where: { id: rotated.userId },
     });
     if (!user || user.status !== 'ACTIVE' || user.deletedAt) {
       throw new UnauthorizedException('Account is not active');
     }
 
-    // Rotate: revoke the presented token and issue a fresh pair.
-    await this.tokens.revokeRefreshToken(refreshToken);
-    const {
-      accessToken,
-      refreshToken: newRefreshToken,
-      refreshExpiresAt,
-    } = await this.issueSession(user.id, meta);
+    const accessToken = this.tokens.signAccessToken(user.id);
 
     return {
       user: publicUser(user),
       accessToken,
-      refreshToken: newRefreshToken,
-      refreshExpiresAt,
+      refreshToken: rotated.token,
+      refreshExpiresAt: rotated.expiresAt,
     };
   }
 

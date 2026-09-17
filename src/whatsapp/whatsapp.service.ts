@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import type { MessageStatus } from '@prisma/client';
 import { CommunicationsService } from '../communications/communications.service';
 import {
@@ -371,6 +371,41 @@ export class WhatsappService {
     const ab = Buffer.from(a, 'utf8');
     const bb = Buffer.from(b, 'utf8');
     return ab.length === bb.length && timingSafeEqual(ab, bb);
+  }
+
+  /**
+   * Verifies Meta's `X-Hub-Signature-256` (`sha256=<hex HMAC-SHA256>` over
+   * the raw request bytes, keyed with META_APP_SECRET) before any inbound
+   * payload is trusted. Without this, anyone who knows a phone_number_id
+   * could forge inbound texts and delivery statuses into any org's CRM
+   * queue -- the id in the payload is routing, not authentication.
+   *
+   * Fails closed in production when the secret is unset; in non-production
+   * an unset secret only warns (local dev without Meta credentials).
+   */
+  verifyInboundSignature(rawBody: Buffer, signature: string | undefined): void {
+    const appSecret = this.config.get<string>('META_APP_SECRET', '');
+    if (!appSecret) {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new ServiceUnavailableException(
+          'WhatsApp webhook secret is not configured',
+        );
+      }
+      this.logger.warn(
+        'META_APP_SECRET is unset -- accepting unverified WhatsApp webhook payload (development only)',
+      );
+      return;
+    }
+    if (!signature || !signature.startsWith('sha256=')) {
+      throw new ForbiddenException('Invalid webhook signature');
+    }
+    const expected = `sha256=${createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
+    const a = Buffer.from(signature, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      this.logger.warn('WhatsApp webhook signature mismatch');
+      throw new ForbiddenException('Invalid webhook signature');
+    }
   }
 
   /**

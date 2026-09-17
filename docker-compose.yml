@@ -51,7 +51,6 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: dev-access-secret-change-me-in-production-please
       JWT_ACCESS_EXPIRES_IN: 15m
-      JWT_REFRESH_SECRET: dev-refresh-secret-change-me-in-production-please
       JWT_REFRESH_EXPIRES_IN: 30d
       CORS_ORIGIN: http://localhost:3000
     volumes:

@@ -387,14 +387,16 @@ export class AttendanceService {
 
   private async resolveBranchFromDeviceKey(deviceKey: string) {
     if (!deviceKey) throw new UnauthorizedException('Invalid device key');
-    const branches = await this.prisma.branch.findMany({
-      where: { deviceKey: { not: null }, deletedAt: null },
+    // Direct unique-index lookup: the previous implementation loaded every
+    // branch key and looped with an early exit, which is O(branches) per
+    // check-in and leaks which row matched via timing. The constant-time
+    // compare stays as defense-in-depth.
+    const branch = await this.prisma.branch.findFirst({
+      where: { deviceKey, deletedAt: null },
       select: { id: true, organizationId: true, deviceKey: true },
     });
-    for (const branch of branches) {
-      if (branch.deviceKey && safeEqual(branch.deviceKey, deviceKey)) {
-        return branch;
-      }
+    if (branch?.deviceKey && safeEqual(branch.deviceKey, deviceKey)) {
+      return branch;
     }
     throw new UnauthorizedException('Invalid device key');
   }

@@ -126,12 +126,32 @@ describe('Member documents (e2e)', () => {
       request(app.getHttpServer())
         .post(`/members/${memberId}/documents`)
         .field('category', 'PROGRESS_PHOTO')
+        // Minimal real JPEG header (SOI + APP0) -- uploads are
+        // content-sniffed, so fake bytes claiming image/jpeg are rejected.
+        .attach(
+          'file',
+          Buffer.from([
+            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00,
+          ]),
+          {
+            filename: 'progress.jpg',
+            contentType: 'image/jpeg',
+          },
+        ),
+    ).expect(201);
+    expect(uploaded.body.data.category).toBe('PROGRESS_PHOTO');
+  });
+
+  it('rejects a file whose bytes do not match its claimed type', async () => {
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/members/${memberId}/documents`)
+        .field('category', 'DOCUMENT')
         .attach('file', Buffer.from('fake-jpeg-bytes'), {
           filename: 'progress.jpg',
           contentType: 'image/jpeg',
         }),
-    ).expect(201);
-    expect(uploaded.body.data.category).toBe('PROGRESS_PHOTO');
+    ).expect(400);
   });
 
   describe('cross-tenant isolation', () => {

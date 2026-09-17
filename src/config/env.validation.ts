@@ -12,9 +12,10 @@ export const envSchema = z.object({
     .string()
     .min(16, 'JWT_ACCESS_SECRET must be at least 16 characters'),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
-  JWT_REFRESH_SECRET: z
-    .string()
-    .min(16, 'JWT_REFRESH_SECRET must be at least 16 characters'),
+  // NOTE: refresh tokens are opaque random strings looked up by hash, not
+  // JWTs -- there is intentionally no JWT_REFRESH_SECRET. (It was validated
+  // here historically but never read; removed so a set-but-unused secret
+  // cannot imply protection that does not exist.)
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
 
   CORS_ORIGIN: z.string().optional(),

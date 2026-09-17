@@ -17,6 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import { StripeService } from './stripe.service';
 import { Logger } from '@nestjs/common';
 import { PaymentsService } from '../billing/payments.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
 
 @Controller('payments/webhook')
@@ -27,6 +28,7 @@ export class StripeWebhookController {
     private readonly config: ConfigService,
     private readonly stripeService: StripeService,
     private readonly paymentsService: PaymentsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -54,7 +56,9 @@ export class StripeWebhookController {
       // RazorpayController).
       const rawBody: Buffer =
         req.rawBody ??
-        Buffer.from(JSON.stringify((req as Request & { body?: unknown }).body ?? {}));
+        Buffer.from(
+          JSON.stringify((req as Request & { body?: unknown }).body ?? {}),
+        );
       const event = await this.stripeService.constructEvent(
         rawBody,
         signature,
@@ -86,7 +90,44 @@ export class StripeWebhookController {
     }
   }
 
-  private async handleSucceededPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+  /**
+   * The intent-creation endpoint stamps metadata server-side from the JWT,
+   * but the webhook is the trust boundary that actually mints money rows --
+   * so it re-verifies that the referenced member/membership belong to the
+   * metadata org. Without this, a crafted intent (or a permissioned user
+   * passing another org's memberId) would attach a payment -- and its
+   * branch derivation -- to a foreign member, since `createStripePayment`
+   * degrades to a null branch rather than rejecting in that case.
+   */
+  private async metadataScopeValid(
+    organizationId: string,
+    memberId: string | undefined,
+    membershipId: string | undefined,
+  ): Promise<boolean> {
+    if (memberId) {
+      const member = await this.prisma.member.findFirst({
+        where: { id: memberId, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!member) return false;
+    }
+    if (membershipId) {
+      const membership = await this.prisma.membership.findFirst({
+        where: {
+          id: membershipId,
+          organizationId,
+          ...(memberId ? { memberId } : {}),
+        },
+        select: { id: true },
+      });
+      if (!membership) return false;
+    }
+    return true;
+  }
+
+  private async handleSucceededPaymentIntent(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
     try {
       // Check if payment already exists (idempotency)
       const existingPayment = await this.paymentsService.getOneByStripeIntentId(
@@ -110,6 +151,18 @@ export class StripeWebhookController {
       if (!organizationId || !userId) {
         this.logger.error(
           `Missing required metadata in payment intent ${paymentIntent.id}`,
+        );
+        return;
+      }
+
+      // The referenced member/membership must belong to the metadata org
+      // (see metadataScopeValid) -- ack-and-ignore otherwise, same as
+      // missing metadata, so a poisoned intent cannot retry itself well.
+      if (
+        !(await this.metadataScopeValid(organizationId, memberId, membershipId))
+      ) {
+        this.logger.error(
+          `Metadata scope mismatch in payment intent ${paymentIntent.id}`,
         );
         return;
       }
@@ -162,6 +215,15 @@ export class StripeWebhookController {
       if (!organizationId || !userId) {
         this.logger.error(
           `Missing required metadata in payment intent ${paymentIntent.id}`,
+        );
+        return;
+      }
+
+      if (
+        !(await this.metadataScopeValid(organizationId, memberId, membershipId))
+      ) {
+        this.logger.error(
+          `Metadata scope mismatch in payment intent ${paymentIntent.id}`,
         );
         return;
       }
