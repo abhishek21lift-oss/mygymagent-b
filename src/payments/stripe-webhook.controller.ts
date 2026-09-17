@@ -54,7 +54,9 @@ export class StripeWebhookController {
       // RazorpayController).
       const rawBody: Buffer =
         req.rawBody ??
-        Buffer.from(JSON.stringify((req as Request & { body?: unknown }).body ?? {}));
+        Buffer.from(
+          JSON.stringify((req as Request & { body?: unknown }).body ?? {}),
+        );
       const event = await this.stripeService.constructEvent(
         rawBody,
         signature,
@@ -86,7 +88,9 @@ export class StripeWebhookController {
     }
   }
 
-  private async handleSucceededPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+  private async handleSucceededPaymentIntent(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
     try {
       // Check if payment already exists (idempotency)
       const existingPayment = await this.paymentsService.getOneByStripeIntentId(
