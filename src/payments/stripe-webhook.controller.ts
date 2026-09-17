@@ -1,20 +1,26 @@
 import {
   Controller,
   Post,
-  Body,
   Headers,
   HttpCode,
   HttpStatus,
   BadRequestException,
-  InternalServerErrorException,
+  ServiceUnavailableException,
   UnauthorizedException,
+  Req,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
+import type Stripe from 'stripe';
 import { ConfigService } from '@nestjs/config';
 import { StripeService } from './stripe.service';
 import { Logger } from '@nestjs/common';
 import { PaymentsService } from '../billing/payments.service';
+import { Public } from '../common/decorators/public.decorator';
 
 @Controller('payments/webhook')
+@Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
   constructor(
@@ -24,15 +30,16 @@ export class StripeWebhookController {
   ) {}
 
   @Post()
+  @Public()
   @HttpCode(HttpStatus.OK)
   async handleWebhook(
-    @Body() body: any,
+    @Req() req: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature: string,
   ) {
     const webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
     if (!webhookSecret) {
       this.logger.error('Stripe webhook secret not configured');
-      throw new InternalServerErrorException('Webhook secret not configured');
+      throw new ServiceUnavailableException('Webhook secret not configured');
     }
 
     if (!signature) {
@@ -40,8 +47,16 @@ export class StripeWebhookController {
     }
 
     try {
+      // Stripe signs the raw bytes — re-serializing the parsed body would
+      // change whitespace/key order and break verification. main.ts sets
+      // `rawBody: true`, so prefer req.rawBody and only fall back to
+      // JSON.stringify when the raw buffer is unavailable (same pattern as
+      // RazorpayController).
+      const rawBody: Buffer =
+        req.rawBody ??
+        Buffer.from(JSON.stringify((req as Request & { body?: unknown }).body ?? {}));
       const event = await this.stripeService.constructEvent(
-        Buffer.from(JSON.stringify(body)),
+        rawBody,
         signature,
         webhookSecret,
       );
@@ -49,10 +64,14 @@ export class StripeWebhookController {
       // Handle the event
       switch (event.type) {
         case 'payment_intent.succeeded':
-          await this.handleSucceededPaymentIntent(event.data.object);
+          await this.handleSucceededPaymentIntent(
+            event.data.object as Stripe.PaymentIntent,
+          );
           break;
         case 'payment_intent.payment_failed':
-          await this.handleFailedPaymentIntent(event.data.object);
+          await this.handleFailedPaymentIntent(
+            event.data.object as Stripe.PaymentIntent,
+          );
           break;
         // Add more event types as needed
         default:
@@ -61,14 +80,13 @@ export class StripeWebhookController {
 
       return { received: true };
     } catch (err) {
-      this.logger.error(
-        `Webhook signature verification failed: ${err.message}`,
-      );
-      throw new UnauthorizedException(`Webhook Error: ${err.message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Webhook signature verification failed: ${message}`);
+      throw new UnauthorizedException(`Webhook Error: ${message}`);
     }
   }
 
-  private async handleSucceededPaymentIntent(paymentIntent: any) {
+  private async handleSucceededPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     try {
       // Check if payment already exists (idempotency)
       const existingPayment = await this.paymentsService.getOneByStripeIntentId(
@@ -112,14 +130,15 @@ export class StripeWebhookController {
         `PaymentIntent ${paymentIntent.id} succeeded and payment record created`,
       );
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Failed to handle succeeded payment intent ${paymentIntent.id}: ${error.message}`,
+        `Failed to handle succeeded payment intent ${paymentIntent.id}: ${message}`,
       );
       // Still return success to Stripe to prevent retries
     }
   }
 
-  private async handleFailedPaymentIntent(paymentIntent: any) {
+  private async handleFailedPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     try {
       // Check if payment already exists (idempotency)
       const existingPayment = await this.paymentsService.getOneByStripeIntentId(
@@ -163,8 +182,9 @@ export class StripeWebhookController {
         `PaymentIntent ${paymentIntent.id} failed and payment record created`,
       );
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Failed to handle failed payment intent ${paymentIntent.id}: ${error.message}`,
+        `Failed to handle failed payment intent ${paymentIntent.id}: ${message}`,
       );
       // Still return success to Stripe to prevent retries
     }

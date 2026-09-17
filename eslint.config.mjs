@@ -11,8 +11,6 @@ export default tseslint.config(
       'dist/**',
       'coverage/**',
       'node_modules/**',
-      'src/pt-packages/**',
-      'src/pt-sessions/**',
     ],
   },
   eslint.configs.recommended,

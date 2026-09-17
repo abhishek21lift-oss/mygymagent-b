@@ -21,7 +21,12 @@ export class TestableThrottlerGuard extends ThrottlerGuard {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (process.env.TEST_MODE === 'true') {
+    // E2E-only bypass. Never disable throttling in production — even if
+    // TEST_MODE is accidentally set there (e.g. copied .env.test).
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      process.env.TEST_MODE === 'true'
+    ) {
       return true;
     }
     return super.canActivate(context);
