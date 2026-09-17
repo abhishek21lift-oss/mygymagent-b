@@ -9,8 +9,14 @@
 -- migration idempotent at the schema-drift boundary.
 ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "lostReason" TEXT;
 
-CREATE TYPE "AppointmentType" AS ENUM ('TRIAL', 'CONSULTATION', 'ASSESSMENT', 'FOLLOW_UP', 'PT_SESSION', 'OTHER');
-CREATE TYPE "AppointmentStatus" AS ENUM ('BOOKED', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED');
+DO $$ BEGIN
+  CREATE TYPE "AppointmentType" AS ENUM ('TRIAL', 'CONSULTATION', 'ASSESSMENT', 'FOLLOW_UP', 'PT_SESSION', 'OTHER');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE "AppointmentStatus" AS ENUM ('BOOKED', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE "appointments" (
   "id" TEXT NOT NULL,
@@ -83,7 +89,10 @@ CREATE TABLE "trainer_time_offs" (
 );
 CREATE INDEX "trainer_time_offs_organizationId_staffId_startAt_idx" ON "trainer_time_offs"("organizationId", "staffId", "startAt");
 
-CREATE TYPE "ExpenseStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PAID');
+DO $$ BEGIN
+  CREATE TYPE "ExpenseStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PAID');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE "expenses" (
   "id" TEXT NOT NULL,
@@ -113,7 +122,10 @@ CREATE INDEX "expenses_organizationId_branchId_expenseDate_idx" ON "expenses"("o
 CREATE INDEX "expenses_organizationId_category_expenseDate_idx" ON "expenses"("organizationId", "category", "expenseDate");
 CREATE INDEX "expenses_organizationId_status_expenseDate_idx" ON "expenses"("organizationId", "status", "expenseDate");
 
-CREATE TYPE "WhatsappIntegrationStatus" AS ENUM ('NOT_CONNECTED', 'CONNECTED', 'DISCONNECTED', 'ERROR');
+DO $$ BEGIN
+  CREATE TYPE "WhatsappIntegrationStatus" AS ENUM ('NOT_CONNECTED', 'CONNECTED', 'DISCONNECTED', 'ERROR');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE "whatsapp_integrations" (
   "id" TEXT NOT NULL,
@@ -154,7 +166,6 @@ CREATE TABLE "member_tag_assignments" (
   "assignedByUserId" TEXT,
   "assignedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "member_tag_assignments_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "member_tag_assignments_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "member_tag_assignments_memberId_tagId_key" UNIQUE ("memberId", "tagId")
 );
 CREATE INDEX "member_tag_assignments_organizationId_memberId_idx" ON "member_tag_assignments"("organizationId", "memberId");
@@ -186,7 +197,10 @@ CREATE INDEX "member_follow_ups_organizationId_memberId_completedAt_idx" ON "mem
 -- REJECTED) with a per-version file history. Existing rows keep their
 -- file as the implicit version 1 (currentVersion defaults to 1) and
 -- start as DRAFT, so nothing already stored reads as reviewed.
-CREATE TYPE "MemberDocumentStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED');
+DO $$ BEGIN
+  CREATE TYPE "MemberDocumentStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 ALTER TABLE "member_documents"
   ADD COLUMN "status" "MemberDocumentStatus" NOT NULL DEFAULT 'DRAFT',
