@@ -1,14 +1,13 @@
 /**
- * Production boot gate: verify DB connectivity, recover the currently known
- * failed migration, then apply all pending Prisma migrations.
+ * Production boot gate: verify DB connectivity, then apply pending Prisma
+ * migrations. Migration history is authoritative in the database; this
+ * wrapper deliberately does not guess which migration should be resolved.
  */
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 
 const TCP_TIMEOUT_MS = Number(process.env.MIGRATE_TCP_TIMEOUT_MS ?? 15000);
 const DEPLOY_TIMEOUT_MS = Number(process.env.MIGRATE_DEPLOY_TIMEOUT_MS ?? 600000);
-const FAILED_MIGRATION = process.env.FAILED_MIGRATION ??
-  '20260916100000_add_member_intelligence_os';
 
 function redact(url) {
   try {
@@ -40,21 +39,6 @@ function checkTcp(host, port, timeoutMs) {
   });
 }
 
-function runPrisma(args) {
-  return new Promise((resolve) => {
-    const child = spawn('npx', ['prisma', ...args], {
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-      env: process.env,
-    });
-    child.once('exit', (code) => resolve(code ?? 1));
-    child.once('error', (err) => {
-      console.error(`[migrate-deploy] FATAL: failed to launch prisma: ${err.message}`);
-      resolve(1);
-    });
-  });
-}
-
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -80,23 +64,7 @@ async function main() {
     process.exit(1);
   }
   console.error('[migrate-deploy] Database reachable.');
-
-  // Render was blocked on this migration with P3009. The migration is
-  // transactional, so a failed run leaves no partial schema changes.
-  console.error(`[migrate-deploy] Recovering failed migration: ${FAILED_MIGRATION}`);
-  const resolveCode = await runPrisma([
-    'migrate',
-    'resolve',
-    '--rolled-back',
-    FAILED_MIGRATION,
-  ]);
-  if (resolveCode !== 0) {
-    // Idempotent boot: Prisma returns non-zero when the migration is already
-    // resolved/applied. In that case migrate deploy below is authoritative.
-    console.error(
-      '[migrate-deploy] WARN: rollback resolution was not needed or was already resolved; continuing to migrate deploy.',
-    );
-  }
+  console.error('[migrate-deploy] Applying pending Prisma migrations.');
 
   const child = spawn('npx', ['prisma', 'migrate', 'deploy'], {
     stdio: 'inherit',
@@ -122,7 +90,7 @@ async function main() {
   const code = await new Promise((resolve) => {
     child.once('exit', (exitCode) => resolve(exitCode ?? 1));
     child.once('error', (err) => {
-      console.error(`[migrate-deploy] FATAL: ${err.message}`);
+      console.error(`[migrate-deploy] FATAL: failed to launch Prisma: ${err.message}`);
       resolve(1);
     });
   });
