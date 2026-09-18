@@ -90,6 +90,65 @@ CREATE TABLE IF NOT EXISTS "member_document_versions" (
   CONSTRAINT "member_document_versions_documentId_fkey" FOREIGN KEY ("documentId") REFERENCES "member_documents"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "member_document_versions_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "files"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+-- Production may already contain a legacy member_document_versions table created
+-- before this migration. CREATE TABLE IF NOT EXISTS intentionally leaves that
+-- table untouched, so bring the migration-required columns into alignment
+-- before creating the documentId/version indexes and constraints.
+ALTER TABLE "member_document_versions"
+  ADD COLUMN IF NOT EXISTS "organizationId" TEXT,
+  ADD COLUMN IF NOT EXISTS "documentId" TEXT,
+  ADD COLUMN IF NOT EXISTS "version" INTEGER,
+  ADD COLUMN IF NOT EXISTS "fileId" TEXT,
+  ADD COLUMN IF NOT EXISTS "changeNotes" TEXT,
+  ADD COLUMN IF NOT EXISTS "createdByUserId" TEXT,
+  ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;
+
+-- If the legacy table is empty, the required NOT NULL invariants can be applied
+-- safely. Non-empty legacy rows are not guessed or deleted; a later deployment
+-- must reconcile those rows explicitly before enforcing NOT NULL/FKs.
+DO $
+DECLARE
+  row_count BIGINT;
+  null_required BIGINT;
+BEGIN
+  SELECT COUNT(*) INTO row_count FROM "member_document_versions";
+  SELECT COUNT(*) INTO null_required
+    FROM "member_document_versions"
+   WHERE "organizationId" IS NULL
+      OR "documentId" IS NULL
+      OR "version" IS NULL
+      OR "fileId" IS NULL;
+
+  IF row_count = 0 THEN
+    ALTER TABLE "member_document_versions"
+      ALTER COLUMN "organizationId" SET NOT NULL,
+      ALTER COLUMN "documentId" SET NOT NULL,
+      ALTER COLUMN "version" SET NOT NULL,
+      ALTER COLUMN "fileId" SET NOT NULL,
+      ALTER COLUMN "createdAt" SET NOT NULL;
+  ELSIF null_required > 0 THEN
+    RAISE EXCEPTION 'Legacy member_document_versions contains % row(s) with missing required migration fields; refusing to guess or delete data', null_required;
+  END IF;
+END $;
+
+DO $ BEGIN
+  ALTER TABLE "member_document_versions"
+    ADD CONSTRAINT "member_document_versions_organizationId_fkey"
+    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN
+  ALTER TABLE "member_document_versions"
+    ADD CONSTRAINT "member_document_versions_documentId_fkey"
+    FOREIGN KEY ("documentId") REFERENCES "member_documents"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN
+  ALTER TABLE "member_document_versions"
+    ADD CONSTRAINT "member_document_versions_fileId_fkey"
+    FOREIGN KEY ("fileId") REFERENCES "files"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "member_document_versions_documentId_version_key" ON "member_document_versions"("documentId", "version");
 CREATE INDEX IF NOT EXISTS "member_document_versions_documentId_version_idx" ON "member_document_versions"("documentId", "version");
 
 DO $$ BEGIN CREATE TYPE "MemberDocumentCategory_new" AS ENUM ('DOCUMENT', 'PROGRESS_PHOTO', 'ID_SCAN', 'OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
