@@ -84,3 +84,11 @@ CREATE INDEX IF NOT EXISTS "recommended_actions_organizationId_status_idx" ON "r
 CREATE INDEX IF NOT EXISTS "recommended_actions_organizationId_memberId_idx" ON "recommended_actions"("organizationId", "memberId");
 
 -- AddForeignKey
+
+-- AddForeignKey
+ALTER TABLE "member_risk_profiles" ADD CONSTRAINT "member_risk_profiles_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "member_risk_profiles" ADD CONSTRAINT "member_risk_profiles_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "member_segments" ADD CONSTRAINT "member_segments_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "member_segment_assignments" ADD CONSTRAINT "member_segment_assignments_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "recommended_actions" ADD CONSTRAINT "recommended_actions_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "recommended_actions" ADD CONSTRAINT "recommended_actions_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
