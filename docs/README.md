@@ -14,15 +14,14 @@
 - **[testing/strategy.md](./testing/strategy.md)** — unit/integration/e2e/security coverage, what
   exists vs. what's aspirational.
 - **[ai/architecture.md](./ai/architecture.md)** — AI gateway/tooling/guardrails design for the
-  not-yet-built `ai` module. Design only — no code yet.
-- **[saas/](./saas/)** — feature flags, subscription plans, platform-vs-gym billing separation.
-  Design only — no code yet.
+  `ai` module (built: v1 tool-calling agent + conversations — see `src/ai/`).
+- **[saas/](./saas/)** — feature flags, subscription plans, platform-vs-gym billing separation
+  (built: `src/platform/` + `src/billing/` — see `docs/saas/billing-separation.md`).
 - **[integrations/overview.md](./integrations/overview.md)** — adapter pattern for external
-  integrations. Design only — no code yet.
+  integrations (built: `src/whatsapp/`, `src/communications/`; email provider-backed).
 - **[import-export.md](./import-export.md)** — CSV import/export architecture. Design only — no code
   yet.
 
-Docs marked "design only" describe domains that are still module skeletons in `src/` (see
-`ARCHITECTURE.md`'s deferred-domain list) — this was a deliberate scope decision: build the
-multi-tenancy/auth/RBAC/audit/core-gym-domain foundation to production quality first, and document
-everything else before building it, rather than half-building many domains at once.
+Some older docs still carry "design only" / deferred-domain notes from the
+deep-foundation phase — where a doc conflicts with shipped code under `src/`
+(see `ARCHITECTURE.md`'s built-domain list), the code is authoritative.

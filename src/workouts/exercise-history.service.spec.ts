@@ -56,10 +56,12 @@ describe('ExerciseHistoryService', () => {
     prisma.member.findFirst.mockResolvedValueOnce({ id: 'member-a' });
     prisma.exercise.findFirst.mockResolvedValueOnce({ id: 'exercise-a' });
     // Tagged-template call: $queryRaw(strings, ...values)
-    prisma.$queryRaw.mockImplementationOnce((strings, ...values) => {
-      const text = strings.join('?');
-      return Promise.resolve([{ text, values }]);
-    });
+    prisma.$queryRaw.mockImplementationOnce(
+      (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const text = strings.join('?');
+        return Promise.resolve([{ text, values }]);
+      },
+    );
 
     await service.getMemberExerciseHistory(
       'org-a',

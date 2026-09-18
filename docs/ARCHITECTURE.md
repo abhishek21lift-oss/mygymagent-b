@@ -8,10 +8,11 @@ Training platform. Two repositories, `mygymagent-b` (this repo, the NestJS/Postg
 auth/RBAC, audit logging, and the core gym domain (organizations, branches, staff, members,
 membership plans/subscriptions, attendance) to a real production standard, end-to-end (DB → API →
 tests), with every other domain's module seam reserved (`src/<domain>/`, empty `@Module({})` +
-README) and permission keys pre-seeded. Since then, six more domains have been built out for real:
-**AI (v1 tool-calling agent), billing (payments/refunds), workouts, nutrition, inventory, and CRM
-(leads)**. Notifications, files, search, and analytics are still reserved seams, not built.
-Sections below mark each domain **[BUILT]** or **[PLANNED]** accordingly — see
+README) and permission keys pre-seeded. Since then, many more domains have been built out for real:
+**AI (v1 tool-calling agent + conversations), billing (payments/refunds + platform SaaS billing),
+workouts (+ sessions/history), nutrition, inventory, CRM (leads),
+notifications, files/member-documents, search, analytics, appointments, invoices, expenses,
+and WhatsApp**. Sections below mark each domain **[BUILT]** or **[PLANNED]** accordingly — see
 `docs/architecture/discovery-report.md` for a fuller, dated audit of built-vs-planned across every
 domain, including sub-entity-level gaps (e.g. Member 360) this summary doesn't go into.
 
@@ -100,8 +101,8 @@ full lineage instead of overwriting a row in place. Indexes are on every foreign
 query patterns the built modules actually use (e.g. `(organizationId, branchId, checkInAt)` on
 `Attendance`).
 
-**[PLANNED]** Tables for billing/payments, workouts, nutrition, inventory, CRM/leads,
-notifications, AI conversations/usage, files/media will be added by their respective modules,
+**[BUILT]** Tables for billing/payments, workouts, nutrition, inventory, CRM/leads,
+notifications, AI conversations/usage, files/media exist in `prisma/schema.prisma`,
 following the same `organizationId`/`branchId` scoping and immutability conventions.
 
 ## 5. Authentication architecture **[BUILT: email/password. PLANNED: OAuth, passkeys, MFA]**

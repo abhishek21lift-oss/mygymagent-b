@@ -13,10 +13,12 @@
 // typed but unimplemented, see src/communications/README.md) are modeled
 // and built.
 //
-// Still reserved seams, not modeled here yet (see
-// docs/architecture/discovery-report.md for the current gap list):
-// search, analytics, platform SaaS billing (as opposed to the gym-side
-// Payment/Refund tables below), Appointments. New tables all hang off
+// Search, analytics, platform SaaS billing (src/platform + src/billing,
+// as opposed to the gym-side Payment/Refund tables below), Appointments,
+// Invoices, and WhatsApp are modeled and built (see src/search,
+// src/analytics, src/appointments, src/invoices, src/whatsapp). Future
+// extensions (e.g. deeper search relevance tuning) follow the same pattern:
+// New tables all hang off
 // Organization / Branch / Member / User the same way the tables below do,
 // keeping tenant isolation uniform across the system.
 // ============================================================================
