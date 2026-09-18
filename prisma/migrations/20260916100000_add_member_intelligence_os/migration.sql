@@ -3,30 +3,12 @@
 -- touches an existing table.
 
 -- CreateEnum
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "RiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "RiskTrend" AS ENUM ('IMPROVING', 'STABLE', 'WORSENING');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "ActionType" AS ENUM ('OUTREACH_CHURN_RISK', 'RENEWAL_NUDGE', 'PAYMENT_PLAN', 'FREEZE_OFFER', 'UPGRADE_PITCH', 'ASSESSMENT_BOOK', 'LOYALTY_REWARD', 'RE_ENGAGEMENT');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "Priority" AS ENUM ('P0', 'P1', 'P2');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "ChannelType" AS ENUM ('WHATSAPP', 'SMS', 'EMAIL', 'IN_PERSON', 'CALL');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
-DO $ BEGIN
-  CREATE TYPE IF NOT EXISTS "ActionStatus" AS ENUM ('PENDING', 'ASSIGNED', 'COMPLETED', 'DISMISSED', 'AUTOMATED');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
+CREATE TYPE IF NOT EXISTS "RiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
+CREATE TYPE IF NOT EXISTS "RiskTrend" AS ENUM ('IMPROVING', 'STABLE', 'WORSENING');
+CREATE TYPE IF NOT EXISTS "ActionType" AS ENUM ('OUTREACH_CHURN_RISK', 'RENEWAL_NUDGE', 'PAYMENT_PLAN', 'FREEZE_OFFER', 'UPGRADE_PITCH', 'ASSESSMENT_BOOK', 'LOYALTY_REWARD', 'RE_ENGAGEMENT');
+CREATE TYPE IF NOT EXISTS "Priority" AS ENUM ('P0', 'P1', 'P2');
+CREATE TYPE IF NOT EXISTS "ChannelType" AS ENUM ('WHATSAPP', 'SMS', 'EMAIL', 'IN_PERSON', 'CALL');
+CREATE TYPE IF NOT EXISTS "ActionStatus" AS ENUM ('PENDING', 'ASSIGNED', 'COMPLETED', 'DISMISSED', 'AUTOMATED');
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "member_risk_profiles" (
@@ -102,33 +84,3 @@ CREATE INDEX IF NOT EXISTS "recommended_actions_organizationId_status_idx" ON "r
 CREATE INDEX IF NOT EXISTS "recommended_actions_organizationId_memberId_idx" ON "recommended_actions"("organizationId", "memberId");
 
 -- AddForeignKey
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'member_risk_profiles_organizationId_fkey' AND conrelid = '"member_risk_profiles"'::regclass) THEN
-    ALTER TABLE "member_risk_profiles" ADD CONSTRAINT "member_risk_profiles_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'member_risk_profiles_memberId_fkey' AND conrelid = '"member_risk_profiles"'::regclass) THEN
-    ALTER TABLE "member_risk_profiles" ADD CONSTRAINT "member_risk_profiles_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'member_segments_organizationId_fkey' AND conrelid = '"member_segments"'::regclass) THEN
-    ALTER TABLE "member_segments" ADD CONSTRAINT "member_segments_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'member_segment_assignments_memberId_fkey' AND conrelid = '"member_segment_assignments"'::regclass) THEN
-    ALTER TABLE "member_segment_assignments" ADD CONSTRAINT "member_segment_assignments_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'recommended_actions_organizationId_fkey' AND conrelid = '"recommended_actions"'::regclass) THEN
-    ALTER TABLE "recommended_actions" ADD CONSTRAINT "recommended_actions_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
-DO $ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'recommended_actions_memberId_fkey' AND conrelid = '"recommended_actions"'::regclass) THEN
-    ALTER TABLE "recommended_actions" ADD CONSTRAINT "recommended_actions_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END $;
