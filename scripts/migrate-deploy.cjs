@@ -91,10 +91,11 @@ async function main() {
     FAILED_MIGRATION,
   ]);
   if (resolveCode !== 0) {
+    // Idempotent boot: Prisma returns non-zero when the migration is already
+    // resolved/applied. In that case migrate deploy below is authoritative.
     console.error(
-      '[migrate-deploy] FATAL: failed to mark the failed migration rolled back. App will not start.',
+      '[migrate-deploy] WARN: rollback resolution was not needed or was already resolved; continuing to migrate deploy.',
     );
-    process.exit(resolveCode);
   }
 
   const child = spawn('npx', ['prisma', 'migrate', 'deploy'], {
