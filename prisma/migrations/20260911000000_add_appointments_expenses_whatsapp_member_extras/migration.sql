@@ -158,4 +158,4 @@ DO $$ BEGIN
   ALTER TYPE "MemberDocumentCategory_new" RENAME TO "MemberDocumentCategory";
   DROP TYPE "MemberDocumentCategory_old";
 EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+END $;
