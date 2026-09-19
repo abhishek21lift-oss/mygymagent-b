@@ -402,6 +402,7 @@ export class Member360Service {
       }),
       this.prisma.membership.findMany({
         where: { organizationId, memberId },
+        orderBy: { createdAt: 'desc' },
         include: { membershipPlan: { select: { name: true } } },
       }),
       this.prisma.attendance.findMany({
@@ -461,7 +462,6 @@ export class Member360Service {
       this.prisma.messageLog.findMany({
         where: { organizationId, memberId },
         orderBy: { createdAt: 'desc' },
-        take: 50,
       }),
     ]);
 
