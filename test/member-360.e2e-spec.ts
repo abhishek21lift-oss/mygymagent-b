@@ -256,7 +256,9 @@ describe('Member 360 (e2e)', () => {
             email: `trainer-${Date.now()}@example.com`,
             firstName: 'Terry',
             lastName: 'Trainer',
+            primaryBranchId: org.branchId,
             roleKey: 'TRAINER',
+            isTrainer: true,
           }),
       ).expect(201);
       await prisma.user.update({
