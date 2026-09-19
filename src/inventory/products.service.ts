@@ -1,4 +1,6 @@
+/* eslint-disable prettier/prettier */
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { StockMovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import type { CreateProductDto } from './dto/create-product.dto';
@@ -17,10 +19,9 @@ export class ProductsService {
       ...(query.search
         ? {
             OR: [
-              {
-                name: { contains: query.search, mode: 'insensitive' as const },
-              },
+              { name: { contains: query.search, mode: 'insensitive' as const } },
               { sku: { contains: query.search, mode: 'insensitive' as const } },
+              { barcode: { contains: query.search, mode: 'insensitive' as const } },
             ],
           }
         : {}),
@@ -45,27 +46,61 @@ export class ProductsService {
   }
 
   async getBySku(organizationId: string, code: string) {
-    const sku = code.trim();
-    if (!sku) throw new NotFoundException('Product not found');
+    const value = code.trim();
+    if (!value) throw new NotFoundException('Product not found');
     const product = await this.prisma.product.findFirst({
-      where: { organizationId, sku },
+      where: {
+        organizationId,
+        OR: [{ sku: value }, { barcode: value }],
+      },
     });
-    if (!product)
-      throw new NotFoundException(`No product found for code "${sku}"`);
+    if (!product) throw new NotFoundException(`No product found for code "${value}"`);
     return product;
   }
 
-  // Duplicate SKUs within an org are rejected by the DB's unique
-  // constraint (organizationId, sku) -> AllExceptionsFilter maps the
-  // resulting P2002 to a 409, same convention as every other module here.
-  create(organizationId: string, dto: CreateProductDto) {
-    return this.prisma.product.create({
-      data: { organizationId, ...dto },
+  async create(organizationId: string, dto: CreateProductDto) {
+    const quantity = dto.quantityOnHand ?? 0;
+    const { quantityOnHand: _quantityOnHand, ...productData } = dto;
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.create({
+        data: {
+          organizationId,
+          ...productData,
+          quantityOnHand: quantity,
+          sku: dto.sku.trim(),
+          barcode: dto.barcode?.trim() || undefined,
+          unit: dto.unit?.trim() || 'unit',
+        },
+      });
+      if (quantity > 0) {
+        await tx.stockMovement.create({
+          data: {
+            organizationId,
+            productId: product.id,
+            type: StockMovementType.OPENING,
+            quantity,
+            unitCost: dto.costPrice ?? 0,
+            totalCost: quantity * (dto.costPrice ?? 0),
+            referenceType: 'OPENING_STOCK',
+            referenceId: product.id,
+            note: 'Opening stock at product creation',
+          },
+        });
+      }
+      return product;
     });
   }
 
   async update(organizationId: string, id: string, dto: UpdateProductDto) {
     await this.getOne(organizationId, id);
-    return this.prisma.product.update({ where: { id }, data: dto });
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        ...dto,
+        ...(dto.sku !== undefined ? { sku: dto.sku.trim() } : {}),
+        ...(dto.barcode !== undefined ? { barcode: dto.barcode.trim() || null } : {}),
+        ...(dto.unit !== undefined ? { unit: dto.unit.trim() || 'unit' } : {}),
+      },
+    });
   }
 }

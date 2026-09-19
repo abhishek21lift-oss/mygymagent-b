@@ -100,6 +100,11 @@ model Organization {
   dietAssignments         DietAssignment[]
   products                Product[]
   stockMovements          StockMovement[]
+  inventoryStocks         ProductStock[]
+  inventorySuppliers      InventorySupplier[]
+  inventoryPurchaseOrders InventoryPurchaseOrder[]
+  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
+  inventorySales          InventorySale[]
   aiUsageLogs             AiUsageLog[]
   memberAddresses         MemberAddress[]
   memberEmergencyContacts MemberEmergencyContact[]
@@ -198,6 +203,12 @@ model Branch {
   ptPackages              PtPackage[]
   invoices                Invoice[]
   deviceMaps              DeviceMap[]
+  stockMovements          StockMovement[]
+  inventoryStocks         ProductStock[]
+  inventoryPurchaseOrders InventoryPurchaseOrder[]
+  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromBranch")
+  inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
+  inventorySales          InventorySale[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -272,6 +283,7 @@ model User {
   dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
   dietAssignmentsMade      DietAssignment[]          @relation("DietAssignedBy")
   stockMovementsRecorded   StockMovement[]           @relation("StockMovementRecordedBy")
+  inventorySalesCreated    InventorySale[]            @relation("InventorySaleCreatedBy")
   aiUsageLogs              AiUsageLog[]              @relation("AiUsageActor")
   memberNotesAuthored      MemberNote[]              @relation("MemberNoteAuthor")
   memberConsentsRecorded   MemberConsent[]           @relation("MemberConsentRecordedBy")
@@ -610,6 +622,7 @@ model Member {
   recommendedActions RecommendedAction[]
   ptPackages         PtPackage[]
   invoices           Invoice[]
+  inventorySales     InventorySale[]
   qrToken            MemberQrToken?
   deviceMaps         DeviceMap[]
 
@@ -1143,6 +1156,7 @@ model Invoice {
 
   paymentLinks    InvoicePayment[]
   dunningAttempts DunningAttempt[]
+  inventorySales   InventorySale[]
 
   @@unique([organizationId, number])
   @@index([organizationId, status, dueAt])
@@ -1750,15 +1764,24 @@ model Product {
 
   quantityOnHand Int     @default(0)
   reorderLevel   Int     @default(0)
+  reorderQuantity Int    @default(0)
+  barcode        String?
+  unit           String  @default("unit")
   isActive       Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   stockMovements StockMovement[]
+  branchStocks ProductStock[]
+  purchaseOrderItems InventoryPurchaseOrderItem[]
+  transferItems InventoryTransferItem[]
+  saleItems InventorySaleItem[]
 
   @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
   @@index([organizationId])
+  @@index([organizationId, category, isActive])
   @@map("products")
 }
 
@@ -1767,6 +1790,31 @@ enum StockMovementType {
   SALE
   ADJUSTMENT
   DAMAGED
+  OPENING
+  TRANSFER_IN
+  TRANSFER_OUT
+  RETURN
+}
+
+enum InventoryPurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum InventoryTransferStatus {
+  DRAFT
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum InventorySaleStatus {
+  COMPLETED
+  CANCELLED
+  RETURNED
 }
 
 /// Append-only ledger entry. `quantity` is the *signed* delta actually
@@ -1781,8 +1829,15 @@ model StockMovement {
   productId      String
   product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
   type     StockMovementType
   quantity Int
+  unitCost Decimal? @db.Decimal(10, 2)
+  totalCost Decimal? @db.Decimal(12, 2)
+  referenceType String?
+  referenceId String?
   note     String?
 
   recordedByUserId String?
@@ -1792,6 +1847,8 @@ model StockMovement {
 
   @@index([organizationId])
   @@index([productId])
+  @@index([organizationId, branchId, createdAt])
+  @@index([organizationId, referenceType, referenceId])
   @@map("stock_movements")
 }
 
@@ -2881,4 +2938,155 @@ model RecommendedAction {
   @@index([organizationId, status])
   @@index([organizationId, memberId])
   @@map("recommended_actions")
+}
+
+model ProductStock {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantityOnHand Int @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([organizationId, branchId, productId])
+  @@index([organizationId, branchId])
+  @@index([productId])
+  @@map("product_stocks")
+}
+
+model InventorySupplier {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  taxId          String?
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  purchaseOrders InventoryPurchaseOrder[]
+  @@index([organizationId, isActive])
+  @@map("inventory_suppliers")
+}
+
+model InventoryPurchaseOrder {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierId     String
+  supplier       InventorySupplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  branchId       String?
+  branch         Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  number         String
+  status         InventoryPurchaseOrderStatus @default(DRAFT)
+  notes          String?
+  orderedAt      DateTime?
+  expectedAt     DateTime?
+  receivedAt     DateTime?
+  totalCost      Decimal @db.Decimal(12, 2) @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  items InventoryPurchaseOrderItem[]
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([supplierId])
+  @@map("inventory_purchase_orders")
+}
+
+model InventoryPurchaseOrderItem {
+  id             String @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   InventoryPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  orderedQuantity Int
+  receivedQuantity Int @default(0)
+  unitCost Decimal @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([purchaseOrderId, productId])
+  @@index([productId])
+  @@map("inventory_purchase_order_items")
+}
+
+model InventoryTransfer {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation("InventoryTransferOrg", fields: [organizationId], references: [id], onDelete: Cascade)
+  fromBranchId   String
+  fromBranch     Branch @relation("InventoryTransferFromBranch", fields: [fromBranchId], references: [id], onDelete: Restrict)
+  toBranchId     String
+  toBranch       Branch @relation("InventoryTransferToBranch", fields: [toBranchId], references: [id], onDelete: Restrict)
+  number         String
+  status         InventoryTransferStatus @default(DRAFT)
+  notes          String?
+  shippedAt      DateTime?
+  receivedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  items InventoryTransferItem[]
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([fromBranchId])
+  @@index([toBranchId])
+  @@map("inventory_transfers")
+}
+
+model InventoryTransferItem {
+  id String @id @default(uuid())
+  transferId String
+  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId String
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity Int
+  @@unique([transferId, productId])
+  @@index([productId])
+  @@map("inventory_transfer_items")
+}
+
+model InventorySale {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId String?
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberId String?
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  invoiceId String?
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdByUserId String?
+  createdByUser User? @relation("InventorySaleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  number String
+  status InventorySaleStatus @default(COMPLETED)
+  subtotal Decimal @db.Decimal(12, 2)
+  discount Decimal @db.Decimal(12, 2) @default(0)
+  total Decimal @db.Decimal(12, 2)
+  currency String @default("USD")
+  createdAt DateTime @default(now())
+  items InventorySaleItem[]
+  @@unique([organizationId, number])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, branchId, createdAt])
+  @@index([memberId])
+  @@index([invoiceId])
+  @@map("inventory_sales")
+}
+
+model InventorySaleItem {
+  id String @id @default(uuid())
+  saleId String
+  sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  unitCost Decimal @db.Decimal(10, 2)
+  total Decimal @db.Decimal(12, 2)
+  @@index([productId])
+  @@map("inventory_sale_items")
 }
