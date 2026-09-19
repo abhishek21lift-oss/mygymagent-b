@@ -66,6 +66,7 @@ export class ProductsService {
         data: {
           organizationId,
           ...productData,
+          quantityOnHand: quantity,
           sku: dto.sku.trim(),
           barcode: dto.barcode?.trim() || undefined,
           unit: dto.unit?.trim() || 'unit',
