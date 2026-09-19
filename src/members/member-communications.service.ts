@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CommunicationsService } from '../communications/communications.service';
+import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SendMemberMessageDto } from './dto/send-member-message.dto';
 
@@ -45,6 +46,7 @@ export class MemberCommunicationsService {
   async history(
     organizationId: string,
     memberId: string,
+    query: { page: number; pageSize: number },
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
@@ -54,11 +56,16 @@ export class MemberCommunicationsService {
       branchScope,
       assignmentScope,
     );
-    return this.prisma.messageLog.findMany({
-      where: { organizationId, memberId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const where = { organizationId, memberId };
+    const [items, total] = await Promise.all([
+      this.prisma.messageLog.findMany({
+        where,
+        ...skipTake(query),
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.messageLog.count({ where }),
+    ]);
+    return paginate(items, total, query.page, query.pageSize);
   }
 
   async send(
