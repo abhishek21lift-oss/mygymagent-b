@@ -51,6 +51,12 @@ export class CompleteInventoryService {
     return branchId ?? branchScope ?? undefined;
   }
 
+  private page(query: InventoryQueryDto) {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+    return { skip: (page - 1) * limit, take: limit };
+  }
+
   private assertTransferScope(fromBranchId: string, toBranchId: string, branchScope: string | null) {
     if (branchScope && fromBranchId !== branchScope && toBranchId !== branchScope) {
       throw new ForbiddenException('Inventory transfer must involve your assigned branch');
@@ -117,6 +123,15 @@ export class CompleteInventoryService {
           `Insufficient branch stock for "${product.name}"`,
         );
       }
+
+      const aggregate = await tx.productStock.aggregate({
+        where: { organizationId, productId },
+        _sum: { quantityOnHand: true },
+      });
+      await tx.product.update({
+        where: { id: productId },
+        data: { quantityOnHand: aggregate._sum.quantityOnHand ?? 0 },
+      });
     }
 
     if (movement) {
@@ -147,7 +162,7 @@ export class CompleteInventoryService {
         ...(query.activeOnly ? { isActive: true } : {}),
       },
       orderBy: { name: 'asc' },
-      take: 200,
+      ...this.page(query),
     });
   }
 
@@ -170,7 +185,7 @@ export class CompleteInventoryService {
       },
       include: { supplier: true, items: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      ...this.page(query),
     });
   }
 
@@ -225,6 +240,9 @@ export class CompleteInventoryService {
         throw new BadRequestException('Purchase order cannot be received in its current status');
       }
 
+      if (po.branchId && dto.branchId && dto.branchId !== po.branchId) {
+        throw new ForbiddenException('A purchase order must be received into its assigned branch');
+      }
       const branchId = this.assertBranchScope(dto.branchId ?? po.branchId, branchScope);
       await this.assertBranch(organizationId, branchId);
 
@@ -292,7 +310,7 @@ export class CompleteInventoryService {
       },
       include: { fromBranch: true, toBranch: true, items: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      ...this.page(query),
     });
   }
 
@@ -417,7 +435,7 @@ export class CompleteInventoryService {
       },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      ...this.page(query),
     });
   }
 
@@ -490,6 +508,7 @@ export class CompleteInventoryService {
   async returnSale(
     organizationId: string,
     id: string,
+    dto: { items?: Array<{ productId: string; quantity: number }> } = {},
     recordedByUserId: string,
     branchScope: string | null = null,
   ) {
@@ -499,34 +518,113 @@ export class CompleteInventoryService {
         include: { items: true },
       });
       if (!sale) throw new NotFoundException('Sale not found');
-      if (sale.status !== 'COMPLETED') {
-        throw new BadRequestException('Only completed sales can be returned');
+      if (sale.status !== 'COMPLETED' && sale.status !== 'PARTIALLY_RETURNED') {
+        throw new BadRequestException('Only active completed sales can be returned');
       }
       this.assertBranchScope(sale.branchId, branchScope);
 
+      const requested = dto.items?.length
+        ? new Map(dto.items.map((item) => [item.productId, item.quantity]))
+        : new Map(sale.items.map((item) => [item.productId, item.quantity - item.returnedQuantity]));
+
       for (const item of sale.items) {
-        await this.applyDelta(
-          tx,
-          organizationId,
-          item.productId,
-          item.quantity,
-          sale.branchId,
-          {
+        const quantity = requested.get(item.productId) ?? 0;
+        if (quantity === 0) continue;
+        const remaining = item.quantity - item.returnedQuantity;
+        if (quantity > remaining) {
+          throw new BadRequestException(`Cannot return more than the remaining quantity for product ${item.productId}`);
+        }
+        await this.applyDelta(tx, organizationId, item.productId, quantity, sale.branchId, {
+          type: StockMovementType.RETURN,
+          recordedByUserId,
+          unitCost: item.unitCost,
+          referenceType: 'SALE_RETURN',
+          referenceId: sale.id,
+          note: `Return of ${sale.number}`,
+        });
+        await tx.inventorySaleItem.update({
+          where: { id: item.id },
+          data: { returnedQuantity: { increment: quantity } },
+        });
+      }
+
+      const refreshed = await tx.inventorySale.findUniqueOrThrow({
+        where: { id: sale.id },
+        include: { items: true },
+      });
+      const fullyReturned = refreshed.items.every((item) => item.returnedQuantity >= item.quantity);
+      const anyReturned = refreshed.items.some((item) => item.returnedQuantity > 0);
+
+      return tx.inventorySale.update({
+        where: { id: sale.id },
+        data: { status: fullyReturned ? 'RETURNED' : anyReturned ? 'PARTIALLY_RETURNED' : 'COMPLETED' },
+        include: { items: true },
+      });
+    });
+  }
+
+  async cancelPurchaseOrder(organizationId: string, id: string, branchScope: string | null = null) {
+    return this.serializable(async (tx) => {
+      const po = await tx.inventoryPurchaseOrder.findFirst({ where: { id, organizationId }, include: { items: true } });
+      if (!po) throw new NotFoundException('Purchase order not found');
+      this.assertBranchScope(po.branchId, branchScope);
+      if (!['DRAFT', 'ORDERED', 'PARTIALLY_RECEIVED'].includes(po.status)) {
+        throw new BadRequestException('Purchase order cannot be cancelled in its current status');
+      }
+      return tx.inventoryPurchaseOrder.update({ where: { id }, data: { status: 'CANCELLED' }, include: { supplier: true, items: true } });
+    });
+  }
+
+  async cancelTransfer(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
+    return this.serializable(async (tx) => {
+      const transfer = await tx.inventoryTransfer.findFirst({ where: { id, organizationId }, include: { items: true } });
+      if (!transfer) throw new NotFoundException('Transfer not found');
+      this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
+      if (transfer.status === 'DRAFT') {
+        return tx.inventoryTransfer.update({ where: { id }, data: { status: 'CANCELLED' }, include: { items: true, fromBranch: true, toBranch: true } });
+      }
+      if (transfer.status !== 'IN_TRANSIT') {
+        throw new BadRequestException('Transfer cannot be cancelled in its current status');
+      }
+      if (branchScope && transfer.fromBranchId !== branchScope) {
+        throw new ForbiddenException('Only the source branch can cancel an in-transit transfer');
+      }
+      for (const item of transfer.items) {
+        await this.applyDelta(tx, organizationId, item.productId, item.quantity, transfer.fromBranchId, {
+          type: StockMovementType.RETURN,
+          recordedByUserId,
+          referenceType: 'TRANSFER_CANCEL',
+          referenceId: transfer.id,
+          note: `Cancelled ${transfer.number}`,
+        });
+      }
+      return tx.inventoryTransfer.update({ where: { id }, data: { status: 'CANCELLED' }, include: { items: true, fromBranch: true, toBranch: true } });
+    });
+  }
+
+  async cancelSale(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
+    return this.serializable(async (tx) => {
+      const sale = await tx.inventorySale.findFirst({ where: { id, organizationId }, include: { items: true } });
+      if (!sale) throw new NotFoundException('Sale not found');
+      this.assertBranchScope(sale.branchId, branchScope);
+      if (sale.status !== 'COMPLETED' && sale.status !== 'PARTIALLY_RETURNED') {
+        throw new BadRequestException('Sale cannot be cancelled in its current status');
+      }
+      for (const item of sale.items) {
+        const remaining = item.quantity - item.returnedQuantity;
+        if (remaining > 0) {
+          await this.applyDelta(tx, organizationId, item.productId, remaining, sale.branchId, {
             type: StockMovementType.RETURN,
             recordedByUserId,
             unitCost: item.unitCost,
-            referenceType: 'SALE_RETURN',
+            referenceType: 'SALE_CANCEL',
             referenceId: sale.id,
-            note: `Return of ${sale.number}`,
-          },
-        );
+            note: `Cancelled ${sale.number}`,
+          });
+          await tx.inventorySaleItem.update({ where: { id: item.id }, data: { returnedQuantity: item.quantity } });
+        }
       }
-
-      return tx.inventorySale.update({
-        where: { id },
-        data: { status: 'RETURNED' },
-        include: { items: true },
-      });
+      return tx.inventorySale.update({ where: { id }, data: { status: 'CANCELLED' }, include: { items: true } });
     });
   }
 
@@ -541,7 +639,7 @@ export class CompleteInventoryService {
       },
       include: { product: true, branch: true },
       orderBy: { updatedAt: 'desc' },
-      take: 500,
+      ...this.page(query),
     });
   }
 

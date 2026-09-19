@@ -43,6 +43,19 @@ export class ReceivePurchaseOrderDto {
   items!: ReceivePurchaseOrderItemDto[];
 }
 
+export class ReturnSaleItemDto {
+  @IsString() productId!: string;
+  @IsInt() @IsPositive() quantity!: number;
+}
+
+export class ReturnSaleDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReturnSaleItemDto)
+  items?: ReturnSaleItemDto[];
+}
+
 export class TransferItemDto {
   @IsString() productId!: string;
   @IsInt() @IsPositive() quantity!: number;
@@ -78,4 +91,6 @@ export class InventoryQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @Type(() => Boolean) @IsBoolean() activeOnly?: boolean;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) limit?: number;
 }
