@@ -142,21 +142,19 @@ describe('Member assignment scoping (e2e)', () => {
       await asOwner(request(app.getHttpServer()).get('/branches'))
     ).body.data.items[0].id;
     const created = await asOwner(
-      request(app.getHttpServer())
-        .post('/members')
-        .send({
-          primaryBranchId: branchId,
-          firstName: 'Onboarding',
-          lastName: 'Regression',
-          emergencyContactName: 'Emergency Contact',
-          emergencyContactPhone: '9999999999',
-          emergencyContactRelationship: 'Parent',
-          fitnessGoal: 'Weight loss',
-          waiverConsent: true,
-          injuries: 'Old knee injury',
-          allergies: 'Peanuts',
-          medicalNotes: 'Needs clearance before intense training',
-        }),
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: branchId,
+        firstName: 'Onboarding',
+        lastName: 'Regression',
+        emergencyContactName: 'Emergency Contact',
+        emergencyContactPhone: '9999999999',
+        emergencyContactRelationship: 'Parent',
+        fitnessGoal: 'Weight loss',
+        waiverConsent: true,
+        injuries: 'Old knee injury',
+        allergies: 'Peanuts',
+        medicalNotes: 'Needs clearance before intense training',
+      }),
     ).expect(201);
 
     const memberId = created.body.data.id;
