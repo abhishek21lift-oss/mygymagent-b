@@ -73,6 +73,7 @@ export class StockMovementsService {
     }
     const effectiveBranchId = branchScope ?? dto.branchId;
     const product = await this.products.getOne(organizationId, productId);
+    if (!product.isActive) throw new BadRequestException('Inactive products cannot receive stock movements');
     const delta = resolveDelta(dto.type, dto.quantity);
 
     if (effectiveBranchId) {
