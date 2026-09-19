@@ -58,8 +58,8 @@ export class CompleteInventoryController {
 
   @Get('purchase-orders')
   @RequirePermissions('inventory.read')
-  purchaseOrders(@CurrentUser() user: AuthenticatedUser, @Query() query: InventoryQueryDto) {
-    return this.inventory.listPurchaseOrders(user.organizationId!, query);
+  purchaseOrders(@CurrentUser() user: AuthenticatedUser, @Query() query: InventoryQueryDto, @CurrentBranchScope() branchScope: string | null) {
+    return this.inventory.listPurchaseOrders(user.organizationId!, query, branchScope);
   }
 
   @Post('purchase-orders')
