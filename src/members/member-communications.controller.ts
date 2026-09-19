@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -22,12 +23,14 @@ export class MemberCommunicationsController {
   history(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
+    @Query() query: PaginationQueryDto,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.communications.history(
       user.organizationId!,
       memberId,
+      query,
       branchScope,
       assignmentScope,
     );
