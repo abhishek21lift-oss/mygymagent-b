@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { ListStockMovementsQueryDto } from './dto/list-stock-movements-query.dto';
@@ -16,7 +17,12 @@ export class StockMovementsController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListStockMovementsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.stockMovementsService.list(user.organizationId!, query);
+    return this.stockMovementsService.list(
+      user.organizationId!,
+      query,
+      branchScope,
+    );
   }
 }

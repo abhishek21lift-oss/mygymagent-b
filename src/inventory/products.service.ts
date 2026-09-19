@@ -58,7 +58,7 @@ export class ProductsService {
     return product;
   }
 
-  async create(organizationId: string, dto: CreateProductDto) {
+  async create(organizationId: string, dto: CreateProductDto, branchScope: string | null = null) {
     const quantity = dto.quantityOnHand ?? 0;
     const { quantityOnHand: _quantityOnHand, ...productData } = dto;
     return this.prisma.$transaction(async (tx) => {
@@ -72,11 +72,22 @@ export class ProductsService {
           unit: dto.unit?.trim() || 'unit',
         },
       });
+      if (quantity > 0 && branchScope) {
+        await tx.productStock.create({
+          data: {
+            organizationId,
+            branchId: branchScope,
+            productId: product.id,
+            quantityOnHand: quantity,
+          },
+        });
+      }
       if (quantity > 0) {
         await tx.stockMovement.create({
           data: {
             organizationId,
             productId: product.id,
+            branchId: branchScope,
             type: StockMovementType.OPENING,
             quantity,
             unitCost: dto.costPrice ?? 0,
