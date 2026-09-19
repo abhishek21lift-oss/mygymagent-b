@@ -31,9 +31,13 @@ export class PtExpiryScanner {
     private readonly runs: AutomationRunService,
   ) {}
 
-  async scan(organizationId?: string): Promise<{ checked: number; sent: number }> {
+  async scan(
+    organizationId?: string,
+  ): Promise<{ checked: number; sent: number }> {
     const now = new Date();
-    const windowEnd = new Date(now.getTime() + REMINDER_WINDOW_DAYS * MS_PER_DAY);
+    const windowEnd = new Date(
+      now.getTime() + REMINDER_WINDOW_DAYS * MS_PER_DAY,
+    );
 
     const packages = await this.prisma.ptPackage.findMany({
       where: {
