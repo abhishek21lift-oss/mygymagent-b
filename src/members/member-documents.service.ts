@@ -258,7 +258,12 @@ export class MemberDocumentsService {
     branchScope: string | null,
     assignmentScope: string | null = null,
   ) {
-    await this.assertMemberVisible(organizationId, memberId, branchScope, assignmentScope);
+    await this.assertMemberVisible(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const document = await this.prisma.memberDocument.findFirst({
       where: { id: documentId, organizationId, memberId },
     });
