@@ -370,12 +370,14 @@ describe('Branch scoping (e2e)', () => {
 
   it('blocks cross-branch legacy inventory writes and reads', async () => {
     const product = await asManager(
-      request(app.getHttpServer()).post('/products').send({
-        sku: `BRANCH-INV-${Date.now()}`,
-        name: 'Branch Scoped Inventory Product',
-        unitPrice: 20,
-        quantityOnHand: 5,
-      }),
+      request(app.getHttpServer())
+        .post('/products')
+        .send({
+          sku: `BRANCH-INV-${Date.now()}`,
+          name: 'Branch Scoped Inventory Product',
+          unitPrice: 20,
+          quantityOnHand: 5,
+        }),
     ).expect(201);
 
     await asManager(
@@ -403,12 +405,14 @@ describe('Branch scoping (e2e)', () => {
     ).expect(201);
 
     const product = await asOwner(
-      request(app.getHttpServer()).post('/products').send({
-        sku: `PO-INV-${Date.now()}`,
-        name: 'PO Branch Product',
-        unitPrice: 25,
-        quantityOnHand: 0,
-      }),
+      request(app.getHttpServer())
+        .post('/products')
+        .send({
+          sku: `PO-INV-${Date.now()}`,
+          name: 'PO Branch Product',
+          unitPrice: 25,
+          quantityOnHand: 0,
+        }),
     ).expect(201);
 
     const poB = await asOwner(
