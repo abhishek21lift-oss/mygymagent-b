@@ -94,6 +94,8 @@ export class MemberDuplicatesService {
         organizationId,
         id: { not: memberId },
         deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
         OR: [
           ...(member.email ? [{ email: member.email }] : []),
           ...(member.phone ? [{ phone: member.phone }] : []),
