@@ -21,7 +21,7 @@ export class MemberDuplicatesController {
   constructor(private readonly duplicates: MemberDuplicatesService) {}
 
   @Get('duplicates/preview-merge')
-  @RequirePermissions('members.update')
+  @RequireAnyPermission('members.update', 'members.update_assigned')
   previewMerge(
     @CurrentUser() user: AuthenticatedUser,
     @Query('sourceId') sourceId: string,
@@ -39,7 +39,7 @@ export class MemberDuplicatesController {
   }
 
   @Post('duplicates/execute-merge')
-  @RequirePermissions('members.update')
+  @RequireAnyPermission('members.update', 'members.update_assigned')
   @Audited({ resource: 'member', action: 'merge' })
   executeMerge(
     @CurrentUser() user: AuthenticatedUser,
