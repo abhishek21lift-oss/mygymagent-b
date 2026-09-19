@@ -100,7 +100,6 @@ export class Member360Service {
       this.prisma.membership.findMany({
         where: { organizationId, memberId },
         orderBy: { createdAt: 'desc' },
-        orderBy: { createdAt: 'desc' },
         include: { membershipPlan: { select: { name: true } } },
       }),
       this.prisma.attendance.findMany({
