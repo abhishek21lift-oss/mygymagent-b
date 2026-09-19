@@ -4,7 +4,7 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { RequireAnyPermission } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   BulkExportDto,
@@ -19,7 +19,7 @@ export class MemberBulkController {
   constructor(private readonly bulk: MemberBulkService) {}
 
   @Post('status')
-  @RequirePermissions('members.update')
+  @RequireAnyPermission('members.update', 'members.update_assigned')
   @Audited({ resource: 'member', action: 'bulk_status_change' })
   changeStatus(
     @CurrentUser() user: AuthenticatedUser,
@@ -55,7 +55,7 @@ export class MemberBulkController {
   }
 
   @Post('export')
-  @RequirePermissions('members.read')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
   export(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkExportDto,
