@@ -46,6 +46,21 @@ export class MembersController {
     );
   }
 
+
+  @Get('metrics')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  getMetrics(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.getMetrics(
+      user.organizationId!,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
   @Get(':id')
   @RequireAnyPermission('members.read', 'members.read_assigned')
   getOne(
