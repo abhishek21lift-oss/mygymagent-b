@@ -96,7 +96,15 @@ describe('Branch scoping (e2e)', () => {
     // into, or hand out role grants for, a branch they don't manage.
     const perms = await prisma.permission.findMany({
       where: {
-        key: { in: ['users.read', 'users.create', 'users.manage_roles'] },
+        key: {
+          in: [
+            'users.read',
+            'users.create',
+            'users.manage_roles',
+            'inventory.read',
+            'inventory.manage',
+          ],
+        },
       },
     });
     const staffAdminRole = await prisma.role.create({
@@ -356,6 +364,76 @@ describe('Branch scoping (e2e)', () => {
     expect(
       list.body.data.items.some(
         (u: { id: string }) => u.id === staffB.body.data.id,
+      ),
+    ).toBe(false);
+  });
+
+  it('blocks cross-branch legacy inventory writes and reads', async () => {
+    const product = await asManager(
+      request(app.getHttpServer()).post('/products').send({
+        sku: `BRANCH-INV-${Date.now()}`,
+        name: 'Branch Scoped Inventory Product',
+        unitPrice: 20,
+        quantityOnHand: 5,
+      }),
+    ).expect(201);
+
+    await asManager(
+      request(app.getHttpServer())
+        .post(`/products/${product.body.data.id}/stock-movements`)
+        .send({
+          type: 'RESTOCK',
+          quantity: 1,
+          branchId: branchB,
+        }),
+    ).expect(403);
+
+    await asManager(
+      request(app.getHttpServer())
+        .get('/stock-movements')
+        .query({ branchId: branchB }),
+    ).expect(403);
+  });
+
+  it('scopes purchase-order listing to the assigned branch', async () => {
+    const supplier = await asOwner(
+      request(app.getHttpServer())
+        .post('/inventory/suppliers')
+        .send({ name: `Branch Supplier ${Date.now()}` }),
+    ).expect(201);
+
+    const product = await asOwner(
+      request(app.getHttpServer()).post('/products').send({
+        sku: `PO-INV-${Date.now()}`,
+        name: 'PO Branch Product',
+        unitPrice: 25,
+        quantityOnHand: 0,
+      }),
+    ).expect(201);
+
+    const poB = await asOwner(
+      request(app.getHttpServer())
+        .post('/inventory/purchase-orders')
+        .send({
+          supplierId: supplier.body.data.id,
+          branchId: branchB,
+          items: [
+            {
+              productId: product.body.data.id,
+              orderedQuantity: 2,
+              unitCost: 10,
+            },
+          ],
+        }),
+    ).expect(201);
+
+    const list = await asManager(
+      request(app.getHttpServer()).get('/inventory/purchase-orders'),
+    ).expect(200);
+
+    expect(
+      list.body.data.items.some(
+        (po: { id: string }) => po.id === poB.body.data.id,
       ),
     ).toBe(false);
   });
