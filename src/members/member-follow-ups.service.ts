@@ -210,7 +210,12 @@ export class MemberFollowUpsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
