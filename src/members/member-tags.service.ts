@@ -129,7 +129,7 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const tags = await this.prisma.memberTag.findMany({
       where: { organizationId, id: { in: dto.tagIds } },
     });
@@ -159,7 +159,7 @@ export class MemberTagsService {
         ),
       );
     });
-    return this.listAssignments(organizationId, memberId);
+    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
   }
 
   async addOne(
@@ -168,8 +168,9 @@ export class MemberTagsService {
     tagId: string,
     assignedByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const tag = await this.prisma.memberTag.findFirst({
       where: { id: tagId, organizationId },
     });
