@@ -91,11 +91,22 @@ export class CompleteInventoryService {
     if (!product) throw new NotFoundException('Product not found');
 
     if (branchId) {
+      const stockRowCount = await tx.productStock.count({ where: { organizationId, productId } });
       await tx.productStock.upsert({
         where: { organizationId_branchId_productId: { organizationId, branchId, productId } },
-        create: { organizationId, branchId, productId, quantityOnHand: 0 },
+        create: {
+          organizationId,
+          branchId,
+          productId,
+          quantityOnHand: stockRowCount === 0 ? product.quantityOnHand : 0,
+        },
         update: {},
       });
+    } else {
+      const branchStockCount = await tx.productStock.count({ where: { organizationId, productId } });
+      if (branchStockCount > 0) {
+        throw new BadRequestException('Branch-scoped stock must be mutated through a branch-scoped inventory operation');
+      }
     }
 
     const totalResult = await tx.product.updateMany({
