@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
 import { CompleteInventoryController } from './complete-inventory.controller';
 import { CompleteInventoryService } from './complete-inventory.service';
