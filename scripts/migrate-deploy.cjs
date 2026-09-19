@@ -1,13 +1,22 @@
 /**
- * Production boot gate: verify DB connectivity, then apply pending Prisma
- * migrations. Migration history is authoritative in the database; this
- * wrapper deliberately does not guess which migration should be resolved.
+ * Production boot gate: verify DB connectivity, recover the known failed
+ * migration (if still marked failed), then apply pending Prisma migrations.
+ *
+ * Context: prod `_prisma_migrations` holds a FAILED row for
+ * 20260916100000_add_member_intelligence_os, which makes `migrate deploy`
+ * exit with P3009 and block every later migration. Deleting the migration
+ * file does not clear that row, so the boot gate marks it rolled back
+ * (its SQL is transactional + idempotent, safe to retry) before deploying.
+ * The resolve step is warn-and-continue: once the migration has applied,
+ * `resolve --rolled-back` exits non-zero and deploy below is authoritative.
  */
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 
 const TCP_TIMEOUT_MS = Number(process.env.MIGRATE_TCP_TIMEOUT_MS ?? 15000);
 const DEPLOY_TIMEOUT_MS = Number(process.env.MIGRATE_DEPLOY_TIMEOUT_MS ?? 600000);
+const FAILED_MIGRATION = process.env.FAILED_MIGRATION ??
+  '20260916100000_add_member_intelligence_os';
 
 function redact(url) {
   try {
@@ -39,6 +48,21 @@ function checkTcp(host, port, timeoutMs) {
   });
 }
 
+function runPrisma(args) {
+  return new Promise((resolve) => {
+    const child = spawn('npx', ['prisma', ...args], {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      env: process.env,
+    });
+    child.once('exit', (code) => resolve(code ?? 1));
+    child.once('error', (err) => {
+      console.error(`[migrate-deploy] FATAL: failed to launch prisma: ${err.message}`);
+      resolve(1);
+    });
+  });
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -64,7 +88,25 @@ async function main() {
     process.exit(1);
   }
   console.error('[migrate-deploy] Database reachable.');
-  console.error('[migrate-deploy] Applying pending Prisma migrations.');
+
+  // P3009 recovery: a stale FAILED row blocks all deploys. The migration is
+  // transactional (a failed run leaves no partial schema changes) and its
+  // SQL is idempotent, so marking it rolled back and letting deploy retry
+  // it is the correct recovery.
+  console.error(`[migrate-deploy] Recovering failed migration (if any): ${FAILED_MIGRATION}`);
+  const resolveCode = await runPrisma([
+    'migrate',
+    'resolve',
+    '--rolled-back',
+    FAILED_MIGRATION,
+  ]);
+  if (resolveCode !== 0) {
+    // Idempotent boot: Prisma returns non-zero when the migration is already
+    // resolved/applied. In that case migrate deploy below is authoritative.
+    console.error(
+      '[migrate-deploy] WARN: rollback resolution was not needed or was already resolved; continuing to migrate deploy.',
+    );
+  }
 
   const child = spawn('npx', ['prisma', 'migrate', 'deploy'], {
     stdio: 'inherit',
