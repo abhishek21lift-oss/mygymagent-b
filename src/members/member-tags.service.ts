@@ -180,7 +180,7 @@ export class MemberTagsService {
       create: { organizationId, memberId, tagId, assignedByUserId },
       update: {},
     });
-    return this.listAssignments(organizationId, memberId);
+    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
   }
 
   async removeOne(
