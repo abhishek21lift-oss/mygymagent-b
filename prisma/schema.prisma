@@ -101,7 +101,6 @@ model Organization {
   products                Product[]
   stockMovements          StockMovement[]
   inventoryStocks         ProductStock[]
-  inventorySuppliers      InventorySupplier[]
   inventoryPurchaseOrders InventoryPurchaseOrder[]
   inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
   inventorySales          InventorySale[]
