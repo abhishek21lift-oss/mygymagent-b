@@ -233,8 +233,9 @@ export class MembersService {
     dto: UpdateMemberDto,
     branchScope: string | null = null,
     changedByUserId: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const before = await this.getOne(organizationId, id, branchScope);
+    const before = await this.getOne(organizationId, id, branchScope, assignmentScope);
     if (
       branchScope &&
       dto.primaryBranchId !== undefined &&
@@ -455,8 +456,9 @@ export class MembersService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.getOne(organizationId, id, branchScope);
+    await this.getOne(organizationId, id, branchScope, assignmentScope);
     return this.prisma.member.update({
       where: { id },
       data: { deletedAt: new Date(), status: 'INACTIVE' },
@@ -467,12 +469,14 @@ export class MembersService {
     organizationId: string,
     memberId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       id: memberId,
       organizationId,
       deletedAt: null,
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
     };
     const member = await this.prisma.member.findFirst({ where });
     if (!member) throw new NotFoundException('Member not found');
