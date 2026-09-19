@@ -6,36 +6,36 @@ WITH ranked AS (
   SELECT
     id,
     ROW_NUMBER() OVER (
-      PARTITION BY member_id
-      ORDER BY updated_at DESC, created_at DESC, id DESC
+      PARTITION BY "memberId"
+      ORDER BY "updatedAt" DESC, "createdAt" DESC, id DESC
     ) AS rn
   FROM member_addresses
-  WHERE is_primary = true
+  WHERE "isPrimary" = true
 )
 UPDATE member_addresses
-SET is_primary = false,
-    updated_at = NOW()
+SET "isPrimary" = false,
+    "updatedAt" = NOW()
 WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 
 WITH ranked AS (
   SELECT
     id,
     ROW_NUMBER() OVER (
-      PARTITION BY member_id
-      ORDER BY updated_at DESC, created_at DESC, id DESC
+      PARTITION BY "memberId"
+      ORDER BY "updatedAt" DESC, "createdAt" DESC, id DESC
     ) AS rn
   FROM member_emergency_contacts
-  WHERE is_primary = true
+  WHERE "isPrimary" = true
 )
 UPDATE member_emergency_contacts
-SET is_primary = false,
-    updated_at = NOW()
+SET "isPrimary" = false,
+    "updatedAt" = NOW()
 WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 
 CREATE UNIQUE INDEX IF NOT EXISTS "member_addresses_one_primary_per_member"
-  ON member_addresses (member_id)
-  WHERE is_primary = true;
+  ON member_addresses ("memberId")
+  WHERE "isPrimary" = true;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "member_emergency_contacts_one_primary_per_member"
-  ON member_emergency_contacts (member_id)
-  WHERE is_primary = true;
+  ON member_emergency_contacts ("memberId")
+  WHERE "isPrimary" = true;
