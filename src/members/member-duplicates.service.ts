@@ -59,10 +59,22 @@ export class MemberDuplicatesService {
       throw new BadRequestException('Cannot merge a member with itself');
     const [source, target] = await Promise.all([
       this.prisma.member.findFirst({
-        where: { id: sourceId, organizationId, deletedAt: null, ...(branchScope ? { primaryBranchId: branchScope } : {}), ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}) },
+        where: {
+          id: sourceId,
+          organizationId,
+          deletedAt: null,
+          ...(branchScope ? { primaryBranchId: branchScope } : {}),
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+        },
       }),
       this.prisma.member.findFirst({
-        where: { id: targetId, organizationId, deletedAt: null, ...(branchScope ? { primaryBranchId: branchScope } : {}), ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}) },
+        where: {
+          id: targetId,
+          organizationId,
+          deletedAt: null,
+          ...(branchScope ? { primaryBranchId: branchScope } : {}),
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+        },
       }),
     ]);
     if (!source) throw new NotFoundException('Source member not found');
