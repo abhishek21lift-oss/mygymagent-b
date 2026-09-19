@@ -31,6 +31,7 @@ export class MemberBulkService {
     dto: BulkStatusChangeDto,
     changedByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (dto.memberIds.length === 0)
       throw new BadRequestException('memberIds must not be empty');
@@ -45,6 +46,7 @@ export class MemberBulkService {
         id: { in: dto.memberIds },
         deletedAt: null,
         ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       },
       select: { id: true, status: true },
     });
