@@ -99,7 +99,9 @@ export class MemberFollowUpsService {
         assignee.staffProfile?.branchId &&
         assignee.staffProfile.branchId !== member.primaryBranchId
       ) {
-        throw new NotFoundException('Assignee is not compatible with member branch');
+        throw new NotFoundException(
+          'Assignee is not compatible with member branch',
+        );
       }
     }
     const created = await this.prisma.memberFollowUp.create({
@@ -181,7 +183,12 @@ export class MemberFollowUpsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
