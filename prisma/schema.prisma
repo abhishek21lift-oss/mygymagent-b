@@ -1815,6 +1815,7 @@ enum InventorySaleStatus {
   COMPLETED
   CANCELLED
   RETURNED
+  PARTIALLY_RETURNED
 }
 
 /// Append-only ledger entry. `quantity` is the *signed* delta actually
@@ -3084,6 +3085,7 @@ model InventorySaleItem {
   productId String
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
   quantity Int
+  returnedQuantity Int @default(0)
   unitPrice Decimal @db.Decimal(10, 2)
   unitCost Decimal @db.Decimal(10, 2)
   total Decimal @db.Decimal(12, 2)
