@@ -256,6 +256,10 @@ describe('Member 360 (e2e)', () => {
             roleKey: 'TRAINER',
           }),
       ).expect(201);
+      await prisma.user.update({
+        where: { id: trainer.body.data.id },
+        data: { status: 'ACTIVE' },
+      });
 
       await authed(org.accessToken)(
         request(app.getHttpServer())
