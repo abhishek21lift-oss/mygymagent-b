@@ -68,10 +68,10 @@ export class StockMovementsService {
     recordedByUserId: string,
     branchScope: string | null = null,
   ) {
-    if (branchScope && effectiveBranchId && effectiveBranchId !== branchScope) {
+    if (branchScope && dto.branchId && dto.branchId !== branchScope) {
       throw new ForbiddenException('Inventory access is restricted to the assigned branch');
     }
-    const effectiveBranchId = branchScope ?? effectiveBranchId;
+    const effectiveBranchId = branchScope ?? dto.branchId;
     const product = await this.products.getOne(organizationId, productId);
     const delta = resolveDelta(dto.type, dto.quantity);
 
