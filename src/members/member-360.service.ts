@@ -108,12 +108,16 @@ export class Member360Service {
         select: { checkInAt: true },
       }),
       this.prisma.payment.findMany({
-        where: { organizationId, memberId, status: 'COMPLETED' },
-        select: { amount: true, membershipId: true },
+        where: {
+          organizationId,
+          memberId,
+          status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+        },
+        select: { id: true, amount: true, membershipId: true },
       }),
       this.prisma.refund.findMany({
         where: { organizationId, payment: { memberId } },
-        select: { amount: true },
+        select: { amount: true, paymentId: true },
       }),
       this.prisma.ptSession.findMany({
         where: { organizationId, memberId },
@@ -138,6 +142,15 @@ export class Member360Service {
       }),
     ]);
 
+    const membershipIds = new Set(memberships.map((m) => m.id));
+    const membershipPayments = payments.filter(
+      (p) => p.membershipId && membershipIds.has(p.membershipId),
+    );
+    const membershipPaymentIds = new Set(membershipPayments.map((p) => p.id));
+    const membershipRefunds = refunds.filter((r) =>
+      membershipPaymentIds.has(r.paymentId),
+    );
+
     const current =
       memberships.find((m) => m.status === 'ACTIVE') ?? memberships[0] ?? null;
 
@@ -154,9 +167,17 @@ export class Member360Service {
       outstandingBalance: string;
     } | null = null;
     if (current) {
-      const paidForCurrent = payments
+      const paidForCurrent = membershipPayments
         .filter((p) => p.membershipId === current.id)
         .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
+      const currentPaymentIds = new Set(
+        membershipPayments
+          .filter((p) => p.membershipId === current.id)
+          .map((p) => p.id),
+      );
+      const refundedForCurrent = membershipRefunds
+        .filter((r) => currentPaymentIds.has(r.paymentId))
+        .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
       membershipBlock = {
         id: current.id,
         planName: current.membershipPlan.name,
@@ -167,7 +188,11 @@ export class Member360Service {
         currency: current.currency,
         autoRenew: current.autoRenew,
         totalPaid: paidForCurrent.toFixed(2),
-        outstandingBalance: current.price.sub(paidForCurrent).toFixed(2),
+        outstandingBalance: current.price
+          .sub(current.discount ?? new Prisma.Decimal(0))
+          .sub(paidForCurrent)
+          .add(refundedForCurrent)
+          .toFixed(2),
       };
     }
 
@@ -204,16 +229,16 @@ export class Member360Service {
               : 0;
     const score = Math.min(100, Math.min(visits30 * 10, 70) + recencyBonus);
 
-    const totalPaid = payments.reduce(
+    const totalPaid = membershipPayments.reduce(
       (sum, p) => sum.plus(p.amount),
       new Prisma.Decimal(0),
     );
-    const totalRefunded = refunds.reduce(
+    const totalRefunded = membershipRefunds.reduce(
       (sum, r) => sum.plus(r.amount),
       new Prisma.Decimal(0),
     );
     const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price),
+      (sum, m) => sum.plus(m.price.sub(m.discount ?? new Prisma.Decimal(0))),
       new Prisma.Decimal(0),
     );
 
@@ -267,7 +292,7 @@ export class Member360Service {
       finance: {
         totalPaid: totalPaid.toFixed(2),
         totalRefunded: totalRefunded.toFixed(2),
-        outstandingBalance: totalDue.sub(totalPaid).toFixed(2),
+        outstandingBalance: totalDue.sub(totalPaid).add(totalRefunded).toFixed(2),
         pendingPayments: 0,
       },
       ptSummary: {
