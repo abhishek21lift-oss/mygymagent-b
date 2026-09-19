@@ -23,6 +23,7 @@ export class CreateStockMovementDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   unitCost?: number;
 
   @IsOptional()
