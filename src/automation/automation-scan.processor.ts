@@ -13,6 +13,7 @@ import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
+import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
 
 const LOW_STOCK_COOLDOWN_DAYS = 1;
 
@@ -27,45 +28,48 @@ export class AutomationScanProcessor extends WorkerHost {
   private readonly logger = new Logger(AutomationScanProcessor.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly communications: CommunicationsService,
-    private readonly runs: AutomationRunService,
-    private readonly membershipRenewalScanner: MembershipRenewalScanner,
-    private readonly paymentOverdueScanner: PaymentOverdueScanner,
-    private readonly memberInactiveScanner: MemberInactiveScanner,
-    private readonly leadFollowupScanner: LeadFollowupScanner,
-    private readonly leadFirstTouchScanner: LeadFirstTouchScanner,
-    private readonly qrRotationScanner: QrRotationScanner,
-    private readonly invoiceDunningScanner: InvoiceDunningScanner,
-  ) {
-    super();
-  }
+      private readonly prisma: PrismaService,
+      private readonly communications: CommunicationsService,
+      private readonly runs: AutomationRunService,
+      private readonly membershipRenewalScanner: MembershipRenewalScanner,
+      private readonly paymentOverdueScanner: PaymentOverdueScanner,
+      private readonly memberInactiveScanner: MemberInactiveScanner,
+      private readonly leadFollowupScanner: LeadFollowupScanner,
+      private readonly leadFirstTouchScanner: LeadFirstTouchScanner,
+      private readonly qrRotationScanner: QrRotationScanner,
+      private readonly invoiceDunningScanner: InvoiceDunningScanner,
+      private readonly ptExpiryScanner: PtExpiryScanner,
+    ) {
+      super();
+    }
 
   async process(job: Job): Promise<unknown> {
-    switch (job.name) {
-      case JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS:
-        return this.membershipRenewalScanner.scan();
-      case JOB_NAMES.SCAN_PAYMENT_OVERDUE:
-        return this.paymentOverdueScanner.scan();
-      case JOB_NAMES.SCAN_MEMBER_INACTIVE:
-        return this.memberInactiveScanner.scan();
-      case JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE:
-        return this.leadFollowupScanner.scan();
-      case JOB_NAMES.SCAN_LEAD_FIRST_TOUCH:
-        return this.leadFirstTouchScanner.scan();
-      case JOB_NAMES.ROTATE_QR_TOKENS:
-        return this.qrRotationScanner.scan();
-      case JOB_NAMES.SCAN_INVOICE_DUNNING:
-        return this.invoiceDunningScanner.scan();
-      case JOB_NAMES.SEND_LOW_STOCK_ALERT:
-        return this.sendLowStockAlert(job.data as InventoryLowEvent);
-      default:
-        this.logger.warn(
-          `Unrecognized job name on automation queue: ${job.name}`,
-        );
-        return undefined;
+      switch (job.name) {
+        case JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS:
+          return this.membershipRenewalScanner.scan();
+        case JOB_NAMES.SCAN_PAYMENT_OVERDUE:
+          return this.paymentOverdueScanner.scan();
+        case JOB_NAMES.SCAN_MEMBER_INACTIVE:
+          return this.memberInactiveScanner.scan();
+        case JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE:
+          return this.leadFollowupScanner.scan();
+        case JOB_NAMES.SCAN_LEAD_FIRST_TOUCH:
+          return this.leadFirstTouchScanner.scan();
+        case JOB_NAMES.ROTATE_QR_TOKENS:
+          return this.qrRotationScanner.scan();
+        case JOB_NAMES.SCAN_INVOICE_DUNNING:
+          return this.invoiceDunningScanner.scan();
+        case JOB_NAMES.SCAN_PT_EXPIRY:
+          return this.ptExpiryScanner.scan(job.data.organizationId);
+        case JOB_NAMES.SEND_LOW_STOCK_ALERT:
+          return this.sendLowStockAlert(job.data as InventoryLowEvent);
+        default:
+          this.logger.warn(
+            `Unrecognized job name on automation queue: ${job.name}`,
+          );
+          return undefined;
+      }
     }
-  }
 
   /**
    * Recipients are every user in the org holding `inventory.manage`

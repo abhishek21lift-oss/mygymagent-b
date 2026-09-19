@@ -2296,6 +2296,7 @@ enum AutomationKey {
   LOW_STOCK_ALERT
   INVOICE_DUE_REMINDER
   LEAD_FIRST_TOUCH
+  PT_EXPIRY_REMINDER
 }
 
 enum AutomationRunStatus {
