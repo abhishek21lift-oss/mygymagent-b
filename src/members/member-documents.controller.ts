@@ -132,6 +132,7 @@ export class MemberDocumentsController {
     @Param('documentId') documentId: string,
     @Body() dto: ReviewMemberDocumentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.documents.review(
       user.organizationId!,
@@ -140,6 +141,7 @@ export class MemberDocumentsController {
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
