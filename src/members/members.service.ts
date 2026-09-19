@@ -563,26 +563,32 @@ export class MembersService {
           organizationId,
           deletedAt: null,
           status: 'ACTIVE',
-          OR: [
-            { staffProfile: { is: { isTrainer: true } } },
-            { userRoles: { some: { role: { key: 'TRAINER' } } } },
-          ],
-          ...(primaryBranchId
-            ? {
-                OR: [
-                  { primaryBranchId },
-                  { staffProfile: { is: { branchId: primaryBranchId } } },
+          AND: [
+            {
+              OR: [
+                { staffProfile: { is: { isTrainer: true } } },
+                { userRoles: { some: { role: { key: 'TRAINER' } } } },
+              ],
+            },
+            ...(primaryBranchId
+              ? [
                   {
-                    userRoles: {
-                      some: {
-                        branchId: primaryBranchId,
-                        role: { key: 'TRAINER' },
+                    OR: [
+                      { primaryBranchId },
+                      { staffProfile: { is: { branchId: primaryBranchId } } },
+                      {
+                        userRoles: {
+                          some: {
+                            branchId: primaryBranchId,
+                            role: { key: 'TRAINER' },
+                          },
+                        },
                       },
-                    },
+                    ],
                   },
-                ],
-              }
-            : {}),
+                ]
+              : []),
+          ],
         },
         select: { id: true },
       });

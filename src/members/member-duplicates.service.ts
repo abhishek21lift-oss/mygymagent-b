@@ -52,16 +52,20 @@ export class MemberDuplicatesService {
     organizationId: string,
     sourceId: string,
     targetId: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (sourceId === targetId)
       throw new BadRequestException('Cannot merge a member with itself');
+    const scoped = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
     const [source, target] = await Promise.all([
-      this.prisma.member.findFirst({
-        where: { id: sourceId, organizationId, deletedAt: null },
-      }),
-      this.prisma.member.findFirst({
-        where: { id: targetId, organizationId, deletedAt: null },
-      }),
+      this.prisma.member.findFirst({ where: { id: sourceId, ...scoped } }),
+      this.prisma.member.findFirst({ where: { id: targetId, ...scoped } }),
     ]);
     if (!source) throw new NotFoundException('Source member not found');
     if (!target) throw new NotFoundException('Target member not found');
@@ -162,11 +166,15 @@ export class MemberDuplicatesService {
     organizationId: string,
     sourceId: string,
     targetId: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const { source, target } = await this.requirePair(
       organizationId,
       sourceId,
       targetId,
+      branchScope,
+      assignmentScope,
     );
 
     const fields = RESOLVABLE_FIELDS.map((field) => {
@@ -234,11 +242,15 @@ export class MemberDuplicatesService {
     organizationId: string,
     dto: ExecuteMergeDto,
     changedByUserId: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const { source, target } = await this.requirePair(
       organizationId,
       dto.sourceMemberId,
       dto.targetMemberId,
+      branchScope,
+      assignmentScope,
     );
 
     for (const [field, winner] of Object.entries(dto.resolution)) {
