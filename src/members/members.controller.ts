@@ -164,11 +164,13 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.getMembershipBilling(
       user.organizationId!,
       id,
       branchScope,
+      assignmentScope,
     );
   }
 
