@@ -47,7 +47,7 @@ interface OpenRouterResponse {
   };
 }
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 // Hard cap on completion length per call -- one lever from
 // docs/ai/architecture.md's "§58 -- cost control" section; per-tenant
 // usage tracking/budgets are the natural next layer, not built yet (see
@@ -118,7 +118,7 @@ export class OpenRouterProvider {
       return { message, usage, model: json.model ?? model };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new InternalServerErrorException(
+        throw new ServiceUnavailableException(
           `AI provider request timed out after ${REQUEST_TIMEOUT_MS}ms.`,
         );
       }

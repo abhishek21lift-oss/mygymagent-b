@@ -9,7 +9,21 @@ import {
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
 import { Logger } from '@nestjs/common';
+
+/**
+ * handleWebhook takes the Express request now, not a parsed body, because
+ * Stripe signs the raw bytes. The controller only ever reads `rawBody` and
+ * `body`, so the double supplies those two and is cast to the full request
+ * type rather than stubbing 100+ Express members the code never touches.
+ */
+function webhookRequest(
+  init: { rawBody?: Buffer; body?: unknown } = {},
+): RawBodyRequest<Request> {
+  return init as unknown as RawBodyRequest<Request>;
+}
 
 describe('StripeWebhookController', () => {
   let controller: StripeWebhookController;
@@ -84,10 +98,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       try {
-        await controller.handleWebhook(
-          { rawBody: Buffer.from('{}') } as any,
-          'signature',
-        );
+        await controller.handleWebhook(webhookRequest(), 'signature');
       } catch (error) {
         // Assert
         expect(error).toBeInstanceOf(ServiceUnavailableException);
@@ -103,10 +114,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       try {
-        await controller.handleWebhook(
-          { rawBody: Buffer.from('{}') } as any,
-          '',
-        );
+        await controller.handleWebhook(webhookRequest(), '');
       } catch (error) {
         // Assert
         expect(error).toBeInstanceOf(BadRequestException);
@@ -125,10 +133,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       try {
-        await controller.handleWebhook(
-          { rawBody: Buffer.from('{}') } as any,
-          'signature',
-        );
+        await controller.handleWebhook(webhookRequest(), 'signature');
       } catch (error) {
         // Assert
         expect(error).toBeInstanceOf(UnauthorizedException);
@@ -162,10 +167,7 @@ describe('StripeWebhookController', () => {
       ); // No existing payment
 
       // Act
-      await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
-        'signature',
-      );
+      await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
@@ -204,10 +206,7 @@ describe('StripeWebhookController', () => {
       ); // No existing payment
 
       // Act
-      await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
-        'signature',
-      );
+      await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
@@ -247,10 +246,7 @@ describe('StripeWebhookController', () => {
       );
 
       // Act
-      await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
-        'signature',
-      );
+      await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
       expect(paymentsService.createStripePayment).not.toHaveBeenCalled();
@@ -286,7 +282,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       const result = await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
+        webhookRequest(),
         'signature',
       );
 
@@ -327,7 +323,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       const result = await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
+        webhookRequest(),
         'signature',
       );
 
@@ -336,6 +332,45 @@ describe('StripeWebhookController', () => {
         'Failed to handle failed payment intent pi_888: Database error',
       );
       expect(result).toEqual({ received: true });
+    });
+
+    it('verifies against the raw bytes, not a re-serialized body', async () => {
+      // The whole point of taking the request instead of @Body(): Stripe
+      // signs the exact bytes it sent, so re-serializing a parsed body
+      // would reorder keys / drop whitespace and fail verification for
+      // payloads that are perfectly valid.
+      (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
+        type: 'charge.succeeded',
+        data: { object: {} },
+      });
+      const rawBody = Buffer.from('{"z":1,  "a":2}');
+
+      await controller.handleWebhook(
+        webhookRequest({ rawBody, body: { a: 2, z: 1 } }),
+        'signature',
+      );
+
+      const [passedBody] = (stripeService.constructEvent as jest.Mock).mock
+        .calls[0];
+      expect(passedBody).toBe(rawBody);
+    });
+
+    it('falls back to the parsed body when no raw buffer is available', async () => {
+      (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
+        type: 'charge.succeeded',
+        data: { object: {} },
+      });
+
+      await controller.handleWebhook(
+        webhookRequest({ body: { a: 2 } }),
+        'signature',
+      );
+
+      const [passedBody] = (stripeService.constructEvent as jest.Mock).mock
+        .calls[0];
+      expect(passedBody).toEqual(Buffer.from('{"a":2}'));
     });
 
     it('should log unhandled event types', async () => {
@@ -353,10 +388,7 @@ describe('StripeWebhookController', () => {
       const logSpy = jest.spyOn(controller['logger'], 'log');
 
       // Act
-      await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
-        'signature',
-      );
+      await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
       expect(logSpy).toHaveBeenCalledWith(
@@ -390,7 +422,7 @@ describe('StripeWebhookController', () => {
 
       // Act
       const result = await controller.handleWebhook(
-        { rawBody: Buffer.from('{}') } as any,
+        webhookRequest(),
         'signature',
       );
 

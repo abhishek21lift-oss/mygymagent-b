@@ -88,6 +88,12 @@ export class PermissionsGuard implements CanActivate {
       : branchIdHeader;
 
     let branchScope: string | null = null;
+    // Once any required permission is granted only by branch, the whole
+    // request stays pinned to that branch. Without this, a later org-wide
+    // permission in the same AND list would reset branchScope to null and
+    // hand the caller org-wide reach -- a privilege-escalation path.
+    let branchScopedGrant = false;
+
     if (hasAnd && required) {
       for (const key of required) {
         const allowed = await this.permissionsService.hasPermission(
@@ -109,7 +115,10 @@ export class PermissionsGuard implements CanActivate {
           user.organizationId,
           key,
         );
-        branchScope = orgWide ? null : (branchId ?? branchScope);
+        if (!orgWide) {
+          branchScopedGrant = true;
+          branchScope = branchId ?? null;
+        }
       }
     }
 
@@ -129,7 +138,13 @@ export class PermissionsGuard implements CanActivate {
             user.organizationId,
             key,
           );
-          branchScope = orgWide ? null : (branchId ?? branchScope);
+          // An OR match only adds a branch restriction when the matched
+          // permission is itself branch-scoped -- and it must never clear a
+          // restriction already established by the AND list above.
+          if (!orgWide && !branchScopedGrant) {
+            branchScopedGrant = true;
+            branchScope = branchId ?? null;
+          }
           break;
         }
       }

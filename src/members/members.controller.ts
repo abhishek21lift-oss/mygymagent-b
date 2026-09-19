@@ -18,9 +18,9 @@ import {
   RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { ListMembersQueryDto } from './dto/list-members-query.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MembersService } from './members.service';
 
@@ -33,7 +33,7 @@ export class MembersController {
   @RequireAnyPermission('members.read', 'members.read_assigned')
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PaginationQueryDto,
+    @Query() query: ListMembersQueryDto,
     @RequestedBranchId() requestedBranchId: string | undefined,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,

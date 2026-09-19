@@ -58,7 +58,9 @@ export abstract class BaseSpecialistService {
     );
 
     // Map proposal tools to their corresponding AiActionType
-    const actionTypeMap = {
+    const actionTypeMap: Partial<
+      Record<AiToolName, 'ASSIGN_WORKOUT_PLAN' | 'ASSIGN_DIET_PLAN'>
+    > = {
       propose_assign_workout_plan: 'ASSIGN_WORKOUT_PLAN',
       propose_assign_diet_plan: 'ASSIGN_DIET_PLAN',
     };

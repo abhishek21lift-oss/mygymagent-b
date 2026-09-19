@@ -20,6 +20,8 @@ npm-debug.log*
 
 # OS/editor
 .DS_Store
+.idea/
+*.tsbuildinfo
 .vscode/*
 !.vscode/extensions.json
 dump.rdb

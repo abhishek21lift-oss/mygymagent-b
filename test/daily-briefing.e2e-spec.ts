@@ -2,7 +2,11 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { ToolExecutorService } from '../src/ai/tools/tool-executor.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createTestApp, type RegisteredAccount } from './utils/test-app';
+import {
+  createTestApp,
+  grantActiveMembership,
+  type RegisteredAccount,
+} from './utils/test-app';
 
 /**
  * The Owner Daily Briefing (P3): a real, computed aggregation over the
@@ -72,20 +76,9 @@ describe('Owner Daily Briefing (e2e)', () => {
         lastName: 'Member',
       }),
     ).expect(201);
-    // The WS-3 turnstile gate only allows check-ins with an ACTIVE
-    // membership covering now -- without one this check-in is denied (200)
-    // and never counts toward today's briefing.
-    const plan = await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .post('/membership-plans')
-        .send({ name: 'Standard', durationDays: 30, price: 100 }),
-    ).expect(201);
-    await authed(org.accessToken)(
-      request(app.getHttpServer()).post('/memberships').send({
-        memberId: member.body.data.id,
-        membershipPlanId: plan.body.data.id,
-      }),
-    ).expect(201);
+    // The access gate denies a check-in for a member with no active
+    // membership, and a denial answers 200, not 201.
+    await grantActiveMembership(app, org.accessToken, member.body.data.id);
     await authed(org.accessToken)(
       request(app.getHttpServer()).post('/attendance/check-in').send({
         memberId: member.body.data.id,

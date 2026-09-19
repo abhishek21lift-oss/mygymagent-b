@@ -26,6 +26,8 @@ import { AnalyticsSpecialistService } from './specialists/analytics-specialist.s
 import { CrmSpecialistService } from './specialists/crm-specialist.service';
 import { ActionsSpecialistService } from './specialists/actions-specialist.service';
 import { BriefingSpecialistService } from './specialists/briefing-specialist.service';
+import { GlobalAiCommandController } from './global-ai-command.controller';
+import { GlobalAiCommandService } from './global-ai-command.service';
 
 /**
  * v1 AI: tool-calling chat over OpenRouter, restricted to the explicit tool allowlist.
@@ -44,7 +46,11 @@ import { BriefingSpecialistService } from './specialists/briefing-specialist.ser
     AppointmentsModule,
     ExpensesModule,
   ],
-  controllers: [AiController, AiConversationsController],
+  controllers: [
+    AiController,
+    AiConversationsController,
+    GlobalAiCommandController,
+  ],
   providers: [
     AiService,
     OpenRouterProvider,
@@ -60,6 +66,10 @@ import { BriefingSpecialistService } from './specialists/briefing-specialist.ser
     CrmSpecialistService,
     ActionsSpecialistService,
     BriefingSpecialistService,
+    GlobalAiCommandService,
   ],
+  // MemberIntelligenceModule's AiInsightsService calls the model directly
+  // rather than going through AiService's tool-calling loop.
+  exports: [OpenRouterProvider],
 })
 export class AiModule {}

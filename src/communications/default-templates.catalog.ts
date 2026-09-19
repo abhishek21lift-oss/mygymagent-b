@@ -130,6 +130,13 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     body: 'Hi {{1}}, your {{2}} membership expires today ({{3}}). Renew now to continue without interruption.',
   },
   {
+    key: 'pt_expiry_reminder',
+    channel: 'EMAIL',
+    subject:
+      'Your PT package "{{packageName}}" expires in {{daysUntilExpiry}} day(s)',
+    body: 'Hi {{firstName}},\n\nYour PT package "{{packageName}}" has {{remainingSessions}} session(s) remaining and expires on {{expiryDate}} (in {{daysUntilExpiry}} day(s)).\n\nPlease book your remaining sessions before the package expires to avoid losing them.\n\n---\nMyGymAgent',
+  },
+  {
     key: 'lead.first_touch',
     channel: 'WHATSAPP',
     body: 'Hi {{1}}, thanks for your interest in {{2}}! Want a free trial session? Reply YES and we will set it up.',

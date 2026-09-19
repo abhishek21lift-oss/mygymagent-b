@@ -40,6 +40,7 @@ import { PtPackagesModule } from './pt-packages/pt-packages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SearchModule } from './search/search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { MemberIntelligenceModule } from './member-intelligence/member-intelligence.module';
 import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
 import { Client360Module } from './client-360/client-360.module';
@@ -84,6 +85,10 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     OrganizationsModule,
     BranchesModule,
     UsersModule,
+    // Before MembersModule: MemberIntelligenceModule owns the literal
+    // /members/segments route, and MembersController's @Get(':id') would
+    // otherwise match it first and 404 looking for a member named "segments".
+    MemberIntelligenceModule,
     MembersModule,
     MembershipsModule,
     MembershipPlansModule,

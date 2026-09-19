@@ -14,6 +14,7 @@ import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner'
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 import { DataRetentionScanner } from './scanners/data-retention.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
+import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
     QrRotationScanner,
     DataRetentionScanner,
     InvoiceDunningScanner,
+    PtExpiryScanner,
   ],
 })
 export class AutomationModule {}
