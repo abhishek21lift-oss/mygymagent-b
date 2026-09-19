@@ -46,6 +46,7 @@ export class MemberBulkService {
         id: { in: dto.memberIds },
         deletedAt: null,
         ...(branchScope ? { primaryBranchId: branchScope } : {}),
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
         ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       },
       select: { id: true, status: true },
@@ -81,6 +82,7 @@ export class MemberBulkService {
     dto: BulkTagAssignmentDto,
     assignedByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (dto.memberIds.length === 0 || dto.tagIds.length === 0)
       throw new BadRequestException('memberIds and tagIds must not be empty');
@@ -131,6 +133,7 @@ export class MemberBulkService {
     organizationId: string,
     dto: BulkExportDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ): Promise<string> {
     if (dto.format && dto.format !== 'csv')
       throw new BadRequestException(
