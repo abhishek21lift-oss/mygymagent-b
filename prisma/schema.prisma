@@ -101,10 +101,10 @@ model Organization {
   products                Product[]
   stockMovements          StockMovement[]
   inventoryStocks         ProductStock[]
+  stockMovements          StockMovement[]
   inventorySuppliers      InventorySupplier[]
   inventoryPurchaseOrders InventoryPurchaseOrder[]
-  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromOrg")
-  inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToOrg")
+  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
   inventorySales          InventorySale[]
   aiUsageLogs             AiUsageLog[]
   memberAddresses         MemberAddress[]
@@ -3018,7 +3018,7 @@ model InventoryPurchaseOrderItem {
 model InventoryTransfer {
   id             String @id @default(uuid())
   organizationId String
-  organization   Organization @relation("InventoryTransferFromOrg", fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation("InventoryTransferOrg", fields: [organizationId], references: [id], onDelete: Cascade)
   fromBranchId   String
   fromBranch     Branch @relation("InventoryTransferFromBranch", fields: [fromBranchId], references: [id], onDelete: Restrict)
   toBranchId     String
