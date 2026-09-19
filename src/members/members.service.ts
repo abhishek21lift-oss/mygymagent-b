@@ -112,12 +112,6 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
-    emergencyContactRelationship?: string,
-    waiverConsent?: boolean,
-    fitnessGoal?: string,
-    injuries?: string,
-    allergies?: string,
-    medicalNotes?: string,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
