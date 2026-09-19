@@ -105,6 +105,7 @@ export class MemberTagAssignmentsController {
     @Param('memberId') memberId: string,
     @Body() dto: AssignMemberTagsDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.tags.assign(
       user.organizationId!,
@@ -112,6 +113,7 @@ export class MemberTagAssignmentsController {
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -123,6 +125,7 @@ export class MemberTagAssignmentsController {
     @Param('memberId') memberId: string,
     @Param('tagId') tagId: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.tags.addOne(
       user.organizationId!,
@@ -130,6 +133,7 @@ export class MemberTagAssignmentsController {
       tagId,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -141,12 +145,14 @@ export class MemberTagAssignmentsController {
     @Param('memberId') memberId: string,
     @Param('tagId') tagId: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.tags.removeOne(
       user.organizationId!,
       memberId,
       tagId,
       branchScope,
+      assignmentScope,
     );
   }
 }

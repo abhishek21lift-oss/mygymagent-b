@@ -256,8 +256,14 @@ export class MemberDocumentsService {
     dto: { action: 'approve' | 'reject'; rejectionReason?: string },
     reviewedByUserId: string,
     branchScope: string | null,
+    assignmentScope: string | null,
   ) {
-    await this.assertMemberVisible(organizationId, memberId, branchScope, null);
+    await this.assertMemberVisible(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const document = await this.prisma.memberDocument.findFirst({
       where: { id: documentId, organizationId, memberId },
     });

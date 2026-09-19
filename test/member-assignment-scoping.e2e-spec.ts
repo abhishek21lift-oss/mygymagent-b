@@ -61,6 +61,7 @@ describe('Member assignment scoping (e2e)', () => {
       request(app.getHttpServer()).get('/branches'),
     ).expect(200);
     const branchId = branches.body.data.items[0].id;
+    owner.branchId = branchId;
 
     const trainerEmail = `trainer-${Date.now()}@example.com`;
     const invited = await asOwner(
@@ -89,10 +90,6 @@ describe('Member assignment scoping (e2e)', () => {
         roleKey: 'TRAINER',
       }),
     ).expect(201);
-    await prisma.user.update({
-      where: { id: otherTrainer.body.data.id },
-      data: { status: 'ACTIVE' },
-    });
 
     const assignedMember = await asOwner(
       request(app.getHttpServer()).post('/members').send({
@@ -138,6 +135,77 @@ describe('Member assignment scoping (e2e)', () => {
     expect(ids).toContain(assignedMemberId);
     expect(ids).not.toContain(unassignedMemberId);
     expect(ids).not.toContain(otherTrainerMemberId);
+  });
+
+  it('creates onboarding fields without leaking child-only fields into Member', async () => {
+    const branchId = (
+      await asOwner(request(app.getHttpServer()).get('/branches'))
+    ).body.data.items[0].id;
+    const created = await asOwner(
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: branchId,
+        firstName: 'Onboarding',
+        lastName: 'Regression',
+        emergencyContactName: 'Emergency Contact',
+        emergencyContactPhone: '9999999999',
+        emergencyContactRelationship: 'Parent',
+        fitnessGoal: 'Weight loss',
+        waiverConsent: true,
+        injuries: 'Old knee injury',
+        allergies: 'Peanuts',
+        medicalNotes: 'Needs clearance before intense training',
+      }),
+    ).expect(201);
+
+    const memberId = created.body.data.id;
+    const [member, emergency, consent, goal] = await Promise.all([
+      prisma.member.findUnique({ where: { id: memberId } }),
+      prisma.memberEmergencyContact.findFirst({
+        where: { memberId, organizationId: owner.organizationId },
+      }),
+      prisma.memberConsent.findFirst({
+        where: {
+          memberId,
+          organizationId: owner.organizationId,
+          type: 'WAIVER',
+        },
+      }),
+      prisma.memberGoal.findFirst({
+        where: { memberId, organizationId: owner.organizationId },
+      }),
+    ]);
+
+    expect(member?.firstName).toBe('Onboarding');
+    expect(emergency).toMatchObject({
+      name: 'Emergency Contact',
+      phone: '9999999999',
+      relationship: 'Parent',
+      isPrimary: true,
+    });
+    expect(consent).toMatchObject({ granted: true, type: 'WAIVER' });
+    expect(consent?.note).toContain('Old knee injury');
+    expect(goal).toMatchObject({ title: 'Weight loss' });
+  });
+
+  it('rejects assignment to an inactive trainer', async () => {
+    await prisma.user.update({
+      where: { id: trainerId },
+      data: { status: 'SUSPENDED' },
+    });
+
+    await asOwner(
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: owner.branchId,
+        firstName: 'Inactive',
+        lastName: 'TrainerAssignment',
+        assignedTrainerId: trainerId,
+      }),
+    ).expect(400);
+
+    await prisma.user.update({
+      where: { id: trainerId },
+      data: { status: 'ACTIVE' },
+    });
   });
 
   it('a trainer can read their own assigned member by id', async () => {
