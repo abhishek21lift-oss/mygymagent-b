@@ -563,17 +563,26 @@ export class MembersService {
           organizationId,
           deletedAt: null,
           status: 'ACTIVE',
-          staffProfile: {
-            is: { isTrainer: true },
-          },
           OR: [
-            ...(primaryBranchId
-              ? [
+            { staffProfile: { is: { isTrainer: true } } },
+            { userRoles: { some: { role: { key: 'TRAINER' } } } },
+          ],
+          ...(primaryBranchId
+            ? {
+                OR: [
                   { primaryBranchId },
                   { staffProfile: { is: { branchId: primaryBranchId } } },
-                ]
-              : []),
-          ],
+                  {
+                    userRoles: {
+                      some: {
+                        branchId: primaryBranchId,
+                        role: { key: 'TRAINER' },
+                      },
+                    },
+                  },
+                ],
+              }
+            : {}),
         },
         select: { id: true },
       });
