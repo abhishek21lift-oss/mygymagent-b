@@ -19,6 +19,10 @@ export class StockMovementsController {
     @Query() query: ListStockMovementsQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.stockMovementsService.list(user.organizationId!, query, branchScope);
+    return this.stockMovementsService.list(
+      user.organizationId!,
+      query,
+      branchScope,
+    );
   }
 }
