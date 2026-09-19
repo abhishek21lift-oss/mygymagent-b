@@ -475,12 +475,14 @@ export class MembersService {
     organizationId: string,
     memberId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       id: memberId,
       organizationId,
       deletedAt: null,
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
     };
     const member = await this.prisma.member.findFirst({ where });
     if (!member) throw new NotFoundException('Member not found');
