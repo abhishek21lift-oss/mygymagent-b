@@ -47,7 +47,13 @@ export class MemberDuplicatesController {
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.duplicates.executeMerge(user.organizationId!, dto, user.id, branchScope, assignmentScope);
+    return this.duplicates.executeMerge(
+      user.organizationId!,
+      dto,
+      user.id,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Get(':memberId/duplicates')
