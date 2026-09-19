@@ -132,7 +132,8 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
   {
     key: 'pt_expiry_reminder',
     channel: 'EMAIL',
-    subject: 'Your PT package "{{packageName}}" expires in {{daysUntilExpiry}} day(s)',
+    subject:
+      'Your PT package "{{packageName}}" expires in {{daysUntilExpiry}} day(s)',
     body: 'Hi {{firstName}},\n\nYour PT package "{{packageName}}" has {{remainingSessions}} session(s) remaining and expires on {{expiryDate}} (in {{daysUntilExpiry}} day(s)).\n\nPlease book your remaining sessions before the package expires to avoid losing them.\n\n---\nMyGymAgent',
   },
   {
