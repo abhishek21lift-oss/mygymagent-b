@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +22,19 @@ export class CompleteInventoryService {
     if (!branchId) return;
     const branch = await this.prisma.branch.findFirst({ where: { id: branchId, organizationId } });
     if (!branch) throw new NotFoundException('Branch not found');
+  }
+
+  private assertBranchScope(branchId: string | null | undefined, branchScope: string | null) {
+    if (branchScope && branchId && branchId !== branchScope) {
+      throw new ForbiddenException('Inventory access is restricted to the assigned branch');
+    }
+    return branchId ?? branchScope ?? undefined;
+  }
+
+  private assertTransferScope(fromBranchId: string, toBranchId: string, branchScope: string | null) {
+    if (branchScope && fromBranchId !== branchScope && toBranchId !== branchScope) {
+      throw new ForbiddenException('Inventory transfer must involve your assigned branch');
+    }
   }
 
   private async assertProducts(organizationId: string, ids: string[]) {
@@ -128,11 +141,11 @@ export class CompleteInventoryService {
     return this.prisma.inventorySupplier.update({ where: { id }, data: dto });
   }
 
-  async listPurchaseOrders(organizationId: string, query: InventoryQueryDto) {
+  async listPurchaseOrders(organizationId: string, query: InventoryQueryDto, branchScope: string | null = null) {
     return this.prisma.inventoryPurchaseOrder.findMany({
       where: {
         organizationId,
-        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(this.assertBranchScope(query.branchId, branchScope) ? { branchId: this.assertBranchScope(query.branchId, branchScope) } : {}),
         ...(query.status ? { status: query.status as never } : {}),
       },
       include: { supplier: true, items: true },
@@ -141,9 +154,10 @@ export class CompleteInventoryService {
     });
   }
 
-  async createPurchaseOrder(organizationId: string, dto: CreatePurchaseOrderDto) {
+  async createPurchaseOrder(organizationId: string, dto: CreatePurchaseOrderDto, branchScope: string | null = null) {
     if (!dto.items?.length) throw new BadRequestException('Purchase order must contain at least one item');
-    await this.assertBranch(organizationId, dto.branchId);
+    const branchId = this.assertBranchScope(dto.branchId, branchScope);
+    await this.assertBranch(organizationId, branchId);
     const supplier = await this.prisma.inventorySupplier.findFirst({ where: { id: dto.supplierId, organizationId, isActive: true } });
     if (!supplier) throw new NotFoundException('Supplier not found');
     const ids = dto.items.map((item) => item.productId);
@@ -158,7 +172,7 @@ export class CompleteInventoryService {
       data: {
         organizationId,
         supplierId: dto.supplierId,
-        branchId: dto.branchId,
+        branchId,
         number: this.number('PO'),
         status: 'ORDERED',
         notes: dto.notes,
@@ -176,11 +190,12 @@ export class CompleteInventoryService {
     id: string,
     dto: ReceivePurchaseOrderDto,
     recordedByUserId: string,
+    branchScope: string | null = null,
   ) {
     const po = await this.prisma.inventoryPurchaseOrder.findFirst({ where: { id, organizationId }, include: { items: true } });
     if (!po) throw new NotFoundException('Purchase order not found');
     if (po.status === 'CANCELLED' || po.status === 'RECEIVED') throw new BadRequestException('Purchase order cannot be received in its current status');
-    const branchId = dto.branchId ?? po.branchId;
+    const branchId = this.assertBranchScope(dto.branchId ?? po.branchId, branchScope);
     await this.assertBranch(organizationId, branchId);
     const requested = new Map(dto.items.map((item) => [item.productId, item.quantity]));
     const validIds = po.items.map((item) => item.productId);
@@ -224,12 +239,12 @@ export class CompleteInventoryService {
     });
   }
 
-  async listTransfers(organizationId: string, query: InventoryQueryDto) {
+  async listTransfers(organizationId: string, query: InventoryQueryDto, branchScope: string | null = null) {
     return this.prisma.inventoryTransfer.findMany({
       where: {
         organizationId,
         ...(query.status ? { status: query.status as never } : {}),
-        ...(query.branchId ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] } : {}),
+        ...(branchScope ? { OR: [{ fromBranchId: branchScope }, { toBranchId: branchScope }] } : query.branchId ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] } : {}),
       },
       include: { fromBranch: true, toBranch: true, items: true },
       orderBy: { createdAt: 'desc' },
@@ -237,9 +252,10 @@ export class CompleteInventoryService {
     });
   }
 
-  async createTransfer(organizationId: string, dto: CreateInventoryTransferDto) {
+  async createTransfer(organizationId: string, dto: CreateInventoryTransferDto, branchScope: string | null = null) {
     if (dto.fromBranchId === dto.toBranchId) throw new BadRequestException('Source and destination branches must differ');
     if (!dto.items?.length) throw new BadRequestException('Transfer must contain at least one item');
+    this.assertTransferScope(dto.fromBranchId, dto.toBranchId, branchScope);
     await this.assertBranch(organizationId, dto.fromBranchId);
     await this.assertBranch(organizationId, dto.toBranchId);
     await this.assertProducts(organizationId, dto.items.map((item) => item.productId));
@@ -256,10 +272,12 @@ export class CompleteInventoryService {
     });
   }
 
-  async shipTransfer(organizationId: string, id: string, recordedByUserId: string) {
+  async shipTransfer(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
     const transfer = await this.prisma.inventoryTransfer.findFirst({ where: { id, organizationId }, include: { items: true } });
     if (!transfer) throw new NotFoundException('Transfer not found');
     if (transfer.status !== 'DRAFT') throw new BadRequestException('Only draft transfers can be shipped');
+    this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
+    if (branchScope && transfer.fromBranchId !== branchScope) throw new ForbiddenException('Only the source branch can ship this transfer');
     return this.prisma.$transaction(async (tx) => {
       for (const item of transfer.items) {
         await this.applyDelta(tx, organizationId, item.productId, -item.quantity, transfer.fromBranchId, {
@@ -278,10 +296,12 @@ export class CompleteInventoryService {
     });
   }
 
-  async receiveTransfer(organizationId: string, id: string, recordedByUserId: string) {
+  async receiveTransfer(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
     const transfer = await this.prisma.inventoryTransfer.findFirst({ where: { id, organizationId }, include: { items: true } });
     if (!transfer) throw new NotFoundException('Transfer not found');
     if (transfer.status !== 'IN_TRANSIT') throw new BadRequestException('Only in-transit transfers can be received');
+    this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
+    if (branchScope && transfer.toBranchId !== branchScope) throw new ForbiddenException('Only the destination branch can receive this transfer');
     return this.prisma.$transaction(async (tx) => {
       for (const item of transfer.items) {
         await this.applyDelta(tx, organizationId, item.productId, item.quantity, transfer.toBranchId, {
@@ -300,11 +320,11 @@ export class CompleteInventoryService {
     });
   }
 
-  async listSales(organizationId: string, query: InventoryQueryDto) {
+  async listSales(organizationId: string, query: InventoryQueryDto, branchScope: string | null = null) {
     return this.prisma.inventorySale.findMany({
       where: {
         organizationId,
-        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(this.assertBranchScope(query.branchId, branchScope) ? { branchId: this.assertBranchScope(query.branchId, branchScope) } : {}),
         ...(query.status ? { status: query.status as never } : {}),
       },
       include: { items: true },
@@ -313,9 +333,10 @@ export class CompleteInventoryService {
     });
   }
 
-  async createSale(organizationId: string, dto: CreateInventorySaleDto, recordedByUserId: string) {
+  async createSale(organizationId: string, dto: CreateInventorySaleDto, recordedByUserId: string, branchScope: string | null = null) {
     if (!dto.items?.length) throw new BadRequestException('Sale must contain at least one item');
-    await this.assertBranch(organizationId, dto.branchId);
+    const branchId = this.assertBranchScope(dto.branchId, branchScope);
+    await this.assertBranch(organizationId, branchId);
     if (dto.memberId) {
       const member = await this.prisma.member.findFirst({ where: { id: dto.memberId, organizationId } });
       if (!member) throw new NotFoundException('Member not found');
@@ -335,7 +356,7 @@ export class CompleteInventoryService {
       const sale = await tx.inventorySale.create({
         data: {
           organizationId,
-          branchId: dto.branchId,
+          branchId,
           memberId: dto.memberId,
           invoiceId: dto.invoiceId,
           createdByUserId: recordedByUserId,
@@ -362,7 +383,7 @@ export class CompleteInventoryService {
 
       for (const item of dto.items) {
         const product = byId.get(item.productId)!;
-        await this.applyDelta(tx, organizationId, item.productId, -item.quantity, dto.branchId, {
+        await this.applyDelta(tx, organizationId, item.productId, -item.quantity, branchId, {
           type: StockMovementType.SALE,
           recordedByUserId,
           unitCost: Number(product.costPrice ?? 0),
@@ -375,10 +396,11 @@ export class CompleteInventoryService {
     });
   }
 
-  async returnSale(organizationId: string, id: string, recordedByUserId: string) {
+  async returnSale(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
     const sale = await this.prisma.inventorySale.findFirst({ where: { id, organizationId }, include: { items: true } });
     if (!sale) throw new NotFoundException('Sale not found');
     if (sale.status !== 'COMPLETED') throw new BadRequestException('Only completed sales can be returned');
+    this.assertBranchScope(sale.branchId, branchScope);
     return this.prisma.$transaction(async (tx) => {
       for (const item of sale.items) {
         await this.applyDelta(tx, organizationId, item.productId, item.quantity, sale.branchId, {
@@ -398,12 +420,13 @@ export class CompleteInventoryService {
     });
   }
 
-  async branchStock(organizationId: string, query: InventoryQueryDto) {
-    await this.assertBranch(organizationId, query.branchId);
+  async branchStock(organizationId: string, query: InventoryQueryDto, branchScope: string | null = null) {
+    const branchId = this.assertBranchScope(query.branchId, branchScope);
+    await this.assertBranch(organizationId, branchId);
     return this.prisma.productStock.findMany({
       where: {
         organizationId,
-        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(branchId ? { branchId } : {}),
         ...(query.productId ? { productId: query.productId } : {}),
       },
       include: { product: true, branch: true },
@@ -412,7 +435,8 @@ export class CompleteInventoryService {
     });
   }
 
-  async reorderSuggestions(organizationId: string, branchId?: string) {
+  async reorderSuggestions(organizationId: string, branchId?: string, branchScope: string | null = null) {
+    branchId = this.assertBranchScope(branchId, branchScope);
     await this.assertBranch(organizationId, branchId);
     const products = await this.prisma.product.findMany({
       where: { organizationId, isActive: true },
@@ -445,9 +469,11 @@ export class CompleteInventoryService {
       }));
   }
 
-  async dashboard(organizationId: string) {
+  async dashboard(organizationId: string, branchScope: string | null = null) {
     const [products, suppliers, openOrders, inTransit, sales] = await Promise.all([
-      this.prisma.product.findMany({ where: { organizationId, isActive: true }, select: { id: true, quantityOnHand: true, reorderLevel: true, costPrice: true } }),
+      branchScope
+        ? this.prisma.productStock.findMany({ where: { organizationId, branchId: branchScope, product: { isActive: true } }, include: { product: { select: { id: true, quantityOnHand: true, reorderLevel: true, costPrice: true } } } }).then(rows => rows.map(r => r.product))
+        : this.prisma.product.findMany({ where: { organizationId, isActive: true }, select: { id: true, quantityOnHand: true, reorderLevel: true, costPrice: true } }),
       this.prisma.inventorySupplier.count({ where: { organizationId, isActive: true } }),
       this.prisma.inventoryPurchaseOrder.count({ where: { organizationId, status: { in: ['ORDERED', 'PARTIALLY_RECEIVED'] } } }),
       this.prisma.inventoryTransfer.count({ where: { organizationId, status: 'IN_TRANSIT' } }),
