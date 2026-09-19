@@ -284,7 +284,9 @@ describe('Branch scoping (e2e)', () => {
       request(app.getHttpServer()).get('/leads'),
     ).expect(200);
     expect(
-      list.body.data.some((l: { id: string }) => l.id === leadB.body.data.id),
+      list.body.data.items.some(
+        (l: { id: string }) => l.id === leadB.body.data.id,
+      ),
     ).toBe(false);
   });
 
@@ -434,9 +436,7 @@ describe('Branch scoping (e2e)', () => {
     ).expect(200);
 
     expect(
-      list.body.data.items.some(
-        (po: { id: string }) => po.id === poB.body.data.id,
-      ),
+      list.body.data.some((po: { id: string }) => po.id === poB.body.data.id),
     ).toBe(false);
   });
 
