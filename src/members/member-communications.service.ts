@@ -73,11 +73,13 @@ export class MemberCommunicationsService {
     memberId: string,
     dto: SendMemberMessageDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const member = await this.requireMember(
       organizationId,
       memberId,
       branchScope,
+      assignmentScope,
     );
     const body = dto.customBody?.trim() ?? '';
     if (!dto.templateKey && !body)
