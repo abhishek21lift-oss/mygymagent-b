@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 
 describe('Member 360 (e2e)', () => {
@@ -7,6 +8,7 @@ describe('Member 360 (e2e)', () => {
   let org: RegisteredAccount;
   let orgB: RegisteredAccount;
   let memberId: string;
+  let prisma: PrismaService;
 
   async function registerOrg(name: string): Promise<RegisteredAccount> {
     const email = `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random()
@@ -42,6 +44,7 @@ describe('Member 360 (e2e)', () => {
   beforeAll(async () => {
     const result = await createTestApp();
     app = result.app;
+    prisma = app.get(PrismaService);
     org = await registerOrg('Member 360 Test Gym');
     orgB = await registerOrg('Member 360 Test Gym B');
 
