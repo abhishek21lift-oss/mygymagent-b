@@ -9,7 +9,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   CreateInventorySaleDto, CreateInventorySupplierDto, CreateInventoryTransferDto,
   CreatePurchaseOrderDto, InventoryQueryDto, ReceivePurchaseOrderDto,
-  UpdateInventorySupplierDto,
+  UpdateInventorySupplierDto, ReturnSaleDto,
 } from './dto/complete-inventory.dto';
 import { CompleteInventoryService } from './complete-inventory.service';
 
@@ -119,7 +119,45 @@ export class CompleteInventoryController {
   @Post('sales/:id/return')
   @RequirePermissions('inventory.manage')
   @Audited({ resource: 'inventory_sale', action: 'return' })
-  returnSale(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @CurrentBranchScope() branchScope: string | null) {
-    return this.inventory.returnSale(user.organizationId!, id, user.id, branchScope);
+  returnSale(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ReturnSaleDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.inventory.returnSale(user.organizationId!, id, dto, user.id, branchScope);
+  }
+
+  @Post('purchase-orders/:id/cancel')
+  @RequirePermissions('inventory.manage')
+  @Audited({ resource: 'inventory_purchase_order', action: 'cancel' })
+  cancelPurchaseOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.inventory.cancelPurchaseOrder(user.organizationId!, id, branchScope);
+  }
+
+  @Post('transfers/:id/cancel')
+  @RequirePermissions('inventory.manage')
+  @Audited({ resource: 'inventory_transfer', action: 'cancel' })
+  cancelTransfer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.inventory.cancelTransfer(user.organizationId!, id, user.id, branchScope);
+  }
+
+  @Post('sales/:id/cancel')
+  @RequirePermissions('inventory.manage')
+  @Audited({ resource: 'inventory_sale', action: 'cancel' })
+  cancelSale(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.inventory.cancelSale(user.organizationId!, id, user.id, branchScope);
   }
 }
