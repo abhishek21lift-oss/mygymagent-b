@@ -31,6 +31,7 @@ export class MemberBulkService {
     dto: BulkStatusChangeDto,
     changedByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (dto.memberIds.length === 0)
       throw new BadRequestException('memberIds must not be empty');
@@ -45,6 +46,7 @@ export class MemberBulkService {
         id: { in: dto.memberIds },
         deletedAt: null,
         ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       },
       select: { id: true, status: true },
     });
@@ -79,6 +81,7 @@ export class MemberBulkService {
     dto: BulkTagAssignmentDto,
     assignedByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     if (dto.memberIds.length === 0 || dto.tagIds.length === 0)
       throw new BadRequestException('memberIds and tagIds must not be empty');
@@ -94,6 +97,7 @@ export class MemberBulkService {
           id: { in: dto.memberIds },
           deletedAt: null,
           ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
         },
         select: { id: true },
       }),
@@ -113,12 +117,16 @@ export class MemberBulkService {
     await this.prisma.$transaction(async (tx) => {
       for (const memberId of dto.memberIds) {
         for (const tagId of dto.tagIds) {
-          const row = await tx.memberTagAssignment.upsert({
+          const existing = await tx.memberTagAssignment.findUnique({
             where: { memberId_tagId: { memberId, tagId } },
-            create: { organizationId, memberId, tagId, assignedByUserId },
-            update: {},
+            select: { memberId: true },
           });
-          if (row) assigned += 1;
+          if (!existing) {
+            await tx.memberTagAssignment.create({
+              data: { organizationId, memberId, tagId, assignedByUserId },
+            });
+            assigned += 1;
+          }
         }
       }
     });
@@ -129,6 +137,7 @@ export class MemberBulkService {
     organizationId: string,
     dto: BulkExportDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ): Promise<string> {
     if (dto.format && dto.format !== 'csv')
       throw new BadRequestException(
@@ -147,6 +156,7 @@ export class MemberBulkService {
         id: { in: dto.memberIds },
         deletedAt: null,
         ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
       },
       include: {
         primaryBranch: { select: { name: true } },
