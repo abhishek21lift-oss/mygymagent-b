@@ -13,6 +13,26 @@ import type {
 export class CompleteInventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async serializable<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>, attempts = 3): Promise<T> {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < attempts
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new BadRequestException('Inventory operation could not be completed safely; please retry');
+  }
+
   private number(prefix: string) {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 12);
     return `${prefix}-${stamp}-${randomUUID().slice(0, 6).toUpperCase()}`;
@@ -39,9 +59,9 @@ export class CompleteInventoryService {
 
   private async assertProducts(organizationId: string, ids: string[]) {
     const unique = [...new Set(ids)];
-    const products = await this.prisma.product.findMany({ where: { organizationId, id: { in: unique } } });
+    const products = await this.prisma.product.findMany({ where: { organizationId, id: { in: unique }, isActive: true } });
     if (products.length !== unique.length) {
-      throw new NotFoundException('One or more products do not belong to this organization');
+      throw new NotFoundException('One or more products do not belong to this organization or are inactive');
     }
     return products;
   }
@@ -55,7 +75,7 @@ export class CompleteInventoryService {
     movement?: {
       type: StockMovementType;
       recordedByUserId?: string;
-      unitCost?: number;
+      unitCost?: number | Prisma.Decimal;
       referenceType?: string;
       referenceId?: string;
       note?: string;
@@ -100,7 +120,7 @@ export class CompleteInventoryService {
     }
 
     if (movement) {
-      const unitCost = movement.unitCost ?? Number(product.costPrice ?? 0);
+      const unitCost = movement.unitCost ?? new Prisma.Decimal(product.costPrice ?? 0);
       await tx.stockMovement.create({
         data: {
           organizationId,
@@ -109,7 +129,7 @@ export class CompleteInventoryService {
           type: movement.type,
           quantity: delta,
           unitCost,
-          totalCost: Math.abs(delta) * unitCost,
+          totalCost: new Prisma.Decimal(Math.abs(delta)).mul(unitCost),
           referenceType: movement.referenceType,
           referenceId: movement.referenceId,
           note: movement.note,
@@ -167,7 +187,10 @@ export class CompleteInventoryService {
       orderedQuantity: item.orderedQuantity,
       unitCost: new Prisma.Decimal(item.unitCost),
     }));
-    const totalCost = items.reduce((sum, item) => sum + item.orderedQuantity * Number(item.unitCost), 0);
+    const totalCost = items.reduce(
+      (sum, item) => sum.add(new Prisma.Decimal(item.orderedQuantity).mul(item.unitCost)),
+      new Prisma.Decimal(0),
+    );
     return this.prisma.inventoryPurchaseOrder.create({
       data: {
         organizationId,
@@ -178,7 +201,7 @@ export class CompleteInventoryService {
         notes: dto.notes,
         expectedAt: dto.expectedAt,
         orderedAt: new Date(),
-        totalCost: new Prisma.Decimal(totalCost),
+        totalCost,
         items: { create: items },
       },
       include: { supplier: true, items: true },
@@ -192,27 +215,40 @@ export class CompleteInventoryService {
     recordedByUserId: string,
     branchScope: string | null = null,
   ) {
-    const po = await this.prisma.inventoryPurchaseOrder.findFirst({ where: { id, organizationId }, include: { items: true } });
-    if (!po) throw new NotFoundException('Purchase order not found');
-    if (po.status === 'CANCELLED' || po.status === 'RECEIVED') throw new BadRequestException('Purchase order cannot be received in its current status');
-    const branchId = this.assertBranchScope(dto.branchId ?? po.branchId, branchScope);
-    await this.assertBranch(organizationId, branchId);
-    const requested = new Map(dto.items.map((item) => [item.productId, item.quantity]));
-    const validIds = po.items.map((item) => item.productId);
-    for (const productId of requested.keys()) {
-      if (!validIds.includes(productId)) throw new BadRequestException(`Product ${productId} is not on this purchase order`);
-    }
+    return this.serializable(async (tx) => {
+      const po = await tx.inventoryPurchaseOrder.findFirst({
+        where: { id, organizationId },
+        include: { items: true },
+      });
+      if (!po) throw new NotFoundException('Purchase order not found');
+      if (po.status === 'CANCELLED' || po.status === 'RECEIVED') {
+        throw new BadRequestException('Purchase order cannot be received in its current status');
+      }
 
-    return this.prisma.$transaction(async (tx) => {
+      const branchId = this.assertBranchScope(dto.branchId ?? po.branchId, branchScope);
+      await this.assertBranch(organizationId, branchId);
+
+      const requested = new Map(dto.items.map((item) => [item.productId, item.quantity]));
+      const validIds = po.items.map((item) => item.productId);
+      for (const productId of requested.keys()) {
+        if (!validIds.includes(productId)) {
+          throw new BadRequestException(`Product ${productId} is not on this purchase order`);
+        }
+      }
+
       for (const item of po.items) {
         const quantity = requested.get(item.productId) ?? 0;
         if (quantity === 0) continue;
         const remaining = item.orderedQuantity - item.receivedQuantity;
-        if (quantity > remaining) throw new BadRequestException(`Cannot receive more than the remaining quantity for product ${item.productId}`);
+        if (quantity > remaining) {
+          throw new BadRequestException(
+            `Cannot receive more than the remaining quantity for product ${item.productId}`,
+          );
+        }
         await this.applyDelta(tx, organizationId, item.productId, quantity, branchId, {
           type: StockMovementType.RESTOCK,
           recordedByUserId,
-          unitCost: Number(item.unitCost),
+          unitCost: item.unitCost,
           referenceType: 'PURCHASE_ORDER',
           referenceId: po.id,
           note: `Received against ${po.number}`,
@@ -222,16 +258,24 @@ export class CompleteInventoryService {
           data: { receivedQuantity: { increment: quantity } },
         });
       }
+
       const refreshed = await tx.inventoryPurchaseOrder.findUniqueOrThrow({
         where: { id: po.id },
         include: { items: true },
       });
-      const allReceived = refreshed.items.every((item) => item.receivedQuantity >= item.orderedQuantity);
+      const allReceived = refreshed.items.every(
+        (item) => item.receivedQuantity >= item.orderedQuantity,
+      );
       const anyReceived = refreshed.items.some((item) => item.receivedQuantity > 0);
+
       return tx.inventoryPurchaseOrder.update({
         where: { id: po.id },
         data: {
-          status: allReceived ? 'RECEIVED' : anyReceived ? 'PARTIALLY_RECEIVED' : 'ORDERED',
+          status: allReceived
+            ? 'RECEIVED'
+            : anyReceived
+              ? 'PARTIALLY_RECEIVED'
+              : 'ORDERED',
           receivedAt: allReceived ? new Date() : null,
         },
         include: { supplier: true, items: true },
@@ -272,22 +316,44 @@ export class CompleteInventoryService {
     });
   }
 
-  async shipTransfer(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
-    const transfer = await this.prisma.inventoryTransfer.findFirst({ where: { id, organizationId }, include: { items: true } });
-    if (!transfer) throw new NotFoundException('Transfer not found');
-    if (transfer.status !== 'DRAFT') throw new BadRequestException('Only draft transfers can be shipped');
-    this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
-    if (branchScope && transfer.fromBranchId !== branchScope) throw new ForbiddenException('Only the source branch can ship this transfer');
-    return this.prisma.$transaction(async (tx) => {
-      for (const item of transfer.items) {
-        await this.applyDelta(tx, organizationId, item.productId, -item.quantity, transfer.fromBranchId, {
-          type: StockMovementType.TRANSFER_OUT,
-          recordedByUserId,
-          referenceType: 'TRANSFER',
-          referenceId: transfer.id,
-          note: `Shipped ${transfer.number}`,
-        });
+  async shipTransfer(
+    organizationId: string,
+    id: string,
+    recordedByUserId: string,
+    branchScope: string | null = null,
+  ) {
+    return this.serializable(async (tx) => {
+      const transfer = await tx.inventoryTransfer.findFirst({
+        where: { id, organizationId },
+        include: { items: true },
+      });
+      if (!transfer) throw new NotFoundException('Transfer not found');
+      if (transfer.status !== 'DRAFT') {
+        throw new BadRequestException('Only draft transfers can be shipped');
       }
+
+      this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
+      if (branchScope && transfer.fromBranchId !== branchScope) {
+        throw new ForbiddenException('Only the source branch can ship this transfer');
+      }
+
+      for (const item of transfer.items) {
+        await this.applyDelta(
+          tx,
+          organizationId,
+          item.productId,
+          -item.quantity,
+          transfer.fromBranchId,
+          {
+            type: StockMovementType.TRANSFER_OUT,
+            recordedByUserId,
+            referenceType: 'TRANSFER',
+            referenceId: transfer.id,
+            note: `Shipped ${transfer.number}`,
+          },
+        );
+      }
+
       return tx.inventoryTransfer.update({
         where: { id },
         data: { status: 'IN_TRANSIT', shippedAt: new Date() },
@@ -296,22 +362,44 @@ export class CompleteInventoryService {
     });
   }
 
-  async receiveTransfer(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
-    const transfer = await this.prisma.inventoryTransfer.findFirst({ where: { id, organizationId }, include: { items: true } });
-    if (!transfer) throw new NotFoundException('Transfer not found');
-    if (transfer.status !== 'IN_TRANSIT') throw new BadRequestException('Only in-transit transfers can be received');
-    this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
-    if (branchScope && transfer.toBranchId !== branchScope) throw new ForbiddenException('Only the destination branch can receive this transfer');
-    return this.prisma.$transaction(async (tx) => {
-      for (const item of transfer.items) {
-        await this.applyDelta(tx, organizationId, item.productId, item.quantity, transfer.toBranchId, {
-          type: StockMovementType.TRANSFER_IN,
-          recordedByUserId,
-          referenceType: 'TRANSFER',
-          referenceId: transfer.id,
-          note: `Received ${transfer.number}`,
-        });
+  async receiveTransfer(
+    organizationId: string,
+    id: string,
+    recordedByUserId: string,
+    branchScope: string | null = null,
+  ) {
+    return this.serializable(async (tx) => {
+      const transfer = await tx.inventoryTransfer.findFirst({
+        where: { id, organizationId },
+        include: { items: true },
+      });
+      if (!transfer) throw new NotFoundException('Transfer not found');
+      if (transfer.status !== 'IN_TRANSIT') {
+        throw new BadRequestException('Only in-transit transfers can be received');
       }
+
+      this.assertTransferScope(transfer.fromBranchId, transfer.toBranchId, branchScope);
+      if (branchScope && transfer.toBranchId !== branchScope) {
+        throw new ForbiddenException('Only the destination branch can receive this transfer');
+      }
+
+      for (const item of transfer.items) {
+        await this.applyDelta(
+          tx,
+          organizationId,
+          item.productId,
+          item.quantity,
+          transfer.toBranchId,
+          {
+            type: StockMovementType.TRANSFER_IN,
+            recordedByUserId,
+            referenceType: 'TRANSFER',
+            referenceId: transfer.id,
+            note: `Received ${transfer.number}`,
+          },
+        );
+      }
+
       return tx.inventoryTransfer.update({
         where: { id },
         data: { status: 'RECEIVED', receivedAt: new Date() },
@@ -347,10 +435,13 @@ export class CompleteInventoryService {
     }
     const products = await this.assertProducts(organizationId, dto.items.map((item) => item.productId));
     const byId = new Map(products.map((product) => [product.id, product]));
-    const subtotal = dto.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const discount = dto.discount ?? 0;
-    if (discount > subtotal) throw new BadRequestException('Discount cannot exceed subtotal');
-    const total = subtotal - discount;
+    const subtotal = dto.items.reduce(
+      (sum, item) => sum.add(new Prisma.Decimal(item.quantity).mul(item.unitPrice)),
+      new Prisma.Decimal(0),
+    );
+    const discount = new Prisma.Decimal(dto.discount ?? 0);
+    if (discount.gt(subtotal)) throw new BadRequestException('Discount cannot exceed subtotal');
+    const total = subtotal.sub(discount);
 
     return this.prisma.$transaction(async (tx) => {
       const sale = await tx.inventorySale.create({
@@ -361,9 +452,9 @@ export class CompleteInventoryService {
           invoiceId: dto.invoiceId,
           createdByUserId: recordedByUserId,
           number: this.number('SALE'),
-          subtotal: new Prisma.Decimal(subtotal),
-          discount: new Prisma.Decimal(discount),
-          total: new Prisma.Decimal(total),
+          subtotal,
+          discount,
+          total,
           currency: dto.currency ?? 'USD',
           items: {
             create: dto.items.map((item) => {
@@ -372,8 +463,8 @@ export class CompleteInventoryService {
                 productId: item.productId,
                 quantity: item.quantity,
                 unitPrice: new Prisma.Decimal(item.unitPrice),
-                unitCost: new Prisma.Decimal(Number(product.costPrice ?? 0)),
-                total: new Prisma.Decimal(item.quantity * item.unitPrice),
+                unitCost: new Prisma.Decimal(product.costPrice ?? 0),
+                total: new Prisma.Decimal(item.quantity).mul(item.unitPrice),
               };
             }),
           },
@@ -386,7 +477,7 @@ export class CompleteInventoryService {
         await this.applyDelta(tx, organizationId, item.productId, -item.quantity, branchId, {
           type: StockMovementType.SALE,
           recordedByUserId,
-          unitCost: Number(product.costPrice ?? 0),
+          unitCost: product.costPrice ?? new Prisma.Decimal(0),
           referenceType: 'SALE',
           referenceId: sale.id,
           note: `Sale ${sale.number}`,
@@ -396,22 +487,41 @@ export class CompleteInventoryService {
     });
   }
 
-  async returnSale(organizationId: string, id: string, recordedByUserId: string, branchScope: string | null = null) {
-    const sale = await this.prisma.inventorySale.findFirst({ where: { id, organizationId }, include: { items: true } });
-    if (!sale) throw new NotFoundException('Sale not found');
-    if (sale.status !== 'COMPLETED') throw new BadRequestException('Only completed sales can be returned');
-    this.assertBranchScope(sale.branchId, branchScope);
-    return this.prisma.$transaction(async (tx) => {
-      for (const item of sale.items) {
-        await this.applyDelta(tx, organizationId, item.productId, item.quantity, sale.branchId, {
-          type: StockMovementType.RETURN,
-          recordedByUserId,
-          unitCost: Number(item.unitCost),
-          referenceType: 'SALE_RETURN',
-          referenceId: sale.id,
-          note: `Return of ${sale.number}`,
-        });
+  async returnSale(
+    organizationId: string,
+    id: string,
+    recordedByUserId: string,
+    branchScope: string | null = null,
+  ) {
+    return this.serializable(async (tx) => {
+      const sale = await tx.inventorySale.findFirst({
+        where: { id, organizationId },
+        include: { items: true },
+      });
+      if (!sale) throw new NotFoundException('Sale not found');
+      if (sale.status !== 'COMPLETED') {
+        throw new BadRequestException('Only completed sales can be returned');
       }
+      this.assertBranchScope(sale.branchId, branchScope);
+
+      for (const item of sale.items) {
+        await this.applyDelta(
+          tx,
+          organizationId,
+          item.productId,
+          item.quantity,
+          sale.branchId,
+          {
+            type: StockMovementType.RETURN,
+            recordedByUserId,
+            unitCost: item.unitCost,
+            referenceType: 'SALE_RETURN',
+            referenceId: sale.id,
+            note: `Return of ${sale.number}`,
+          },
+        );
+      }
+
       return tx.inventorySale.update({
         where: { id },
         data: { status: 'RETURNED' },
@@ -470,23 +580,82 @@ export class CompleteInventoryService {
   }
 
   async dashboard(organizationId: string, branchScope: string | null = null) {
-    const [products, suppliers, openOrders, inTransit, sales] = await Promise.all([
+    const [stockRows, suppliers, openOrders, inTransit, sales] = await Promise.all([
       branchScope
-        ? this.prisma.productStock.findMany({ where: { organizationId, branchId: branchScope, product: { isActive: true } }, include: { product: { select: { id: true, quantityOnHand: true, reorderLevel: true, costPrice: true } } } }).then(rows => rows.map(r => r.product))
-        : this.prisma.product.findMany({ where: { organizationId, isActive: true }, select: { id: true, quantityOnHand: true, reorderLevel: true, costPrice: true } }),
-      this.prisma.inventorySupplier.count({ where: { organizationId, isActive: true } }),
-      this.prisma.inventoryPurchaseOrder.count({ where: { organizationId, status: { in: ['ORDERED', 'PARTIALLY_RECEIVED'] } } }),
-      this.prisma.inventoryTransfer.count({ where: { organizationId, status: 'IN_TRANSIT' } }),
-      this.prisma.inventorySale.aggregate({ where: { organizationId, status: { in: ['COMPLETED', 'RETURNED'] } }, _sum: { total: true } }),
+        ? this.prisma.productStock.findMany({
+            where: {
+              organizationId,
+              branchId: branchScope,
+              product: { isActive: true },
+            },
+            select: {
+              quantityOnHand: true,
+              product: {
+                select: {
+                  id: true,
+                  reorderLevel: true,
+                  costPrice: true,
+                },
+              },
+            },
+          })
+        : this.prisma.product.findMany({
+            where: { organizationId, isActive: true },
+            select: {
+              id: true,
+              quantityOnHand: true,
+              reorderLevel: true,
+              costPrice: true,
+            },
+          }).then(rows => rows.map(p => ({ quantityOnHand: p.quantityOnHand, product: p }))),
+      this.prisma.inventorySupplier.count({
+        where: { organizationId, isActive: true },
+      }),
+      this.prisma.inventoryPurchaseOrder.count({
+        where: {
+          organizationId,
+          status: { in: ['ORDERED', 'PARTIALLY_RECEIVED'] },
+          ...(branchScope ? { branchId: branchScope } : {}),
+        },
+      }),
+      this.prisma.inventoryTransfer.count({
+        where: {
+          organizationId,
+          status: 'IN_TRANSIT',
+          ...(branchScope
+            ? { OR: [{ fromBranchId: branchScope }, { toBranchId: branchScope }] }
+            : {}),
+        },
+      }),
+      this.prisma.inventorySale.aggregate({
+        where: {
+          organizationId,
+          status: 'COMPLETED',
+          ...(branchScope ? { branchId: branchScope } : {}),
+        },
+        _sum: { total: true },
+      }),
     ]);
-    const lowStock = products.filter((p) => p.quantityOnHand <= p.reorderLevel).length;
-    const units = products.reduce((sum, p) => sum + p.quantityOnHand, 0);
-    const valuation = products.reduce((sum, p) => sum + p.quantityOnHand * Number(p.costPrice ?? 0), 0);
+
+    const lowStock = stockRows.filter(
+      (row) => row.quantityOnHand <= row.product.reorderLevel,
+    ).length;
+    const units = stockRows.reduce(
+      (sum, row) => sum + row.quantityOnHand,
+      0,
+    );
+    const valuation = stockRows.reduce(
+      (sum, row) => sum.add(
+        new Prisma.Decimal(row.quantityOnHand).mul(row.product.costPrice ?? 0),
+      ),
+      new Prisma.Decimal(0),
+    );
+
     return {
-      activeProducts: products.length,
+      activeProducts: stockRows.length,
       lowStockProducts: lowStock,
       totalUnits: units,
-      inventoryCostValue: valuation,
+      inventoryCostValue: valuation.toNumber(),
       activeSuppliers: suppliers,
       openPurchaseOrders: openOrders,
       transfersInTransit: inTransit,
