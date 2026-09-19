@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { StockMovementType } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
@@ -35,11 +35,15 @@ export class StockMovementsService {
     private readonly events: EventEmitter2,
   ) {}
 
-  async list(organizationId: string, query: ListStockMovementsQueryDto) {
+  async list(organizationId: string, query: ListStockMovementsQueryDto, branchScope: string | null = null) {
+    if (branchScope && query.branchId && query.branchId !== branchScope) {
+      throw new ForbiddenException('Inventory access is restricted to the assigned branch');
+    }
+    const effectiveBranchId = branchScope ?? query.branchId;
     const where = {
       organizationId,
       ...(query.productId ? { productId: query.productId } : {}),
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
       ...(query.type ? { type: query.type as StockMovementType } : {}),
     };
     const [items, total] = await Promise.all([
@@ -62,28 +66,33 @@ export class StockMovementsService {
     productId: string,
     dto: CreateStockMovementDto,
     recordedByUserId: string,
+    branchScope: string | null = null,
   ) {
+    if (branchScope && effectiveBranchId && effectiveBranchId !== branchScope) {
+      throw new ForbiddenException('Inventory access is restricted to the assigned branch');
+    }
+    const effectiveBranchId = branchScope ?? effectiveBranchId;
     const product = await this.products.getOne(organizationId, productId);
     const delta = resolveDelta(dto.type, dto.quantity);
 
-    if (dto.branchId) {
+    if (effectiveBranchId) {
       const branch = await this.prisma.branch.findFirst({
-        where: { id: dto.branchId, organizationId },
+        where: { id: effectiveBranchId, organizationId },
       });
       if (!branch) throw new NotFoundException('Branch not found');
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      if (dto.branchId) {
+      if (effectiveBranchId) {
         await tx.productStock.upsert({
           where: {
             organizationId_branchId_productId: {
               organizationId,
-              branchId: dto.branchId,
+              branchId: effectiveBranchId,
               productId,
             },
           },
-          create: { organizationId, branchId: dto.branchId, productId, quantityOnHand: 0 },
+          create: { organizationId, branchId: effectiveBranchId, productId, quantityOnHand: 0 },
           update: {},
         });
       }
@@ -102,11 +111,11 @@ export class StockMovementsService {
         );
       }
 
-      if (dto.branchId) {
+      if (effectiveBranchId) {
         const branchResult = await tx.productStock.updateMany({
           where: {
             organizationId,
-            branchId: dto.branchId,
+            branchId: effectiveBranchId,
             productId,
             ...(delta < 0 ? { quantityOnHand: { gte: -delta } } : {}),
           },
@@ -121,7 +130,7 @@ export class StockMovementsService {
         data: {
           organizationId,
           productId,
-          branchId: dto.branchId,
+          branchId: effectiveBranchId,
           type: dto.type,
           quantity: delta,
           unitCost: dto.unitCost ?? Number(product.costPrice ?? 0),
