@@ -76,13 +76,31 @@ export class MemberFollowUpsService {
     dto: CreateMemberFollowUpDto,
     createdByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    const member = await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     if (dto.assignedToUserId) {
       const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assignedToUserId, organizationId },
+        where: {
+          id: dto.assignedToUserId,
+          organizationId,
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
+        select: { id: true, staffProfile: { select: { branchId: true } } },
       });
       if (!assignee) throw new NotFoundException('Assignee not found');
+      if (
+        assignee.staffProfile?.branchId &&
+        assignee.staffProfile.branchId !== member.primaryBranchId
+      ) {
+        throw new NotFoundException('Assignee is not compatible with member branch');
+      }
     }
     const created = await this.prisma.memberFollowUp.create({
       data: {
@@ -106,17 +124,35 @@ export class MemberFollowUpsService {
     followUpId: string,
     dto: UpdateMemberFollowUpDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    const member = await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
     if (!existing) throw new NotFoundException('Follow-up not found');
     if (dto.assignedToUserId) {
       const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assignedToUserId, organizationId },
+        where: {
+          id: dto.assignedToUserId,
+          organizationId,
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
+        select: { id: true, staffProfile: { select: { branchId: true } } },
       });
       if (!assignee) throw new NotFoundException('Assignee not found');
+      if (
+        assignee.staffProfile?.branchId &&
+        assignee.staffProfile.branchId !== member.primaryBranchId
+      ) {
+        throw new NotFoundException('Assignee is not compatible with member branch');
+      }
     }
     const updated = await this.prisma.memberFollowUp.update({
       where: { id: followUpId },
@@ -143,8 +179,9 @@ export class MemberFollowUpsService {
     memberId: string,
     followUpId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
@@ -162,8 +199,9 @@ export class MemberFollowUpsService {
     memberId: string,
     followUpId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
@@ -181,8 +219,9 @@ export class MemberFollowUpsService {
     memberId: string,
     followUpId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
