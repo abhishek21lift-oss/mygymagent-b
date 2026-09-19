@@ -1780,7 +1780,9 @@ model Product {
   saleItems InventorySaleItem[]
 
   @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
   @@index([organizationId])
+  @@index([organizationId, category, isActive])
   @@map("products")
 }
 
