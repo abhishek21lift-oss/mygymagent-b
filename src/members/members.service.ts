@@ -107,6 +107,33 @@ export class MembersService {
     return member;
   }
 
+  async getMetrics(
+    organizationId: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    const where: Prisma.MemberWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+    };
+
+    const [total, active, inactive, frozen, expired, pt] = await Promise.all([
+      this.prisma.member.count({ where }),
+      this.prisma.member.count({ where: { ...where, status: 'ACTIVE' } }),
+      this.prisma.member.count({ where: { ...where, status: 'INACTIVE' } }),
+      this.prisma.member.count({ where: { ...where, status: 'FROZEN' } }),
+      this.prisma.member.count({ where: { ...where, status: 'EXPIRED' } }),
+      this.prisma.member.count({
+        where: { ...where, memberType: { in: ['PT', 'GYM_PT'] } },
+      }),
+    ]);
+
+    return { total, active, inactive, frozen, expired, pt };
+  }
+
+
   async create(
     organizationId: string,
     dto: CreateMemberDto,
