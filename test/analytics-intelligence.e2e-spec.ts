@@ -181,6 +181,10 @@ describe('Analytics / intelligence (e2e)', () => {
           isTrainer: true,
         }),
     ).expect(201);
+    await prisma.user.update({
+      where: { id: trainer.body.data.id },
+      data: { status: 'ACTIVE' },
+    });
 
     await authed(org.accessToken)(
       request(app.getHttpServer()).post('/members').send({
