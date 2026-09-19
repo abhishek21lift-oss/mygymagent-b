@@ -78,7 +78,12 @@ export class MemberFollowUpsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     if (dto.assignedToUserId) {
       const assignee = await this.prisma.user.findFirst({
         where: {
