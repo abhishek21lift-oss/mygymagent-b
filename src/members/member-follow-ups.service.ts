@@ -114,14 +114,19 @@ export class MemberFollowUpsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope);
+    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
     const existing = await this.prisma.memberFollowUp.findFirst({
       where: { id: followUpId, organizationId, memberId },
     });
     if (!existing) throw new NotFoundException('Follow-up not found');
     if (dto.assignedToUserId) {
       const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assignedToUserId, organizationId, deletedAt: null, status: 'ACTIVE' },
+        where: {
+          id: dto.assignedToUserId,
+          organizationId,
+          deletedAt: null,
+          status: 'ACTIVE',
+        },
       });
       if (!assignee) throw new NotFoundException('Assignee not found');
     }
