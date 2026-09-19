@@ -112,12 +112,6 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
-    emergencyContactRelationship?: string,
-    waiverConsent?: boolean,
-    fitnessGoal?: string,
-    injuries?: string,
-    allergies?: string,
-    medicalNotes?: string,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
@@ -130,10 +124,20 @@ export class MembersService {
       dto.assignedTrainerId,
     );
     const memberCode = await this.generateMemberCode(organizationId);
+    const {
+      emergencyContactRelationship,
+      waiverConsent,
+      fitnessGoal,
+      injuries,
+      allergies,
+      medicalNotes,
+      ...memberData
+    } = dto;
+
     const member = await this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
         data: {
-          ...dto,
+          ...memberData,
           organizationId,
           memberCode,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
@@ -168,20 +172,18 @@ export class MembersService {
           },
         });
       }
-      // Create emergency contact with relationship if provided
-      if (dto.emergencyContactName || dto.emergencyContactPhone) {
+      if (created.emergencyContactName || created.emergencyContactPhone) {
         await tx.memberEmergencyContact.create({
           data: {
             organizationId,
             memberId: created.id,
-            name: dto.emergencyContactName || '',
-            phone: dto.emergencyContactPhone || '',
+            name: created.emergencyContactName || '',
+            phone: created.emergencyContactPhone || '',
             relationship: emergencyContactRelationship || null,
             isPrimary: true,
           },
         });
       }
-      // Create waiver consent if provided
       if (waiverConsent !== undefined) {
         await tx.memberConsent.create({
           data: {
@@ -192,12 +194,11 @@ export class MembersService {
             note:
               injuries || allergies
                 ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
-                : undefined,
+                : medicalNotes || undefined,
             recordedByUserId: createdByUserId,
           },
         });
       }
-      // Create fitness goal if provided
       if (fitnessGoal) {
         await tx.memberGoal.create({
           data: {
@@ -207,6 +208,7 @@ export class MembersService {
             category: 'GENERAL_FITNESS',
             description: medicalNotes || undefined,
             startDate: new Date(),
+            createdByUserId: createdByUserId,
           },
         });
       }
@@ -245,11 +247,21 @@ export class MembersService {
       dto.primaryBranchId,
       dto.assignedTrainerId,
     );
+    const {
+      emergencyContactRelationship,
+      waiverConsent,
+      fitnessGoal,
+      injuries,
+      allergies,
+      medicalNotes,
+      ...memberData
+    } = dto;
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.member.update({
         where: { id },
         data: {
-          ...dto,
+          ...memberData,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
         },
       });
@@ -289,6 +301,73 @@ export class MembersService {
             fromTrainerId: before.assignedTrainerId,
             toTrainerId: updated.assignedTrainerId,
             changedByUserId,
+          },
+        });
+      }
+      if (
+        emergencyContactRelationship !== undefined ||
+        dto.emergencyContactName !== undefined ||
+        dto.emergencyContactPhone !== undefined
+      ) {
+        const existingPrimary = await tx.memberEmergencyContact.findFirst({
+          where: { organizationId, memberId: id, isPrimary: true },
+        });
+        if (existingPrimary) {
+          await tx.memberEmergencyContact.update({
+            where: { id: existingPrimary.id },
+            data: {
+              name:
+                dto.emergencyContactName !== undefined
+                  ? dto.emergencyContactName || ''
+                  : existingPrimary.name,
+              phone:
+                dto.emergencyContactPhone !== undefined
+                  ? dto.emergencyContactPhone || ''
+                  : existingPrimary.phone,
+              relationship:
+                emergencyContactRelationship !== undefined
+                  ? emergencyContactRelationship || null
+                  : existingPrimary.relationship,
+            },
+          });
+        } else if (dto.emergencyContactName || dto.emergencyContactPhone) {
+          await tx.memberEmergencyContact.create({
+            data: {
+              organizationId,
+              memberId: id,
+              name: dto.emergencyContactName || '',
+              phone: dto.emergencyContactPhone || '',
+              relationship: emergencyContactRelationship || null,
+              isPrimary: true,
+            },
+          });
+        }
+      }
+      if (waiverConsent !== undefined) {
+        await tx.memberConsent.create({
+          data: {
+            organizationId,
+            memberId: id,
+            type: 'WAIVER',
+            granted: waiverConsent,
+            note:
+              injuries || allergies
+                ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
+                : medicalNotes || undefined,
+            recordedByUserId: changedByUserId,
+          },
+        });
+      }
+      if (fitnessGoal) {
+        await tx.memberGoal.create({
+          data: {
+            organizationId,
+            memberId: id,
+            title: fitnessGoal,
+            category: 'GENERAL_FITNESS',
+            description: medicalNotes || undefined,
+            startDate: new Date(),
+            createdByUserId: changedByUserId,
           },
         });
       }
@@ -461,12 +540,30 @@ export class MembersService {
     }
     if (assignedTrainerId) {
       const trainer = await this.prisma.user.findFirst({
-        where: { id: assignedTrainerId, organizationId, deletedAt: null },
-        select: { id: true },
+        where: {
+          id: assignedTrainerId,
+          organizationId,
+          deletedAt: null,
+          status: 'ACTIVE',
+          staffProfile: { is: { isTrainer: true } },
+        },
+        select: {
+          id: true,
+          staffProfile: { select: { branchId: true } },
+        },
       });
       if (!trainer) {
         throw new BadRequestException(
-          'Trainer does not belong to this organization',
+          'Assigned user must be an active trainer in this organization',
+        );
+      }
+      if (
+        primaryBranchId &&
+        trainer.staffProfile?.branchId &&
+        trainer.staffProfile.branchId !== primaryBranchId
+      ) {
+        throw new BadRequestException(
+          'Assigned trainer is not compatible with the member branch',
         );
       }
     }
