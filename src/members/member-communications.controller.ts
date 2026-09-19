@@ -44,12 +44,14 @@ export class MemberCommunicationsController {
     @Param('memberId') memberId: string,
     @Body() dto: SendMemberMessageDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.communications.send(
       user.organizationId!,
       memberId,
       dto,
       branchScope,
+      assignmentScope,
     );
   }
 }
