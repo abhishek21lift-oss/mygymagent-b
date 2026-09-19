@@ -89,6 +89,7 @@ describe('Member assignment scoping (e2e)', () => {
         lastName: 'Trainer',
         primaryBranchId: branchId,
         roleKey: 'TRAINER',
+        isTrainer: true,
       }),
     ).expect(201);
 
