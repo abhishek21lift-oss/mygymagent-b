@@ -76,11 +76,12 @@ export class MemberFollowUpsService {
     dto: CreateMemberFollowUpDto,
     createdByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     await this.requireMember(organizationId, memberId, branchScope);
     if (dto.assignedToUserId) {
       const assignee = await this.prisma.user.findFirst({
-        where: { id: dto.assignedToUserId, organizationId },
+        where: { id: dto.assignedToUserId, organizationId, deletedAt: null, status: 'ACTIVE' },
       });
       if (!assignee) throw new NotFoundException('Assignee not found');
     }
