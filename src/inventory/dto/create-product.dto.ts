@@ -22,6 +22,14 @@ export class CreateProductDto {
   @IsString()
   category?: string;
 
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
   @IsNumber()
   @Min(0)
   unitPrice!: number;
@@ -40,6 +48,11 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   reorderLevel?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderQuantity?: number;
 
   @IsOptional()
   @IsBoolean()
