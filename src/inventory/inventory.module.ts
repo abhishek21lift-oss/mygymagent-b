@@ -1,17 +1,31 @@
 import { Module } from '@nestjs/common';
+import { CompleteInventoryController } from './complete-inventory.controller';
+import { CompleteInventoryService } from './complete-inventory.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { StockMovementsController } from './stock-movements.controller';
 import { StockMovementsService } from './stock-movements.service';
 
 /**
- * v1 inventory scope: a flat product catalog plus an append-only stock
- * movement ledger (restock/sale/adjustment/damaged). No suppliers or
- * purchase-order workflow yet. See README.md.
+ * Complete Inventory OS:
+ * catalog + branch stock + append-only ledger + suppliers + procurement +
+ * receiving + transfers + POS sales/returns + valuation/reorder intelligence.
  */
 @Module({
-  controllers: [ProductsController, StockMovementsController],
-  providers: [ProductsService, StockMovementsService],
-  exports: [ProductsService, StockMovementsService],
+  controllers: [
+    ProductsController,
+    StockMovementsController,
+    CompleteInventoryController,
+  ],
+  providers: [
+    ProductsService,
+    StockMovementsService,
+    CompleteInventoryService,
+  ],
+  exports: [
+    ProductsService,
+    StockMovementsService,
+    CompleteInventoryService,
+  ],
 })
 export class InventoryModule {}
