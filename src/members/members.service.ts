@@ -112,12 +112,6 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
-    emergencyContactRelationship?: string,
-    waiverConsent?: boolean,
-    fitnessGoal?: string,
-    injuries?: string,
-    allergies?: string,
-    medicalNotes?: string,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
@@ -130,10 +124,19 @@ export class MembersService {
       dto.assignedTrainerId,
     );
     const memberCode = await this.generateMemberCode(organizationId);
+    const {
+      emergencyContactRelationship,
+      waiverConsent,
+      fitnessGoal,
+      injuries,
+      allergies,
+      medicalNotes,
+      ...memberFields
+    } = dto;
     const member = await this.prisma.$transaction(async (tx) => {
       const created = await tx.member.create({
         data: {
-          ...dto,
+          ...memberFields,
           organizationId,
           memberCode,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
@@ -192,7 +195,7 @@ export class MembersService {
             note:
               injuries || allergies
                 ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
-                : undefined,
+                : medicalNotes || undefined,
             recordedByUserId: createdByUserId,
           },
         });
@@ -207,6 +210,7 @@ export class MembersService {
             category: 'GENERAL_FITNESS',
             description: medicalNotes || undefined,
             startDate: new Date(),
+            createdByUserId,
           },
         });
       }
@@ -242,14 +246,23 @@ export class MembersService {
     }
     await this.validateReferences(
       organizationId,
-      dto.primaryBranchId,
+      dto.primaryBranchId ?? before.primaryBranchId,
       dto.assignedTrainerId,
     );
+    const {
+      emergencyContactRelationship,
+      waiverConsent,
+      fitnessGoal,
+      injuries,
+      allergies,
+      medicalNotes,
+      ...memberFields
+    } = dto;
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.member.update({
         where: { id },
         data: {
-          ...dto,
+          ...memberFields,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
         },
       });
@@ -292,6 +305,90 @@ export class MembersService {
           },
         });
       }
+
+      if (
+        dto.emergencyContactName !== undefined ||
+        dto.emergencyContactPhone !== undefined ||
+        emergencyContactRelationship !== undefined
+      ) {
+        const primaryEmergency = await tx.memberEmergencyContact.findFirst({
+          where: { organizationId, memberId: id, isPrimary: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        const emergencyData = {
+          name: dto.emergencyContactName ?? primaryEmergency?.name ?? '',
+          phone: dto.emergencyContactPhone ?? primaryEmergency?.phone ?? '',
+          relationship:
+            emergencyContactRelationship ??
+            primaryEmergency?.relationship ??
+            null,
+        };
+        if (primaryEmergency) {
+          await tx.memberEmergencyContact.update({
+            where: { id: primaryEmergency.id },
+            data: emergencyData,
+          });
+        } else if (emergencyData.name || emergencyData.phone) {
+          await tx.memberEmergencyContact.create({
+            data: {
+              organizationId,
+              memberId: id,
+              ...emergencyData,
+              isPrimary: true,
+            },
+          });
+        }
+      }
+
+      if (waiverConsent !== undefined) {
+        const healthNote = [injuries, allergies, medicalNotes]
+          .filter(Boolean)
+          .join(' | ');
+        await tx.memberConsent.create({
+          data: {
+            organizationId,
+            memberId: id,
+            type: 'WAIVER',
+            granted: waiverConsent,
+            note: healthNote || undefined,
+            recordedByUserId: changedByUserId,
+          },
+        });
+      }
+
+      if (fitnessGoal) {
+        const activeGoal = await tx.memberGoal.findFirst({
+          where: {
+            organizationId,
+            memberId: id,
+            status: 'ACTIVE',
+            category: 'GENERAL_FITNESS',
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (activeGoal) {
+          await tx.memberGoal.update({
+            where: { id: activeGoal.id },
+            data: {
+              title: fitnessGoal,
+              description: medicalNotes || undefined,
+            },
+          });
+        } else {
+          await tx.memberGoal.create({
+            data: {
+              organizationId,
+              memberId: id,
+              title: fitnessGoal,
+              category: 'GENERAL_FITNESS',
+              description: medicalNotes || undefined,
+              startDate: new Date(),
+              createdByUserId: changedByUserId,
+            },
+          });
+        }
+      }
+
       return updated;
     });
   }
@@ -461,12 +558,37 @@ export class MembersService {
     }
     if (assignedTrainerId) {
       const trainer = await this.prisma.user.findFirst({
-        where: { id: assignedTrainerId, organizationId, deletedAt: null },
+        where: {
+          id: assignedTrainerId,
+          organizationId,
+          deletedAt: null,
+          status: 'ACTIVE',
+          OR: [
+            { staffProfile: { is: { isTrainer: true } } },
+            { userRoles: { some: { role: { key: 'TRAINER' } } } },
+          ],
+          ...(primaryBranchId
+            ? {
+                OR: [
+                  { primaryBranchId },
+                  { staffProfile: { is: { branchId: primaryBranchId } } },
+                  {
+                    userRoles: {
+                      some: {
+                        branchId: primaryBranchId,
+                        role: { key: 'TRAINER' },
+                      },
+                    },
+                  },
+                ],
+              }
+            : {}),
+        },
         select: { id: true },
       });
       if (!trainer) {
         throw new BadRequestException(
-          'Trainer does not belong to this organization',
+          'Assigned trainer must be active, a trainer, and compatible with the member branch',
         );
       }
     }
