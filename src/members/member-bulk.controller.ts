@@ -1,6 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -24,12 +25,14 @@ export class MemberBulkController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkStatusChangeDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.bulk.changeStatus(
       user.organizationId!,
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -40,12 +43,14 @@ export class MemberBulkController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkTagAssignmentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.bulk.assignTags(
       user.organizationId!,
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -55,7 +60,8 @@ export class MemberBulkController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkExportDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.bulk.export(user.organizationId!, dto, branchScope);
+    return this.bulk.export(user.organizationId!, dto, branchScope, assignmentScope);
   }
 }
