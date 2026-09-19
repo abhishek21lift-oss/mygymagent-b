@@ -98,20 +98,6 @@ export class StockMovementsService {
         });
       }
 
-      const updateResult = await tx.product.updateMany({
-        where: {
-          id: productId,
-          organizationId,
-          ...(delta < 0 ? { quantityOnHand: { gte: -delta } } : {}),
-        },
-        data: { quantityOnHand: { increment: delta } },
-      });
-      if (updateResult.count === 0) {
-        throw new BadRequestException(
-          `Insufficient stock: only ${product.quantityOnHand} unit(s) of "${product.name}" on hand`,
-        );
-      }
-
       if (effectiveBranchId) {
         const branchResult = await tx.productStock.updateMany({
           where: {
@@ -124,6 +110,29 @@ export class StockMovementsService {
         });
         if (branchResult.count === 0) {
           throw new BadRequestException(`Insufficient branch stock for "${product.name}"`);
+        }
+
+        const aggregate = await tx.productStock.aggregate({
+          where: { organizationId, productId },
+          _sum: { quantityOnHand: true },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: { quantityOnHand: aggregate._sum.quantityOnHand ?? 0 },
+        });
+      } else {
+        const updateResult = await tx.product.updateMany({
+          where: {
+            id: productId,
+            organizationId,
+            ...(delta < 0 ? { quantityOnHand: { gte: -delta } } : {}),
+          },
+          data: { quantityOnHand: { increment: delta } },
+        });
+        if (updateResult.count === 0) {
+          throw new BadRequestException(
+            `Insufficient stock: only ${product.quantityOnHand} unit(s) of "${product.name}" on hand`,
+          );
         }
       }
 
