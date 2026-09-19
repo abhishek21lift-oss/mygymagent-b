@@ -137,13 +137,14 @@ describe('Member assignment scoping (e2e)', () => {
   });
 
   it('creates onboarding fields without leaking child-only fields into Member', async () => {
+    const branchId = (
+      await asOwner(request(app.getHttpServer()).get('/branches'))
+    ).body.data.items[0].id;
     const created = await asOwner(
       request(app.getHttpServer())
         .post('/members')
         .send({
-          primaryBranchId: owner.branchId || (await asOwner(
-            request(app.getHttpServer()).get('/branches'),
-          )).body.data.items[0].id,
+          primaryBranchId: branchId,
           firstName: 'Onboarding',
           lastName: 'Regression',
           emergencyContactName: 'Emergency Contact',
@@ -164,7 +165,11 @@ describe('Member assignment scoping (e2e)', () => {
         where: { memberId, organizationId: owner.organizationId },
       }),
       prisma.memberConsent.findFirst({
-        where: { memberId, organizationId: owner.organizationId, type: 'WAIVER' },
+        where: {
+          memberId,
+          organizationId: owner.organizationId,
+          type: 'WAIVER',
+        },
       }),
       prisma.memberGoal.findFirst({
         where: { memberId, organizationId: owner.organizationId },
