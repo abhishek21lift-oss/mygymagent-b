@@ -3,19 +3,21 @@
 -- touches an existing table.
 --
 -- Fully idempotent so a retry after a failed attempt (Prisma P3009 recovery
--- via `migrate resolve --rolled-back` + `migrate deploy`) is safe:
--- CREATE TYPE/TABLE/INDEX all use IF NOT EXISTS, and each foreign key is
--- guarded by a pg_constraint check. The DO blocks use $$ quoting, the same
--- pattern as 20260911000000_add_appointments_expenses_whatsapp_member_extras,
+-- via `migrate resolve --rolled-back` + `migrate deploy`) is safe.
+-- NOTE: PostgreSQL's CREATE TYPE accepts no IF NOT EXISTS clause (that was
+-- the P3018 `syntax error at or near "NOT"` that failed this migration on
+-- production), so enums use DO $$ ... EXCEPTION WHEN duplicate_object guards
+-- and each foreign key is guarded by a pg_constraint check. The DO $$ idiom
+-- is the same pattern as 20260911000000_add_appointments_expenses_whatsapp_member_extras,
 -- which applied cleanly on production.
 
 -- CreateEnum
-CREATE TYPE IF NOT EXISTS "RiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
-CREATE TYPE IF NOT EXISTS "RiskTrend" AS ENUM ('IMPROVING', 'STABLE', 'WORSENING');
-CREATE TYPE IF NOT EXISTS "ActionType" AS ENUM ('OUTREACH_CHURN_RISK', 'RENEWAL_NUDGE', 'PAYMENT_PLAN', 'FREEZE_OFFER', 'UPGRADE_PITCH', 'ASSESSMENT_BOOK', 'LOYALTY_REWARD', 'RE_ENGAGEMENT');
-CREATE TYPE IF NOT EXISTS "Priority" AS ENUM ('P0', 'P1', 'P2');
-CREATE TYPE IF NOT EXISTS "ChannelType" AS ENUM ('WHATSAPP', 'SMS', 'EMAIL', 'IN_PERSON', 'CALL');
-CREATE TYPE IF NOT EXISTS "ActionStatus" AS ENUM ('PENDING', 'ASSIGNED', 'COMPLETED', 'DISMISSED', 'AUTOMATED');
+DO $$ BEGIN CREATE TYPE "RiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE "RiskTrend" AS ENUM ('IMPROVING', 'STABLE', 'WORSENING'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE "ActionType" AS ENUM ('OUTREACH_CHURN_RISK', 'RENEWAL_NUDGE', 'PAYMENT_PLAN', 'FREEZE_OFFER', 'UPGRADE_PITCH', 'ASSESSMENT_BOOK', 'LOYALTY_REWARD', 'RE_ENGAGEMENT'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE "Priority" AS ENUM ('P0', 'P1', 'P2'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE "ChannelType" AS ENUM ('WHATSAPP', 'SMS', 'EMAIL', 'IN_PERSON', 'CALL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE "ActionStatus" AS ENUM ('PENDING', 'ASSIGNED', 'COMPLETED', 'DISMISSED', 'AUTOMATED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "member_risk_profiles" (
