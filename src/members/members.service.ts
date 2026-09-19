@@ -369,7 +369,10 @@ export class MembersService {
         if (activeGoal) {
           await tx.memberGoal.update({
             where: { id: activeGoal.id },
-            data: { title: fitnessGoal, description: medicalNotes || undefined },
+            data: {
+              title: fitnessGoal,
+              description: medicalNotes || undefined,
+            },
           });
         } else {
           await tx.memberGoal.create({
