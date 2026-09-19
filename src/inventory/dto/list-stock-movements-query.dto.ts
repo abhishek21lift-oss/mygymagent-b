@@ -5,4 +5,12 @@ export class ListStockMovementsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   productId?: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
 }
