@@ -235,7 +235,12 @@ export class MembersService {
     changedByUserId: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    const before = await this.getOne(organizationId, id, branchScope, assignmentScope);
+    const before = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (
       branchScope &&
       dto.primaryBranchId !== undefined &&
