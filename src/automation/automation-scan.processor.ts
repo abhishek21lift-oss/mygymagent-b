@@ -39,9 +39,9 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly qrRotationScanner: QrRotationScanner,
     private readonly invoiceDunningScanner: InvoiceDunningScanner,
     private readonly ptExpiryScanner: PtExpiryScanner,
-    ) {
+  ) {
     super();
-    }
+  }
 
   async process(job: Job): Promise<unknown> {
     switch (job.name) {
@@ -69,7 +69,7 @@ export class AutomationScanProcessor extends WorkerHost {
         );
         return undefined;
     }
-    }
+  }
 
   /**
    * Recipients are every user in the org holding `inventory.manage`
