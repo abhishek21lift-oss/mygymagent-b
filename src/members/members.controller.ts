@@ -46,6 +46,20 @@ export class MembersController {
     );
   }
 
+  @Get('metrics')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  metrics(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.membersService.getMetrics(
+      user.organizationId!,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
   @Get(':id')
   @RequireAnyPermission('members.read', 'members.read_assigned')
   getOne(
@@ -75,12 +89,6 @@ export class MembersController {
       dto,
       branchScope,
       user.id,
-      dto.emergencyContactRelationship,
-      dto.waiverConsent,
-      dto.fitnessGoal,
-      dto.injuries,
-      dto.allergies,
-      dto.medicalNotes,
     );
   }
 
@@ -156,11 +164,13 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.getMembershipBilling(
       user.organizationId!,
       id,
       branchScope,
+      assignmentScope,
     );
   }
 

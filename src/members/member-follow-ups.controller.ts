@@ -52,6 +52,7 @@ export class MemberFollowUpsController {
     @Param('memberId') memberId: string,
     @Body() dto: CreateMemberFollowUpDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.create(
       user.organizationId!,
@@ -59,6 +60,7 @@ export class MemberFollowUpsController {
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -71,6 +73,7 @@ export class MemberFollowUpsController {
     @Param('followUpId') followUpId: string,
     @Body() dto: UpdateMemberFollowUpDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.update(
       user.organizationId!,
@@ -78,6 +81,7 @@ export class MemberFollowUpsController {
       followUpId,
       dto,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -89,12 +93,14 @@ export class MemberFollowUpsController {
     @Param('memberId') memberId: string,
     @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.complete(
       user.organizationId!,
       memberId,
       followUpId,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -106,12 +112,14 @@ export class MemberFollowUpsController {
     @Param('memberId') memberId: string,
     @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.uncomplete(
       user.organizationId!,
       memberId,
       followUpId,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -123,12 +131,14 @@ export class MemberFollowUpsController {
     @Param('memberId') memberId: string,
     @Param('followUpId') followUpId: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.remove(
       user.organizationId!,
       memberId,
       followUpId,
       branchScope,
+      assignmentScope,
     );
   }
 }
