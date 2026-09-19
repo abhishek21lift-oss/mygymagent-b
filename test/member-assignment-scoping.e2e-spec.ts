@@ -61,6 +61,7 @@ describe('Member assignment scoping (e2e)', () => {
       request(app.getHttpServer()).get('/branches'),
     ).expect(200);
     const branchId = branches.body.data.items[0].id;
+    owner.branchId = branchId;
 
     const trainerEmail = `trainer-${Date.now()}@example.com`;
     const invited = await asOwner(
@@ -194,13 +195,9 @@ describe('Member assignment scoping (e2e)', () => {
       data: { status: 'SUSPENDED' },
     });
 
-    const branchId = (await asOwner(
-      request(app.getHttpServer()).get('/branches'),
-    )).body.data.items[0].id;
-
     await asOwner(
       request(app.getHttpServer()).post('/members').send({
-        primaryBranchId: branchId,
+        primaryBranchId: owner.branchId,
         firstName: 'Inactive',
         lastName: 'TrainerAssignment',
         assignedTrainerId: trainerId,
