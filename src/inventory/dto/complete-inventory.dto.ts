@@ -1,6 +1,7 @@
+/* eslint-disable prettier/prettier */
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsNumber, IsOptional,
+  IsArray, IsBoolean, IsEmail, IsInt, IsNumber, IsOptional,
   IsPositive, IsString, Min, ValidateNested,
 } from 'class-validator';
 
