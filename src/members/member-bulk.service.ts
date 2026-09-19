@@ -117,12 +117,16 @@ export class MemberBulkService {
     await this.prisma.$transaction(async (tx) => {
       for (const memberId of dto.memberIds) {
         for (const tagId of dto.tagIds) {
-          const row = await tx.memberTagAssignment.upsert({
+          const existing = await tx.memberTagAssignment.findUnique({
             where: { memberId_tagId: { memberId, tagId } },
-            create: { organizationId, memberId, tagId, assignedByUserId },
-            update: {},
+            select: { id: true },
           });
-          if (row) assigned += 1;
+          if (!existing) {
+            await tx.memberTagAssignment.create({
+              data: { organizationId, memberId, tagId, assignedByUserId },
+            });
+            assigned += 1;
+          }
         }
       }
     });
@@ -156,6 +160,8 @@ export class MemberBulkService {
       },
       include: {
         primaryBranch: { select: { name: true } },
+        assignedTrainer: { select: { firstName: true, lastName: true } },
+        tagAssignments: { include: { tag: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -167,8 +173,11 @@ export class MemberBulkService {
       'email',
       'phone',
       'status',
+      'memberType',
       'branch',
+      'trainer',
       'joinedAt',
+      'tags',
     ];
     const lines = [
       headers.join(','),
@@ -180,8 +189,13 @@ export class MemberBulkService {
           m.email ?? '',
           m.phone ?? '',
           m.status,
+          m.memberType ?? '',
           m.primaryBranch.name,
+          m.assignedTrainer
+            ? `${m.assignedTrainer.firstName} ${m.assignedTrainer.lastName}`
+            : '',
           m.joinedAt.toISOString(),
+          m.tagAssignments.map((a) => a.tag.name).join('; '),
         ]
           .map(escapeCsv)
           .join(','),
