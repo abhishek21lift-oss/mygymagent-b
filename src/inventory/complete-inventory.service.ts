@@ -598,7 +598,10 @@ export class CompleteInventoryService {
                 },
               },
             },
-          })
+          }).then(rows => rows.map(r => ({
+            quantityOnHand: r.quantityOnHand,
+            product: r.product,
+          })))
         : this.prisma.product.findMany({
             where: { organizationId, isActive: true },
             select: {
@@ -607,7 +610,10 @@ export class CompleteInventoryService {
               reorderLevel: true,
               costPrice: true,
             },
-          }).then(rows => rows.map(p => ({ quantityOnHand: p.quantityOnHand, product: p }))),
+          }).then(rows => rows.map(p => ({
+            quantityOnHand: p.quantityOnHand,
+            product: p,
+          }))),
       this.prisma.inventorySupplier.count({
         where: { organizationId, isActive: true },
       }),
