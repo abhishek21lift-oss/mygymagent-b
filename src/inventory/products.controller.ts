@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -82,12 +83,14 @@ export class ProductsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: CreateStockMovementDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.stockMovementsService.record(
       user.organizationId!,
       id,
       dto,
       user.id,
+      branchScope,
     );
   }
 }
