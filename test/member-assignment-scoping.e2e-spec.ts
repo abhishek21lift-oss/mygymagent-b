@@ -89,6 +89,10 @@ describe('Member assignment scoping (e2e)', () => {
         roleKey: 'TRAINER',
       }),
     ).expect(201);
+    await prisma.user.update({
+      where: { id: otherTrainer.body.data.id },
+      data: { status: 'ACTIVE' },
+    });
 
     const assignedMember = await asOwner(
       request(app.getHttpServer()).post('/members').send({
