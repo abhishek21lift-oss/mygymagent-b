@@ -216,6 +216,7 @@ export class MembersService {
             category: 'GENERAL_FITNESS',
             description: medicalNotes || undefined,
             startDate: new Date(),
+            createdByUserId,
           },
         });
       }
