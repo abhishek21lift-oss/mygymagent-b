@@ -86,6 +86,7 @@ export class MembersController {
     @Param('id') id: string,
     @Body() dto: UpdateMemberDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.update(
       user.organizationId!,
@@ -93,6 +94,7 @@ export class MembersController {
       dto,
       branchScope,
       user.id,
+      assignmentScope,
     );
   }
 
@@ -150,6 +152,7 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membersService.getMembershipBilling(
       user.organizationId!,
@@ -165,7 +168,13 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.membersService.remove(user.organizationId!, id, branchScope);
+    return this.membersService.remove(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

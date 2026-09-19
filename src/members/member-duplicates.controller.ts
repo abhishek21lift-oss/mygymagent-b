@@ -25,12 +25,16 @@ export class MemberDuplicatesController {
   previewMerge(
     @CurrentUser() user: AuthenticatedUser,
     @Query('sourceId') sourceId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
     @Query('targetId') targetId: string,
   ) {
     return this.duplicates.previewMerge(
       user.organizationId!,
       sourceId,
       targetId,
+      branchScope,
+      assignmentScope,
     );
   }
 
@@ -40,8 +44,16 @@ export class MemberDuplicatesController {
   executeMerge(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ExecuteMergeDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.duplicates.executeMerge(user.organizationId!, dto, user.id);
+    return this.duplicates.executeMerge(
+      user.organizationId!,
+      dto,
+      user.id,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Get(':memberId/duplicates')
