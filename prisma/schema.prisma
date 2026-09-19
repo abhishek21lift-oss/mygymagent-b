@@ -101,7 +101,6 @@ model Organization {
   products                Product[]
   stockMovements          StockMovement[]
   inventoryStocks         ProductStock[]
-  stockMovements          StockMovement[]
   inventorySuppliers      InventorySupplier[]
   inventoryPurchaseOrders InventoryPurchaseOrder[]
   inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
@@ -210,6 +209,13 @@ model Branch {
   ptPackages              PtPackage[]
   invoices                Invoice[]
   deviceMaps              DeviceMap[]
+  stockMovements          StockMovement[]
+  inventoryStocks         ProductStock[]
+  inventorySuppliers      InventorySupplier[]
+  inventoryPurchaseOrders InventoryPurchaseOrder[]
+  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromBranch")
+  inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
+  inventorySales          InventorySale[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
