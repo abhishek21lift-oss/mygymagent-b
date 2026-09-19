@@ -52,6 +52,7 @@ export class MemberFollowUpsController {
     @Param('memberId') memberId: string,
     @Body() dto: CreateMemberFollowUpDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.followUps.create(
       user.organizationId!,
@@ -59,6 +60,7 @@ export class MemberFollowUpsController {
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
