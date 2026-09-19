@@ -310,6 +310,87 @@ export class MembersService {
           },
         });
       }
+
+      if (
+        dto.emergencyContactName !== undefined ||
+        dto.emergencyContactPhone !== undefined ||
+        emergencyContactRelationship !== undefined
+      ) {
+        const primaryEmergency = await tx.memberEmergencyContact.findFirst({
+          where: { organizationId, memberId: id, isPrimary: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        const emergencyData = {
+          name: dto.emergencyContactName ?? primaryEmergency?.name ?? '',
+          phone: dto.emergencyContactPhone ?? primaryEmergency?.phone ?? '',
+          relationship:
+            emergencyContactRelationship ??
+            primaryEmergency?.relationship ??
+            null,
+        };
+        if (primaryEmergency) {
+          await tx.memberEmergencyContact.update({
+            where: { id: primaryEmergency.id },
+            data: emergencyData,
+          });
+        } else if (emergencyData.name || emergencyData.phone) {
+          await tx.memberEmergencyContact.create({
+            data: {
+              organizationId,
+              memberId: id,
+              ...emergencyData,
+              isPrimary: true,
+            },
+          });
+        }
+      }
+
+      if (waiverConsent !== undefined) {
+        const healthNote = [injuries, allergies, medicalNotes]
+          .filter(Boolean)
+          .join(' | ');
+        await tx.memberConsent.create({
+          data: {
+            organizationId,
+            memberId: id,
+            type: 'WAIVER',
+            granted: waiverConsent,
+            note: healthNote || undefined,
+            recordedByUserId: changedByUserId,
+          },
+        });
+      }
+
+      if (fitnessGoal) {
+        const activeGoal = await tx.memberGoal.findFirst({
+          where: {
+            organizationId,
+            memberId: id,
+            status: 'ACTIVE',
+            category: 'GENERAL_FITNESS',
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (activeGoal) {
+          await tx.memberGoal.update({
+            where: { id: activeGoal.id },
+            data: { title: fitnessGoal, description: medicalNotes || undefined },
+          });
+        } else {
+          await tx.memberGoal.create({
+            data: {
+              organizationId,
+              memberId: id,
+              title: fitnessGoal,
+              category: 'GENERAL_FITNESS',
+              description: medicalNotes || undefined,
+              startDate: new Date(),
+              createdByUserId: changedByUserId,
+            },
+          });
+        }
+      }
+
       return updated;
     });
   }
