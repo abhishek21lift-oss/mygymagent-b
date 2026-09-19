@@ -160,6 +160,8 @@ export class MemberBulkService {
       },
       include: {
         primaryBranch: { select: { name: true } },
+        assignedTrainer: { select: { firstName: true, lastName: true } },
+        tagAssignments: { include: { tag: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -171,8 +173,11 @@ export class MemberBulkService {
       'email',
       'phone',
       'status',
+      'memberType',
       'branch',
+      'trainer',
       'joinedAt',
+      'tags',
     ];
     const lines = [
       headers.join(','),
@@ -184,8 +189,13 @@ export class MemberBulkService {
           m.email ?? '',
           m.phone ?? '',
           m.status,
+          m.memberType ?? '',
           m.primaryBranch.name,
+          m.assignedTrainer
+            ? `${m.assignedTrainer.firstName} ${m.assignedTrainer.lastName}`
+            : '',
           m.joinedAt.toISOString(),
+          m.tagAssignments.map((a) => a.tag.name).join('; '),
         ]
           .map(escapeCsv)
           .join(','),
