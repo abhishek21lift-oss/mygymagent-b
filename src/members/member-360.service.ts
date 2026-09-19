@@ -292,7 +292,10 @@ export class Member360Service {
       finance: {
         totalPaid: totalPaid.toFixed(2),
         totalRefunded: totalRefunded.toFixed(2),
-        outstandingBalance: totalDue.sub(totalPaid).add(totalRefunded).toFixed(2),
+        outstandingBalance: totalDue
+          .sub(totalPaid)
+          .add(totalRefunded)
+          .toFixed(2),
         pendingPayments: 0,
       },
       ptSummary: {
