@@ -129,7 +129,12 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const tags = await this.prisma.memberTag.findMany({
       where: { organizationId, id: { in: dto.tagIds } },
     });
@@ -159,7 +164,12 @@ export class MemberTagsService {
         ),
       );
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   async addOne(
