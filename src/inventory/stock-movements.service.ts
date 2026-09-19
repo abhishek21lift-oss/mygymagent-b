@@ -84,6 +84,12 @@ export class StockMovementsService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      if (!effectiveBranchId) {
+        const branchStockCount = await tx.productStock.count({ where: { organizationId, productId } });
+        if (branchStockCount > 0) {
+          throw new BadRequestException('Branch-scoped stock must be mutated through a branch-scoped inventory operation');
+        }
+      }
       if (effectiveBranchId) {
         await tx.productStock.upsert({
           where: {
