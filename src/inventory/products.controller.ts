@@ -61,8 +61,9 @@ export class ProductsController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateProductDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.productsService.create(user.organizationId!, dto);
+    return this.productsService.create(user.organizationId!, dto, branchScope);
   }
 
   @Patch(':id')
