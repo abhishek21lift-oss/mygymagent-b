@@ -123,6 +123,8 @@ model Organization {
   memberDocuments         MemberDocument[]
   messageTemplates        MessageTemplate[]
   messageLogs             MessageLog[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
   automationRuns          AutomationRun[]
   aiActions               AiAction[]
   aiConversations         AiConversation[]
@@ -311,6 +313,8 @@ model User {
   memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberTagsAssigned       MemberTagAssignment[]     @relation("MemberTagAssignedBy")
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
+  notifications            Notification[]
+  notificationPreferences NotificationPreference[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -2655,6 +2659,47 @@ model Expense {
   @@index([organizationId, category, expenseDate])
   @@index([organizationId, status, expenseDate])
   @@map("expenses")
+}
+
+// ----------------------------------------------------------------------------
+// In-app notification center
+// ----------------------------------------------------------------------------
+
+model Notification {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  actionUrl String?
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  @@index([organizationId, userId, createdAt])
+  @@index([organizationId, userId, readAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  inApp     Boolean @default(true)
+  email     Boolean @default(true)
+  whatsapp  Boolean @default(false)
+  sms       Boolean @default(false)
+  push      Boolean @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  @@unique([organizationId, userId, category])
+  @@index([organizationId, userId])
+  @@map("notification_preferences")
 }
 
 // ----------------------------------------------------------------------------
