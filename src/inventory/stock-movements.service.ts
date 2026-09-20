@@ -1,5 +1,10 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { StockMovementType } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
@@ -15,12 +20,14 @@ function resolveDelta(type: StockMovementType, quantity: number): number {
     case StockMovementType.OPENING:
     case StockMovementType.TRANSFER_IN:
     case StockMovementType.RETURN:
-      if (quantity <= 0) throw new BadRequestException(`${type} quantity must be positive`);
+      if (quantity <= 0)
+        throw new BadRequestException(`${type} quantity must be positive`);
       return quantity;
     case StockMovementType.SALE:
     case StockMovementType.DAMAGED:
     case StockMovementType.TRANSFER_OUT:
-      if (quantity <= 0) throw new BadRequestException(`${type} quantity must be positive`);
+      if (quantity <= 0)
+        throw new BadRequestException(`${type} quantity must be positive`);
       return -quantity;
     case StockMovementType.ADJUSTMENT:
       return quantity;
@@ -35,9 +42,15 @@ export class StockMovementsService {
     private readonly events: EventEmitter2,
   ) {}
 
-  async list(organizationId: string, query: ListStockMovementsQueryDto, branchScope: string | null = null) {
+  async list(
+    organizationId: string,
+    query: ListStockMovementsQueryDto,
+    branchScope: string | null = null,
+  ) {
     if (branchScope && query.branchId && query.branchId !== branchScope) {
-      throw new ForbiddenException('Inventory access is restricted to the assigned branch');
+      throw new ForbiddenException(
+        'Inventory access is restricted to the assigned branch',
+      );
     }
     const effectiveBranchId = branchScope ?? query.branchId;
     const where = {
@@ -69,11 +82,16 @@ export class StockMovementsService {
     branchScope: string | null = null,
   ) {
     if (branchScope && dto.branchId && dto.branchId !== branchScope) {
-      throw new ForbiddenException('Inventory access is restricted to the assigned branch');
+      throw new ForbiddenException(
+        'Inventory access is restricted to the assigned branch',
+      );
     }
     const effectiveBranchId = branchScope ?? dto.branchId;
     const product = await this.products.getOne(organizationId, productId);
-    if (!product.isActive) throw new BadRequestException('Inactive products cannot receive stock movements');
+    if (!product.isActive)
+      throw new BadRequestException(
+        'Inactive products cannot receive stock movements',
+      );
     const delta = resolveDelta(dto.type, dto.quantity);
 
     if (effectiveBranchId) {
@@ -85,9 +103,13 @@ export class StockMovementsService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       if (!effectiveBranchId) {
-        const branchStockCount = await tx.productStock.count({ where: { organizationId, productId } });
+        const branchStockCount = await tx.productStock.count({
+          where: { organizationId, productId },
+        });
         if (branchStockCount > 0) {
-          throw new BadRequestException('Branch-scoped stock must be mutated through a branch-scoped inventory operation');
+          throw new BadRequestException(
+            'Branch-scoped stock must be mutated through a branch-scoped inventory operation',
+          );
         }
       }
       if (effectiveBranchId) {
@@ -99,7 +121,12 @@ export class StockMovementsService {
               productId,
             },
           },
-          create: { organizationId, branchId: effectiveBranchId, productId, quantityOnHand: 0 },
+          create: {
+            organizationId,
+            branchId: effectiveBranchId,
+            productId,
+            quantityOnHand: 0,
+          },
           update: {},
         });
       }
@@ -115,7 +142,9 @@ export class StockMovementsService {
           data: { quantityOnHand: { increment: delta } },
         });
         if (branchResult.count === 0) {
-          throw new BadRequestException(`Insufficient branch stock for "${product.name}"`);
+          throw new BadRequestException(
+            `Insufficient branch stock for "${product.name}"`,
+          );
         }
 
         const aggregate = await tx.productStock.aggregate({
@@ -150,17 +179,23 @@ export class StockMovementsService {
           type: dto.type,
           quantity: delta,
           unitCost: dto.unitCost ?? Number(product.costPrice ?? 0),
-          totalCost: Math.abs(delta) * (dto.unitCost ?? Number(product.costPrice ?? 0)),
+          totalCost:
+            Math.abs(delta) * (dto.unitCost ?? Number(product.costPrice ?? 0)),
           note: dto.note,
           recordedByUserId,
         },
       });
-      const updatedProduct = await tx.product.findUniqueOrThrow({ where: { id: productId } });
+      const updatedProduct = await tx.product.findUniqueOrThrow({
+        where: { id: productId },
+      });
       return { movement, updatedProduct };
     });
 
-    const wasAboveThreshold = product.quantityOnHand > result.updatedProduct.reorderLevel;
-    const isAtOrBelowNow = result.updatedProduct.quantityOnHand <= result.updatedProduct.reorderLevel;
+    const wasAboveThreshold =
+      product.quantityOnHand > result.updatedProduct.reorderLevel;
+    const isAtOrBelowNow =
+      result.updatedProduct.quantityOnHand <=
+      result.updatedProduct.reorderLevel;
     if (wasAboveThreshold && isAtOrBelowNow) {
       const payload: InventoryLowEvent = {
         organizationId,
