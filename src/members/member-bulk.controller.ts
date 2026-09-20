@@ -37,7 +37,7 @@ export class MemberBulkController {
   }
 
   @Post('tags')
-  @RequirePermissions('members.update')
+  @RequireAnyPermission('members.update', 'members.update_assigned')
   @Audited({ resource: 'member_tag_assignment', action: 'bulk_assign' })
   assignTags(
     @CurrentUser() user: AuthenticatedUser,
