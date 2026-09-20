@@ -133,6 +133,21 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   ...resource('notifications', {
     manage: 'Manage notification templates and campaigns',
   }),
+  ...resource('search', {
+    read: 'Search organization data across supported domains',
+  }),
+  ...resource('payroll', {
+    read: 'View trainer commissions and payroll periods',
+    manage: 'Manage commission rules, generate commissions and finalize payroll',
+  }),
+  ...resource('platform_billing', {
+    read: 'View the organization SaaS plan, usage and platform invoices',
+    manage: 'Change the organization SaaS subscription plan',
+  }),
+  ...resource('data', {
+    import: 'Import supported organization data',
+    export: 'Export supported organization data',
+  }),
 ];
 
 export const PERMISSION_KEYS = PERMISSIONS_CATALOG.map((p) => p.key);
