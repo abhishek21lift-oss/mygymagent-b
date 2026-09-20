@@ -17,10 +17,7 @@ export class DataController {
   ) {
     const csv = await this.data.exportMembers(u.organizationId!);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="members.csv"',
-    );
+    res.setHeader('Content-Disposition', 'attachment; filename="members.csv"');
     res.send(csv);
   }
 
