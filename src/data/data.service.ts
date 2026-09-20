@@ -81,8 +81,7 @@ export class DataService {
           continue;
         }
 
-        const fallbackBranchId =
-          r.primaryBranchId?.trim() || (await this.defaultBranch(org));
+        const fallbackBranchId = r.primaryBranchId?.trim() || (await this.defaultBranch(org));
         await this.prisma.member.create({
           data: {
             organizationId: org,
