@@ -3092,3 +3092,108 @@ model InventorySaleItem {
   @@index([productId])
   @@map("inventory_sale_items")
 }
+
+// -----------------------------------------------------------------------------
+// Business OS completion: trainer commissions, payroll periods and SaaS billing.
+// These records intentionally remain operationally separate from gym member
+// payments: platform billing is what the organization pays the SaaS platform.
+// -----------------------------------------------------------------------------
+
+model TrainerCommissionRule {
+  id             String   @id @default(uuid())
+  organizationId String
+  trainerId      String
+  percentage     Decimal  @db.Decimal(5, 2)
+  fixedAmount    Decimal  @db.Decimal(10, 2) @default(0)
+  sessionType    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, trainerId])
+  @@map("trainer_commission_rules")
+}
+
+model TrainerCommission {
+  id              String   @id @default(uuid())
+  organizationId  String
+  trainerId       String
+  ptSessionId     String
+  sessionAt       DateTime
+  baseAmount      Decimal  @db.Decimal(10, 2)
+  rate            Decimal  @db.Decimal(5, 2)
+  commissionAmount Decimal @db.Decimal(10, 2)
+  status          String   @default("PENDING")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, ptSessionId])
+  @@index([organizationId, sessionAt])
+  @@index([organizationId, trainerId])
+  @@map("trainer_commissions")
+}
+
+model PayrollPeriod {
+  id             String   @id @default(uuid())
+  organizationId String
+  startDate      DateTime
+  endDate        DateTime
+  status         String   @default("OPEN")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, startDate])
+  @@map("payroll_periods")
+}
+
+model SubscriptionPlan {
+  id                 String   @id @default(uuid())
+  key                String   @unique
+  name               String
+  maxMembers         Int?
+  maxBranches        Int?
+  maxStaff           Int?
+  aiMonthlyRequests  Int?
+  storageMb          Int?
+  whatsappMonthly    Int?
+  apiMonthlyCalls    Int?
+  priceMinor         Int      @default(0)
+  currency           String   @default("INR")
+  isActive           Boolean  @default(true)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("subscription_plans")
+}
+
+model OrganizationSubscription {
+  id                  String   @id @default(uuid())
+  organizationId      String   @unique
+  planId              String
+  status              String   @default("ACTIVE")
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([planId])
+  @@map("organization_subscriptions")
+}
+
+model PlatformInvoice {
+  id             String   @id @default(uuid())
+  organizationId String
+  planId         String?
+  amountMinor    Int
+  currency       String   @default("INR")
+  status         String   @default("OPEN")
+  periodStart    DateTime
+  periodEnd      DateTime
+  paidAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, periodStart])
+  @@map("platform_invoices")
+}
+\n
