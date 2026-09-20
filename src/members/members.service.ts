@@ -145,6 +145,7 @@ export class MembersService {
         'Cannot create a member outside your assigned branch',
       );
     }
+    await this.billing.assertUnder(organizationId, 'members');
     await this.validateReferences(
       organizationId,
       dto.primaryBranchId,
