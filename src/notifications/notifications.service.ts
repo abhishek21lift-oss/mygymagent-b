@@ -2,13 +2,16 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 
-const DEFAULT_CATEGORY = 'GENERAL';
-
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(userId: string, organizationId: string, unreadOnly = false, limit = 50) {
+  async list(
+    userId: string,
+    organizationId: string,
+    unreadOnly = false,
+    limit = 50,
+  ) {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const rows = await this.prisma.notification.findMany({
       where: {
@@ -60,7 +63,9 @@ export class NotificationsService {
     dto: UpdateNotificationPreferencesDto,
   ) {
     const normalizedCategory = category.trim().toUpperCase();
-    if (!normalizedCategory) throw new NotFoundException('Notification category is required');
+    if (!normalizedCategory) {
+      throw new NotFoundException('Notification category is required');
+    }
     return this.prisma.notificationPreference.upsert({
       where: {
         organizationId_userId_category: {
