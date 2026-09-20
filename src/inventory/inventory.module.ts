@@ -18,15 +18,7 @@ import { StockMovementsService } from './stock-movements.service';
     StockMovementsController,
     CompleteInventoryController,
   ],
-  providers: [
-    ProductsService,
-    StockMovementsService,
-    CompleteInventoryService,
-  ],
-  exports: [
-    ProductsService,
-    StockMovementsService,
-    CompleteInventoryService,
-  ],
+  providers: [ProductsService, StockMovementsService, CompleteInventoryService],
+  exports: [ProductsService, StockMovementsService, CompleteInventoryService],
 })
 export class InventoryModule {}

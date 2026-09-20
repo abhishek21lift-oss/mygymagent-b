@@ -1,8 +1,16 @@
 /* eslint-disable prettier/prettier */
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsEmail, IsInt, IsNumber, IsOptional,
-  IsPositive, IsString, Min, ValidateNested,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class CreateInventorySupplierDto {
@@ -28,7 +36,9 @@ export class CreatePurchaseOrderDto {
   @IsOptional() @IsString() branchId?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @Type(() => Date) expectedAt?: Date;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => PurchaseOrderItemDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PurchaseOrderItemDto)
   items!: PurchaseOrderItemDto[];
 }
 
@@ -39,7 +49,9 @@ export class ReceivePurchaseOrderItemDto {
 
 export class ReceivePurchaseOrderDto {
   @IsOptional() @IsString() branchId?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => ReceivePurchaseOrderItemDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReceivePurchaseOrderItemDto)
   items!: ReceivePurchaseOrderItemDto[];
 }
 
@@ -65,7 +77,9 @@ export class CreateInventoryTransferDto {
   @IsString() fromBranchId!: string;
   @IsString() toBranchId!: string;
   @IsOptional() @IsString() notes?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => TransferItemDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TransferItemDto)
   items!: TransferItemDto[];
 }
 
@@ -81,7 +95,9 @@ export class CreateInventorySaleDto {
   @IsOptional() @IsString() invoiceId?: string;
   @IsOptional() @IsNumber() @Min(0) discount?: number;
   @IsOptional() @IsString() currency?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => SaleItemDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SaleItemDto)
   items!: SaleItemDto[];
 }
 

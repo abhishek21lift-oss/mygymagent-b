@@ -87,17 +87,14 @@ export class DataService {
         await this.prisma.member.create({
           data: {
             organizationId: org,
-            memberCode:
-              r.memberCode?.trim() || `IMP-${Date.now()}-${i + 1}`,
+            memberCode: r.memberCode?.trim() || `IMP-${Date.now()}-${i + 1}`,
             primaryBranchId: fallbackBranchId,
             firstName: r.firstName.trim(),
             lastName: r.lastName.trim(),
             email,
             phone: r.phone?.trim() || null,
             dateOfBirth: r.dateOfBirth ? new Date(r.dateOfBirth) : null,
-            gender: r.gender
-              ? (r.gender.trim().toUpperCase() as Gender)
-              : null,
+            gender: r.gender ? (r.gender.trim().toUpperCase() as Gender) : null,
             status: (r.status?.trim() || 'ACTIVE') as any,
             assignedTrainerId: r.assignedTrainerId?.trim() || null,
           },

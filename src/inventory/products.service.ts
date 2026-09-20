@@ -19,9 +19,16 @@ export class ProductsService {
       ...(query.search
         ? {
             OR: [
-              { name: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                name: { contains: query.search, mode: 'insensitive' as const },
+              },
               { sku: { contains: query.search, mode: 'insensitive' as const } },
-              { barcode: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                barcode: {
+                  contains: query.search,
+                  mode: 'insensitive' as const,
+                },
+              },
             ],
           }
         : {}),
@@ -54,11 +61,16 @@ export class ProductsService {
         OR: [{ sku: value }, { barcode: value }],
       },
     });
-    if (!product) throw new NotFoundException(`No product found for code "${value}"`);
+    if (!product)
+      throw new NotFoundException(`No product found for code "${value}"`);
     return product;
   }
 
-  async create(organizationId: string, dto: CreateProductDto, branchScope: string | null = null) {
+  async create(
+    organizationId: string,
+    dto: CreateProductDto,
+    branchScope: string | null = null,
+  ) {
     const quantity = dto.quantityOnHand ?? 0;
     const { quantityOnHand: _quantityOnHand, ...productData } = dto;
     return this.prisma.$transaction(async (tx) => {
@@ -109,7 +121,9 @@ export class ProductsService {
       data: {
         ...dto,
         ...(dto.sku !== undefined ? { sku: dto.sku.trim() } : {}),
-        ...(dto.barcode !== undefined ? { barcode: dto.barcode.trim() || null } : {}),
+        ...(dto.barcode !== undefined
+          ? { barcode: dto.barcode.trim() || null }
+          : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit.trim() || 'unit' } : {}),
       },
     });
