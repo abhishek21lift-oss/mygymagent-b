@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 type LimitKey =
@@ -105,15 +109,16 @@ export class PlatformBillingService {
     const sub = await this.subscription(org);
     if (!sub || sub.status !== 'ACTIVE') return;
 
-    const rawLimit = sub[
-      key === 'members'
-        ? 'maxMembers'
-        : key === 'branches'
-          ? 'maxBranches'
-          : key === 'staff'
-            ? 'maxStaff'
-            : key
-    ];
+    const rawLimit =
+      sub[
+        key === 'members'
+          ? 'maxMembers'
+          : key === 'branches'
+            ? 'maxBranches'
+            : key === 'staff'
+              ? 'maxStaff'
+              : key
+      ];
     if (rawLimit === null || rawLimit === undefined) return;
 
     const limit = Number(rawLimit);
