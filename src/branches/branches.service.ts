@@ -5,6 +5,7 @@ import {
   skipTake,
 } from '../common/dto/pagination-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import type { CreateBranchDto } from './dto/create-branch.dto';
 import type { UpdateBranchDto } from './dto/update-branch.dto';
 
