@@ -138,7 +138,8 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   }),
   ...resource('payroll', {
     read: 'View trainer commissions and payroll periods',
-    manage: 'Manage commission rules, generate commissions and finalize payroll',
+    manage:
+      'Manage commission rules, generate commissions and finalize payroll',
   }),
   ...resource('platform_billing', {
     read: 'View the organization SaaS plan, usage and platform invoices',
