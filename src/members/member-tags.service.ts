@@ -164,7 +164,12 @@ export class MemberTagsService {
         ),
       );
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   async addOne(
@@ -190,7 +195,12 @@ export class MemberTagsService {
       create: { organizationId, memberId, tagId, assignedByUserId },
       update: {},
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   async removeOne(
@@ -209,6 +219,11 @@ export class MemberTagsService {
     await this.prisma.memberTagAssignment.deleteMany({
       where: { organizationId, memberId, tagId },
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

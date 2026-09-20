@@ -46,7 +46,6 @@ export class MembersController {
     );
   }
 
-
   @Get('metrics')
   @RequireAnyPermission('members.read', 'members.read_assigned')
   getMetrics(
