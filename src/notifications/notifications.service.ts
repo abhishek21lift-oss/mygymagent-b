@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 
 @Injectable()
@@ -112,7 +113,7 @@ export class NotificationsService {
         title: input.title,
         body: input.body,
         actionUrl: input.actionUrl,
-        metadata: input.metadata,
+        metadata: input.metadata as Prisma.InputJsonValue,
       },
     });
   }
