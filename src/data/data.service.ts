@@ -35,7 +35,7 @@ export class DataService {
           email:r.email?.trim()||null, phone:r.phone?.trim()||null,
           dateOfBirth:r.dateOfBirth ? new Date(r.dateOfBirth) : null,
           gender:r.gender?.trim()||null, status:(r.status?.trim()||'ACTIVE') as any,
-          primaryBranchId:r.primaryBranchId||null, assignedTrainerId:r.assignedTrainerId||null,
+          assignedTrainerId:r.assignedTrainerId?.trim() || null,
         }});
         created++;
       } catch (e) { errors.push({row:i+1,message:e instanceof Error?e.message:'Import failed'}); }
