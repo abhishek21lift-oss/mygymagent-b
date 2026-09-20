@@ -28,7 +28,7 @@ import { MembersController } from './members.controller';
 import { MembersService } from './members.service';
 
 @Module({
-  imports: [CommunicationsModule],
+  imports: [CommunicationsModule, PlatformBillingModule],
   controllers: [
     // Static/nested member routes first: Express matches in registration
     // order, so Member360Controller ('overview'/'timeline') and
