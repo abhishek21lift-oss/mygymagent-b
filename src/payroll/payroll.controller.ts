@@ -54,12 +54,7 @@ export class PayrollController {
     @Query('to') to?: string,
     @Query('trainerId') trainerId?: string,
   ) {
-    return this.payroll.commissions(
-      u.organizationId!,
-      from,
-      to,
-      trainerId,
-    );
+    return this.payroll.commissions(u.organizationId!, from, to, trainerId);
   }
 
   @Post('commissions/generate')
@@ -88,10 +83,7 @@ export class PayrollController {
 
   @Post('periods/:id/finalize')
   @RequirePermissions('payroll.manage')
-  finalize(
-    @CurrentUser() u: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  finalize(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {
     return this.payroll.finalize(u.organizationId!, id);
   }
 
