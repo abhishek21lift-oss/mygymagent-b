@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -25,10 +34,7 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ManageMessageTemplateDto,
   ) {
-    return this.templates.createOrganizationTemplate(
-      user.organizationId!,
-      dto,
-    );
+    return this.templates.createOrganizationTemplate(user.organizationId!, dto);
   }
 
   @Patch('templates/:id')
@@ -38,11 +44,7 @@ export class CommunicationsController {
     @Param('id') id: string,
     @Body() dto: ManageMessageTemplateDto,
   ) {
-    return this.templates.updateOrganizationTemplate(
-      user.organizationId!,
-      id,
-      dto,
-    );
+    return this.templates.updateOrganizationTemplate(user.organizationId!, id, dto);
   }
 
   @Delete('templates/:id')
