@@ -3196,4 +3196,3 @@ model PlatformInvoice {
   @@index([organizationId, periodStart])
   @@map("platform_invoices")
 }
-\n
