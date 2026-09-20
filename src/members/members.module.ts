@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PlatformBillingModule } from '../platform-billing/platform-billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { MemberBulkController } from './member-bulk.controller';
 import { MemberBulkService } from './member-bulk.service';
