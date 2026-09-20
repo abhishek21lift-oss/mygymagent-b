@@ -18,6 +18,7 @@ export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly billing: PlatformBillingService,
   ) {}
 
   async list(
@@ -145,6 +146,7 @@ export class MembersService {
         'Cannot create a member outside your assigned branch',
       );
     }
+    await this.billing.assertUnder(organizationId, 'members');
     await this.billing.assertUnder(organizationId, 'members');
     await this.validateReferences(
       organizationId,
