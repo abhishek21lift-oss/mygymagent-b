@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -64,7 +65,7 @@ export class DataService {
             email,
             phone: r.phone?.trim() || null,
             dateOfBirth: r.dateOfBirth ? new Date(r.dateOfBirth) : null,
-            gender: r.gender?.trim() || null,
+            gender: r.gender ? (r.gender.trim().toUpperCase() as Gender) : null,
             status: (r.status?.trim() || 'ACTIVE') as any,
             assignedTrainerId: r.assignedTrainerId?.trim() || null,
           },
