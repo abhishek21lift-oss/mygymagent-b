@@ -1,7 +1,7 @@
-import { Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
@@ -9,7 +9,6 @@ export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
   @Get()
-  @RequirePermissions('notifications.manage')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('unreadOnly') unreadOnly?: string,
@@ -24,7 +23,6 @@ export class NotificationsController {
   }
 
   @Patch(':id/read')
-  @RequirePermissions('notifications.manage')
   markRead(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -33,19 +31,16 @@ export class NotificationsController {
   }
 
   @Patch('read-all')
-  @RequirePermissions('notifications.manage')
   markAllRead(@CurrentUser() user: AuthenticatedUser) {
     return this.notifications.markAllRead(user.id, user.organizationId!);
   }
 
   @Get('preferences')
-  @RequirePermissions('notifications.manage')
   getPreferences(@CurrentUser() user: AuthenticatedUser) {
     return this.notifications.getPreferences(user.id, user.organizationId!);
   }
 
   @Patch('preferences/:category')
-  @RequirePermissions('notifications.manage')
   updatePreferences(
     @CurrentUser() user: AuthenticatedUser,
     @Param('category') category: string,
