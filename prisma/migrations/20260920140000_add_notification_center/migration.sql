@@ -1,5 +1,5 @@
 CREATE TABLE "notifications" (
-  "id" TEXT NOT NULL,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "type" TEXT NOT NULL,
@@ -10,11 +10,10 @@ CREATE TABLE "notifications" (
   "readAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-  CONSTRAINT "notifications_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "notification_preferences" (
-  "id" TEXT NOT NULL,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "category" TEXT NOT NULL,
@@ -26,7 +25,6 @@ CREATE TABLE "notification_preferences" (
   "updatedAt" TIMESTAMP(3) NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-  CONSTRAINT "notification_preferences_pkey" PRIMARY KEY ("id")
 );
 
 CREATE INDEX "notifications_organizationId_userId_createdAt_idx"
