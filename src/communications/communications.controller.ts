@@ -44,7 +44,11 @@ export class CommunicationsController {
     @Param('id') id: string,
     @Body() dto: ManageMessageTemplateDto,
   ) {
-    return this.templates.updateOrganizationTemplate(user.organizationId!, id, dto);
+    return this.templates.updateOrganizationTemplate(
+      user.organizationId!,
+      id,
+      dto,
+    );
   }
 
   @Delete('templates/:id')
@@ -53,10 +57,7 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.templates.deleteOrganizationTemplate(
-      user.organizationId!,
-      id,
-    );
+    return this.templates.deleteOrganizationTemplate(user.organizationId!, id);
   }
 
   @Get('logs')
