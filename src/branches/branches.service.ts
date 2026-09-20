@@ -11,7 +11,10 @@ import type { UpdateBranchDto } from './dto/update-branch.dto';
 
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly billing: PlatformBillingService,
+  ) {}
 
   async list(organizationId: string, query: PaginationQueryDto) {
     const where = {
@@ -44,6 +47,7 @@ export class BranchesService {
   }
 
   async create(organizationId: string, dto: CreateBranchDto) {
+    await this.billing.assertUnder(organizationId, 'branches');
     return this.prisma.branch.create({ data: { ...dto, organizationId } });
   }
 
