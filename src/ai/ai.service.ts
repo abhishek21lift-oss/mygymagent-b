@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AiUsageService } from './ai-usage.service';
+import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import { AiConversationsService } from './conversations/ai-conversations.service';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import type { ChatDto } from './dto/chat.dto';
@@ -70,6 +71,7 @@ export class AiService {
     private readonly usageService: AiUsageService,
     private readonly conversations: AiConversationsService,
     private readonly supervisor: AiSupervisorService,
+    private readonly billing: PlatformBillingService,
   ) {}
 
   async chat(
@@ -78,6 +80,7 @@ export class AiService {
     dto: ChatDto,
     requestedBranchId?: string,
   ): Promise<ChatResult> {
+    await this.billing.assertUnder(organizationId, 'aiMonthlyRequests');
     const conversation = await this.conversations.getOrCreate(
       organizationId,
       userId,
