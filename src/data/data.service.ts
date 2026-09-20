@@ -81,7 +81,9 @@ export class DataService {
           continue;
         }
 
-        const fallbackBranchId = r.primaryBranchId?.trim() || (await this.defaultBranch(org));
+        const fallbackBranchId =
+          r.primaryBranchId?.trim() || (await this.defaultBranch(org));
+
         await this.prisma.member.create({
           data: {
             organizationId: org,
@@ -93,7 +95,9 @@ export class DataService {
             email,
             phone: r.phone?.trim() || null,
             dateOfBirth: r.dateOfBirth ? new Date(r.dateOfBirth) : null,
-            gender: r.gender ? (r.gender.trim().toUpperCase() as Gender) : null,
+            gender: r.gender
+              ? (r.gender.trim().toUpperCase() as Gender)
+              : null,
             status: (r.status?.trim() || 'ACTIVE') as any,
             assignedTrainerId: r.assignedTrainerId?.trim() || null,
           },
