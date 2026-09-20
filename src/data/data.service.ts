@@ -9,10 +9,17 @@ export class DataService {
     const rows = await this.prisma.member.findMany({ where: { organizationId: org, deletedAt: null }, orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }] });
     const headers = ['id','firstName','lastName','email','phone','dateOfBirth','gender','status','primaryBranchId','assignedTrainerId','createdAt'];
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    return [headers.join(','), ...rows.map((m) => headers.map((h) => esc((m as any)[h])).join(','))].join('\n');
+    return [headers.join(','), ...rows.map((m) => headers.map((h) => esc((m as any)[h])).join(','))].join('
+');
   }
 
-  private async defaultBranch(org: string) {\n    const branch = await this.prisma.branch.findFirst({ where: { organizationId: org }, orderBy: { createdAt: 'asc' } });\n    if (!branch) throw new BadRequestException('Organization has no branch for imported members');\n    return branch.id;\n  }\n\n  async importMembers(org: string, rows: Record<string,string>[]) {
+  private async defaultBranch(org: string) {
+    const branch = await this.prisma.branch.findFirst({ where: { organizationId: org }, orderBy: { createdAt: 'asc' } });
+    if (!branch) throw new BadRequestException('Organization has no branch for imported members');
+    return branch.id;
+  }
+
+  async importMembers(org: string, rows: Record<string,string>[]) {
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('No member rows supplied');
     if (rows.length > 2000) throw new BadRequestException('Import is limited to 2,000 rows per request');
     let created = 0, skipped = 0;
