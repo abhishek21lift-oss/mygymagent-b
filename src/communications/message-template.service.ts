@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ManageMessageTemplateDto } from './dto/manage-message-template.dto';
 import type { CommunicationChannel } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -59,7 +63,9 @@ export class MessageTemplateService {
       },
     });
     if (existing) {
-      throw new ConflictException('A template with this key and channel already exists');
+      throw new ConflictException(
+        'A template with this key and channel already exists',
+      );
     }
     return this.prisma.messageTemplate.create({
       data: {
@@ -91,7 +97,9 @@ export class MessageTemplateService {
       },
     });
     if (duplicate) {
-      throw new ConflictException('A template with this key and channel already exists');
+      throw new ConflictException(
+        'A template with this key and channel already exists',
+      );
     }
 
     return this.prisma.messageTemplate.update({
