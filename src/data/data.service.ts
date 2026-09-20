@@ -12,7 +12,7 @@ export class DataService {
     return [headers.join(','), ...rows.map((m) => headers.map((h) => esc((m as any)[h])).join(','))].join('\n');
   }
 
-  async importMembers(org: string, rows: Record<string,string>[]) {
+  private async defaultBranch(org: string) {\n    const branch = await this.prisma.branch.findFirst({ where: { organizationId: org }, orderBy: { createdAt: 'asc' } });\n    if (!branch) throw new BadRequestException('Organization has no branch for imported members');\n    return branch.id;\n  }\n\n  async importMembers(org: string, rows: Record<string,string>[]) {
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('No member rows supplied');
     if (rows.length > 2000) throw new BadRequestException('Import is limited to 2,000 rows per request');
     let created = 0, skipped = 0;
@@ -24,7 +24,7 @@ export class DataService {
         const existing = r.email ? await this.prisma.member.findFirst({where:{organizationId:org,email:r.email,deletedAt:null}}) : null;
         if (existing) { skipped++; continue; }
         await this.prisma.member.create({data:{
-          organizationId:org, firstName:r.firstName.trim(), lastName:r.lastName.trim(),
+          organizationId:org, memberCode: r.memberCode?.trim() || `IMP-${Date.now()}-${i+1}`, primaryBranchId: r.primaryBranchId?.trim() || (await this.defaultBranch(org)), firstName:r.firstName.trim(), lastName:r.lastName.trim(),
           email:r.email?.trim()||null, phone:r.phone?.trim()||null,
           dateOfBirth:r.dateOfBirth ? new Date(r.dateOfBirth) : null,
           gender:r.gender?.trim()||null, status:(r.status?.trim()||'ACTIVE') as any,
