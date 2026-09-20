@@ -8,7 +8,7 @@ CREATE TABLE "notifications" (
   "actionUrl" TEXT,
   "metadata" JSONB,
   "readAt" TIMESTAMP(3),
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 );
 
