@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -11,10 +11,16 @@ export class DataController {
 
   @Get('members/export')
   @RequirePermissions('data.export')
-  async exportMembers(@CurrentUser() u: AuthenticatedUser, @Res() res: Response) {
+  async exportMembers(
+    @CurrentUser() u: AuthenticatedUser,
+    @Res() res: Response,
+  ) {
     const csv = await this.data.exportMembers(u.organizationId!);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="members.csv"');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="members.csv"',
+    );
     res.send(csv);
   }
 
@@ -22,12 +28,17 @@ export class DataController {
   @RequirePermissions('data.export')
   template(@Res() res: Response) {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.send('firstName,lastName,email,phone,dateOfBirth,gender,status,primaryBranchId,assignedTrainerId\n');
+    res.send(
+      'firstName,lastName,email,phone,dateOfBirth,gender,status,primaryBranchId,assignedTrainerId\n',
+    );
   }
 
   @Post('members/import')
   @RequirePermissions('data.import')
-  importMembers(@CurrentUser() u: AuthenticatedUser, @Body() body: { rows: Record<string,string>[] }) {
+  importMembers(
+    @CurrentUser() u: AuthenticatedUser,
+    @Body() body: { rows: Record<string, string>[] },
+  ) {
     return this.data.importMembers(u.organizationId!, body.rows ?? []);
   }
 }
