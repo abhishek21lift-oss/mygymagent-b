@@ -25,6 +25,7 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
  * explicitly, the same way AiModule imports MembersModule.
  */
 @Module({
+  controllers: [CommunicationsController],
   providers: [
     CommunicationsService,
     MessageTemplateService,
