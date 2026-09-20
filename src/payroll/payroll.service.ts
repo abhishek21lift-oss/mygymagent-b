@@ -62,12 +62,7 @@ export class PayrollService {
     return rows[0];
   }
 
-  commissions(
-    org: string,
-    from?: string,
-    to?: string,
-    trainerId?: string,
-  ) {
+  commissions(org: string, from?: string, to?: string, trainerId?: string) {
     return this.prisma.$queryRawUnsafe(
       `SELECT c.*, concat(u."firstName",' ',u."lastName") AS "trainerName" FROM trainer_commissions c LEFT JOIN staff_profiles sp ON sp.id=c."trainerId" LEFT JOIN users u ON u.id=sp."userId" WHERE c."organizationId"=$1 AND ($2::timestamptz IS NULL OR c."sessionAt">=$2) AND ($3::timestamptz IS NULL OR c."sessionAt"<$3) AND ($4::text IS NULL OR c."trainerId"=$4) ORDER BY c."sessionAt" DESC`,
       org,
