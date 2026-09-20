@@ -10,21 +10,34 @@ export class PlatformBillingController {
 
   @Get('plans')
   @RequirePermissions('platform_billing.read')
-  plans() { return this.billing.plans(); }
+  plans() {
+    return this.billing.plans();
+  }
 
   @Get('subscription')
   @RequirePermissions('platform_billing.read')
-  subscription(@CurrentUser() u: AuthenticatedUser) { return this.billing.subscription(u.organizationId!); }
+  subscription(@CurrentUser() u: AuthenticatedUser) {
+    return this.billing.subscription(u.organizationId!);
+  }
 
   @Post('subscription')
   @RequirePermissions('platform_billing.manage')
-  subscribe(@CurrentUser() u: AuthenticatedUser, @Body() body: { planKey: string }) { return this.billing.subscribe(u.organizationId!, body.planKey); }
+  subscribe(
+    @CurrentUser() u: AuthenticatedUser,
+    @Body() body: { planKey: string },
+  ) {
+    return this.billing.subscribe(u.organizationId!, body.planKey);
+  }
 
   @Get('usage')
   @RequirePermissions('platform_billing.read')
-  usage(@CurrentUser() u: AuthenticatedUser) { return this.billing.usage(u.organizationId!); }
+  usage(@CurrentUser() u: AuthenticatedUser) {
+    return this.billing.usage(u.organizationId!);
+  }
 
   @Get('invoices')
   @RequirePermissions('platform_billing.read')
-  invoices(@CurrentUser() u: AuthenticatedUser) { return this.billing.invoices(u.organizationId!); }
+  invoices(@CurrentUser() u: AuthenticatedUser) {
+    return this.billing.invoices(u.organizationId!);
+  }
 }
