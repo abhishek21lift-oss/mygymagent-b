@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 
 @Injectable()
 export class DataService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly billing: PlatformBillingService,
+  ) {}
 
   async exportMembers(org: string) {
     const rows = await this.prisma.member.findMany({

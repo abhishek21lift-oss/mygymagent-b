@@ -9,6 +9,7 @@ import { ExpensesModule } from '../expenses/expenses.module';
 import { MembersModule } from '../members/members.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
 import { RbacModule } from '../rbac/rbac.module';
+import { PlatformBillingModule } from '../platform-billing/platform-billing.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { AiUsageService } from './ai-usage.service';
 import { AiController } from './ai.controller';
@@ -35,6 +36,7 @@ import { GlobalAiCommandService } from './global-ai-command.service';
 @Module({
   imports: [
     MembersModule,
+    PlatformBillingModule,
     AttendanceModule,
     WorkoutsModule,
     CrmModule,

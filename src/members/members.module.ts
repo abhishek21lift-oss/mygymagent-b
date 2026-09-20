@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PlatformBillingModule } from '../platform-billing/platform-billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { MemberBulkController } from './member-bulk.controller';
 import { MemberBulkService } from './member-bulk.service';
@@ -27,7 +28,7 @@ import { MembersController } from './members.controller';
 import { MembersService } from './members.service';
 
 @Module({
-  imports: [CommunicationsModule],
+  imports: [CommunicationsModule, PlatformBillingModule],
   controllers: [
     // Static/nested member routes first: Express matches in registration
     // order, so Member360Controller ('overview'/'timeline') and

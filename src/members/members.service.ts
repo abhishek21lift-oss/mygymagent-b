@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import type { CreateMemberDto } from './dto/create-member.dto';
 import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
@@ -17,6 +18,7 @@ export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly billing: PlatformBillingService,
   ) {}
 
   async list(
@@ -144,6 +146,8 @@ export class MembersService {
         'Cannot create a member outside your assigned branch',
       );
     }
+    await this.billing.assertUnder(organizationId, 'members');
+    await this.billing.assertUnder(organizationId, 'members');
     await this.validateReferences(
       organizationId,
       dto.primaryBranchId,

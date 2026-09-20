@@ -13,6 +13,7 @@ import {
 import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import type { AssignRoleDto } from './dto/assign-role.dto';
 import type { CreateUserDto } from './dto/create-user.dto';
 import type { UpdateUserDto } from './dto/update-user.dto';
@@ -25,6 +26,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
+    private readonly billing: PlatformBillingService,
   ) {}
 
   async list(
@@ -106,6 +108,8 @@ export class UsersService {
         'Cannot grant a role outside your assigned branch',
       );
     }
+
+    await this.billing.assertUnder(organizationId, 'staff');
 
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
