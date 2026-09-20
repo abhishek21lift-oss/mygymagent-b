@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CommunicationsController } from './communications.controller';
 import {
   CommunicationsService,
   EMAIL_PROVIDER,
