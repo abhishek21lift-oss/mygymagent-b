@@ -105,6 +105,7 @@ export class NotificationsService {
     });
     if (users.length === 0) return { created: 0 };
 
+    // Missing preferences intentionally inherit the default in-app=true behavior.
     const category = input.type.trim().toUpperCase();
     const preferences = await this.prisma.notificationPreference.findMany({
       where: {
