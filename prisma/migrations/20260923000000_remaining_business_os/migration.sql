@@ -1,8 +1,8 @@
 -- MyGymAgent remaining business OS
 CREATE TABLE IF NOT EXISTS loyalty_accounts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   points integer NOT NULL DEFAULT 0 CHECK (points >= 0),
   tier text NOT NULL DEFAULT 'STANDARD',
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -12,22 +12,22 @@ CREATE TABLE IF NOT EXISTS loyalty_accounts (
 CREATE INDEX IF NOT EXISTS loyalty_accounts_org_idx ON loyalty_accounts(organization_id);
 
 CREATE TABLE IF NOT EXISTS loyalty_ledger (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   points integer NOT NULL,
   reason text NOT NULL,
   reference_type text,
-  reference_id uuid,
+  reference_id text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS loyalty_ledger_org_member_idx ON loyalty_ledger(organization_id, member_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS referrals (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  referrer_member_id uuid NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-  referred_member_id uuid REFERENCES members(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  referrer_member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  referred_member_id text REFERENCES members(id) ON DELETE SET NULL,
   code text NOT NULL,
   status text NOT NULL DEFAULT 'PENDING',
   reward_points integer NOT NULL DEFAULT 0,
@@ -37,12 +37,12 @@ CREATE TABLE IF NOT EXISTS referrals (
 );
 
 CREATE TABLE IF NOT EXISTS support_tickets (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  branch_id uuid REFERENCES branches(id) ON DELETE SET NULL,
-  member_id uuid REFERENCES members(id) ON DELETE SET NULL,
-  created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  assigned_to_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  branch_id text REFERENCES branches(id) ON DELETE SET NULL,
+  member_id text REFERENCES members(id) ON DELETE SET NULL,
+  created_by_user_id text REFERENCES users(id) ON DELETE SET NULL,
+  assigned_to_user_id text REFERENCES users(id) ON DELETE SET NULL,
   subject text NOT NULL,
   description text NOT NULL,
   category text NOT NULL DEFAULT 'GENERAL',
@@ -56,17 +56,17 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 CREATE INDEX IF NOT EXISTS support_tickets_org_status_idx ON support_tickets(organization_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS support_ticket_messages (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   ticket_id uuid NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
-  author_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  author_user_id text REFERENCES users(id) ON DELETE SET NULL,
   body text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS feedback_surveys (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name text NOT NULL,
   kind text NOT NULL DEFAULT 'CSAT',
   active boolean NOT NULL DEFAULT true,
@@ -74,10 +74,10 @@ CREATE TABLE IF NOT EXISTS feedback_surveys (
 );
 
 CREATE TABLE IF NOT EXISTS feedback_responses (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  survey_id uuid NOT NULL REFERENCES feedback_surveys(id) ON DELETE CASCADE,
-  member_id uuid REFERENCES members(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  survey_id text NOT NULL REFERENCES feedback_surveys(id) ON DELETE CASCADE,
+  member_id text REFERENCES members(id) ON DELETE SET NULL,
   score integer NOT NULL CHECK (score >= 0 AND score <= 10),
   comment text,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -85,9 +85,9 @@ CREATE TABLE IF NOT EXISTS feedback_responses (
 CREATE INDEX IF NOT EXISTS feedback_responses_org_idx ON feedback_responses(organization_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS marketing_campaigns (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  branch_id uuid REFERENCES branches(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  branch_id text REFERENCES branches(id) ON DELETE SET NULL,
   name text NOT NULL,
   channel text NOT NULL DEFAULT 'EMAIL',
   template_key text,
@@ -100,10 +100,10 @@ CREATE TABLE IF NOT EXISTS marketing_campaigns (
 CREATE INDEX IF NOT EXISTS marketing_campaigns_org_idx ON marketing_campaigns(organization_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS marketing_campaign_members (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  campaign_id uuid NOT NULL REFERENCES marketing_campaigns(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  campaign_id text NOT NULL REFERENCES marketing_campaigns(id) ON DELETE CASCADE,
+  member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   status text NOT NULL DEFAULT 'QUEUED',
   sent_at timestamptz,
   error text,
@@ -111,8 +111,8 @@ CREATE TABLE IF NOT EXISTS marketing_campaign_members (
 );
 
 CREATE TABLE IF NOT EXISTS accounting_accounts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   code text NOT NULL,
   name text NOT NULL,
   type text NOT NULL,
@@ -122,12 +122,12 @@ CREATE TABLE IF NOT EXISTS accounting_accounts (
 );
 
 CREATE TABLE IF NOT EXISTS accounting_entries (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  account_id uuid NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
-  branch_id uuid REFERENCES branches(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  account_id text NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+  branch_id text REFERENCES branches(id) ON DELETE SET NULL,
   reference_type text,
-  reference_id uuid,
+  reference_id text,
   debit numeric(14,2) NOT NULL DEFAULT 0 CHECK (debit >= 0),
   credit numeric(14,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
   description text NOT NULL,
@@ -138,9 +138,9 @@ CREATE TABLE IF NOT EXISTS accounting_entries (
 CREATE INDEX IF NOT EXISTS accounting_entries_org_date_idx ON accounting_entries(organization_id, entry_date DESC);
 
 CREATE TABLE IF NOT EXISTS portal_invites (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  member_id uuid NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   used_at timestamptz,
@@ -148,9 +148,9 @@ CREATE TABLE IF NOT EXISTS portal_invites (
 );
 
 CREATE TABLE IF NOT EXISTS kiosk_devices (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  branch_id uuid NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  branch_id text NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   name text NOT NULL,
   key_hash text NOT NULL UNIQUE,
   active boolean NOT NULL DEFAULT true,
@@ -158,21 +158,21 @@ CREATE TABLE IF NOT EXISTS kiosk_devices (
 );
 
 CREATE TABLE IF NOT EXISTS kiosk_events (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  branch_id uuid NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-  device_id uuid REFERENCES kiosk_devices(id) ON DELETE SET NULL,
-  member_id uuid REFERENCES members(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  branch_id text NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  device_id text REFERENCES kiosk_devices(id) ON DELETE SET NULL,
+  member_id text REFERENCES members(id) ON DELETE SET NULL,
   event_type text NOT NULL,
   result text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS notification_devices (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  member_id uuid REFERENCES members(id) ON DELETE CASCADE,
-  user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  member_id text REFERENCES members(id) ON DELETE CASCADE,
+  user_id text REFERENCES users(id) ON DELETE CASCADE,
   channel text NOT NULL,
   address text NOT NULL,
   active boolean NOT NULL DEFAULT true,
@@ -181,9 +181,9 @@ CREATE TABLE IF NOT EXISTS notification_devices (
 CREATE INDEX IF NOT EXISTS notification_devices_org_idx ON notification_devices(organization_id, channel, active);
 
 CREATE TABLE IF NOT EXISTS ai_command_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id text REFERENCES users(id) ON DELETE SET NULL,
   command text NOT NULL,
   response_type text NOT NULL,
   tool_name text,
