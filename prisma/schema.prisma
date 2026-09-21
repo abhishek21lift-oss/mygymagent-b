@@ -2901,6 +2901,10 @@ enum ActionType {
 }
 
 enum Priority {
+  P0
+  P1
+  P2
+}
 
 // ============================================================================
 // HR & PAYROLL OS
@@ -3063,6 +3067,7 @@ model PayrollItem {
   gross          Decimal @default(0) @db.Decimal(14, 2)
   net            Decimal @default(0) @db.Decimal(14, 2)
   attendanceDays Decimal @default(0) @db.Decimal(8, 2)
+  regularHours  Decimal @default(0) @db.Decimal(10, 2)
   payableDays    Decimal @default(0) @db.Decimal(8, 2)
   status         PayrollItemStatus @default(PENDING)
   notes          String?
@@ -3076,10 +3081,6 @@ model PayrollItem {
   @@map("payroll_items")
 }
 
-  P0
-  P1
-  P2
-}
 
 /// Suggested channel for a recommended action. Distinct from
 /// CommunicationChannel, which is limited to channels the system can actually

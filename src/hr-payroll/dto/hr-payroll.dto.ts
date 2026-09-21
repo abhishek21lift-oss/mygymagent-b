@@ -128,6 +128,18 @@ export class PayrollItemAdjustmentDto {
   deductions?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  unpaidLeave?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  regularHours?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   notes?: string;
