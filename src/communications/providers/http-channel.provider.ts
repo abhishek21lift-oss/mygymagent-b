@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ChannelNotConfiguredError } from './email-provider.interface';
-import type { MessageProvider } from './message-provider.interface';
+import { ChannelNotConfiguredError } from '../interfaces/email-provider.interface';
+import type { MessageProvider } from '../interfaces/message-provider.interface';
 
 @Injectable()
 export class HttpChannelProvider implements MessageProvider {
