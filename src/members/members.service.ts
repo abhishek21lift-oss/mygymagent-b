@@ -136,7 +136,6 @@ export class MembersService {
     return { total, active, inactive, frozen, expired, pt };
   }
 
-
   async create(
     organizationId: string,
     dto: CreateMemberDto,
