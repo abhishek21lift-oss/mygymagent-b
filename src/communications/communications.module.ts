@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CommunicationsController } from './communications.controller';
