@@ -91,7 +91,7 @@ export class BusinessOsService {
     return {member,attendanceCount:attendance,workoutSessionCount:workouts,completedPtSessions:ptSessions,lastCheckInAt:last?.checkInAt??null,daysSinceLastCheckIn:daysSince,engagementBand:daysSince===null?'NO_DATA':daysSince<=3?'HIGH':daysSince<=10?'MEDIUM':'LOW'};
   }
   async accountingJournal(org:string,userId:string,b:any){
-    const lines=Array.isArray(b.lines)?b.lines:[]; if(lines.length<2) throw new BadRequestException('at least two journal lines are required');
+    const lines: Array<{accountId:string;debit?:unknown;credit?:unknown;branchId?:string;}> = Array.isArray(b.lines)?b.lines:[]; if(lines.length<2) throw new BadRequestException('at least two journal lines are required');
     const debit=lines.reduce((a,l)=>a+n(l.debit),0), credit=lines.reduce((a,l)=>a+n(l.credit),0);
     if(Math.abs(debit-credit)>0.005) throw new BadRequestException('journal is not balanced');
     return this.prisma.$transaction(async tx=>{
