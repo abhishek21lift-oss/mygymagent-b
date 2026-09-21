@@ -159,7 +159,10 @@ export class DomainNotificationListener {
       title: 'Workout completed',
       body: 'A member workout session has been completed.',
       actionUrl: `/members/${event.memberId}`,
-      metadata: { workoutSessionId: event.workoutSessionId, memberId: event.memberId },
+      metadata: {
+        workoutSessionId: event.workoutSessionId,
+        memberId: event.memberId,
+      },
     });
   }
 
@@ -215,7 +218,11 @@ export class DomainNotificationListener {
       title: 'PT session completed',
       body: 'A personal training session has been completed.',
       actionUrl: `/pt/sessions/${event.ptSessionId}`,
-      metadata: { ptSessionId: event.ptSessionId, memberId: event.memberId, trainerId: event.trainerId },
+      metadata: {
+        ptSessionId: event.ptSessionId,
+        memberId: event.memberId,
+        trainerId: event.trainerId,
+      },
     });
   }
 
