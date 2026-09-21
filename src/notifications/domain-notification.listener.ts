@@ -4,6 +4,9 @@ import {
   DomainEvent,
   type AttendanceRecordedEvent,
   type DietAssignedEvent,
+  type LeadConvertedEvent,
+  type MemberCreatedEvent,
+  type MembershipCancelledEvent,
   type InventoryLowEvent,
   type LeadCreatedEvent,
   type MembershipStartedEvent,
@@ -14,6 +17,8 @@ import {
   type PtSessionCompletedEvent,
   type WhatsappReceivedEvent,
   type WorkoutAssignedEvent,
+  type WorkoutSessionCompletedEvent,
+  type WorkoutSessionStartedEvent,
 } from '../events/domain-events';
 import { NotificationsService } from './notifications.service';
 
@@ -21,12 +26,34 @@ import { NotificationsService } from './notifications.service';
 export class DomainNotificationListener {
   constructor(private readonly notifications: NotificationsService) {}
 
+  @OnEvent(DomainEvent.MemberCreated)
+  handleMemberCreated(event: MemberCreatedEvent) {
+    return this.notifications.notifyOrganization(event.organizationId, {
+      type: 'MEMBER_CREATED',
+      title: 'New member added',
+      body: event.firstName ? `${event.firstName} was added as a new member.` : 'A new member was added.',
+      actionUrl: `/members/${event.memberId}`,
+      metadata: { memberId: event.memberId, branchId: event.branchId },
+    });
+  }
+
   @OnEvent(DomainEvent.MembershipStarted)
   handleMembershipStarted(event: MembershipStartedEvent) {
     return this.notifications.notifyOrganization(event.organizationId, {
       type: 'MEMBERSHIP_STARTED',
       title: 'Membership started',
       body: 'A member membership has been started.',
+      actionUrl: `/members/${event.memberId}`,
+      metadata: { membershipId: event.membershipId, memberId: event.memberId },
+    });
+  }
+
+  @OnEvent(DomainEvent.MembershipCancelled)
+  handleMembershipCancelled(event: MembershipCancelledEvent) {
+    return this.notifications.notifyOrganization(event.organizationId, {
+      type: 'MEMBERSHIP_CANCELLED',
+      title: 'Membership cancelled',
+      body: 'A member membership has been cancelled.',
       actionUrl: `/members/${event.memberId}`,
       metadata: { membershipId: event.membershipId, memberId: event.memberId },
     });
@@ -65,6 +92,17 @@ export class DomainNotificationListener {
     });
   }
 
+  @OnEvent(DomainEvent.LeadConverted)
+  handleLeadConverted(event: LeadConvertedEvent) {
+    return this.notifications.notifyOrganization(event.organizationId, {
+      type: 'LEAD_CONVERTED',
+      title: 'Lead converted',
+      body: 'A CRM lead has been converted into a member.',
+      actionUrl: `/members/${event.memberId}`,
+      metadata: { leadId: event.leadId, memberId: event.memberId },
+    });
+  }
+
   @OnEvent(DomainEvent.LeadCreated)
   handleLeadCreated(event: LeadCreatedEvent) {
     return this.notifications.notifyOrganization(event.organizationId, {
@@ -84,6 +122,28 @@ export class DomainNotificationListener {
       body: 'A workout plan has been assigned to a member.',
       actionUrl: `/members/${event.memberId}`,
       metadata: { workoutAssignmentId: event.workoutAssignmentId, memberId: event.memberId },
+    });
+  }
+
+  @OnEvent(DomainEvent.WorkoutSessionStarted)
+  handleWorkoutSessionStarted(event: WorkoutSessionStartedEvent) {
+    return this.notifications.notifyOrganization(event.organizationId, {
+      type: 'WORKOUT_SESSION_STARTED',
+      title: 'Workout started',
+      body: 'A member workout session has started.',
+      actionUrl: `/members/${event.memberId}`,
+      metadata: { workoutSessionId: event.workoutSessionId, memberId: event.memberId },
+    });
+  }
+
+  @OnEvent(DomainEvent.WorkoutSessionCompleted)
+  handleWorkoutSessionCompleted(event: WorkoutSessionCompletedEvent) {
+    return this.notifications.notifyOrganization(event.organizationId, {
+      type: 'WORKOUT_SESSION_COMPLETED',
+      title: 'Workout completed',
+      body: 'A member workout session has been completed.',
+      actionUrl: `/members/${event.memberId}`,
+      metadata: { workoutSessionId: event.workoutSessionId, memberId: event.memberId },
     });
   }
 
