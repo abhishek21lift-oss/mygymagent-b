@@ -48,6 +48,7 @@ import { CommunicationsModule } from './communications/communications.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { HrPayrollModule } from './hr-payroll/hr-payroll.module';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     AppointmentsModule,
     ExpensesModule,
     WhatsappModule,
+    HrPayrollModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
