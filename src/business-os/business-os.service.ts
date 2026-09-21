@@ -39,6 +39,13 @@ export class BusinessOsService {
     await this.prisma.$executeRawUnsafe('INSERT INTO referrals(organization_id,referrer_member_id,code) VALUES($1,$2,$3)',org,referrerId,code);
     return {code};
   }
+  async convertReferral(org:string,id:string,referredMemberId:string){
+    const rows=await this.prisma.$queryRawUnsafe<any[]>('UPDATE referrals SET referred_member_id=$1,status=\'CONVERTED\',converted_at=now() WHERE id=$2 AND organization_id=$3 AND status=\'PENDING\' RETURNING *',referredMemberId,id,org);
+    if(!rows[0]) throw new NotFoundException('Referral not found or already converted');
+    const reward=Number(rows[0].reward_points??0);
+    if(reward>0) await this.loyaltyAdjust(org,'system',rows[0].referrer_member_id,reward,'Referral conversion');
+    return rows[0];
+  }
   referrals(org:string){return this.prisma.$queryRawUnsafe('SELECT r.*, m.first_name AS referrer_first_name, m.last_name AS referrer_last_name FROM referrals r JOIN members m ON m.id=r.referrer_member_id WHERE r.organization_id=$1 ORDER BY r.created_at DESC LIMIT 200',org);}
 
   tickets(org:string,status?:string){return this.prisma.$queryRawUnsafe('SELECT * FROM support_tickets WHERE organization_id=$1 AND ($2::text IS NULL OR status=$2) ORDER BY created_at DESC LIMIT 200',org,status??null);}
@@ -70,7 +77,36 @@ export class BusinessOsService {
     if(!survey[0]) throw new NotFoundException('Survey not found');
     return this.prisma.$queryRawUnsafe('INSERT INTO feedback_responses(organization_id,survey_id,member_id,score,comment) VALUES($1,$2,$3,$4,$5) RETURNING *',org,b.surveyId,b.memberId,score,s(b.comment)||null);
   }
-  feedbackSummary(org:string){return this.prisma.$queryRawUnsafe('SELECT survey_id,COUNT(*)::int responses,ROUND(AVG(score),2) avg_score,COUNT(*) FILTER(WHERE score>=9)::int promoters,COUNT(*) FILTER(WHERE score<=6)::int detractors FROM feedback_responses WHERE organization_id=$1 GROUP BY survey_id ORDER BY survey_id',org);}
+  feedbackSummary(org:string){return this.prisma.$queryRawUnsafe('SELECT survey_id,COUNT(*)::int responses,ROUND(AVG(score),2) avg_score,COUNT(*) FILTER(WHERE score>=9)::int promoters,COUNT(*) FILTER(WHERE score<=6)::int detractors,ROUND((100.0*COUNT(*) FILTER(WHERE score>=9)/NULLIF(COUNT(*),0))-(100.0*COUNT(*) FILTER(WHERE score<=6)/NULLIF(COUNT(*),0)),2) nps FROM feedback_responses WHERE organization_id=$1 GROUP BY survey_id ORDER BY survey_id',org);}
+  async ptIntelligence(org:string,memberId:string){
+    const member=await this.prisma.member.findFirst({where:{id:memberId,organizationId:org,deletedAt:null},select:{id:true,firstName:true,lastName:true,assignedTrainerId:true}});
+    if(!member) throw new NotFoundException('Member not found');
+    const [attendance,workouts,ptSessions]=await Promise.all([
+      this.prisma.attendance.count({where:{organizationId:org,memberId,deniedReason:null}}),
+      this.prisma.workoutSession.count({where:{organizationId:org,memberId}}),
+      this.prisma.ptSession.count({where:{organizationId:org,memberId,status:'COMPLETED'}}),
+    ]);
+    const last=await this.prisma.attendance.findFirst({where:{organizationId:org,memberId},orderBy:{checkInAt:'desc'},select:{checkInAt:true}});
+    const daysSince=last?Math.max(0,Math.floor((Date.now()-last.checkInAt.getTime())/86400000)):null;
+    return {member,attendanceCount:attendance,workoutSessionCount:workouts,completedPtSessions:ptSessions,lastCheckInAt:last?.checkInAt??null,daysSinceLastCheckIn:daysSince,engagementBand:daysSince===null?'NO_DATA':daysSince<=3?'HIGH':daysSince<=10?'MEDIUM':'LOW'};
+  }
+  async accountingJournal(org:string,userId:string,b:any){
+    const lines=Array.isArray(b.lines)?b.lines:[]; if(lines.length<2) throw new BadRequestException('at least two journal lines are required');
+    const debit=lines.reduce((a,l)=>a+n(l.debit),0), credit=lines.reduce((a,l)=>a+n(l.credit),0);
+    if(Math.abs(debit-credit)>0.005) throw new BadRequestException('journal is not balanced');
+    return this.prisma.$transaction(async tx=>{
+      const created:any[]=[];
+      for(const l of lines){
+        if((n(l.debit)>0)===(n(l.credit)>0)) throw new BadRequestException('each journal line must have exactly one side');
+        const rows=await tx.$queryRawUnsafe<any[]>('INSERT INTO accounting_entries(organization_id,account_id,branch_id,reference_type,reference_id,debit,credit,description,entry_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',org,l.accountId,l.branchId??null,b.referenceType??null,b.referenceId??null,n(l.debit),n(l.credit),s(l.description,'Journal entry'),b.entryDate?new Date(b.entryDate):new Date());
+        created.push(rows[0]);
+      }
+      await this.audit.record({organizationId:org,actorUserId:userId,action:'ACCOUNTING_JOURNAL_CREATE',resource:'accounting_journal',afterState:{lines:created}});
+      return created;
+    });
+  }
+  taxSummary(org:string,from?:string,to?:string){return this.prisma.$queryRawUnsafe('SELECT COALESCE(SUM(debit),0)::numeric total_debit,COALESCE(SUM(credit),0)::numeric total_credit,COALESCE(SUM(debit-credit),0)::numeric net FROM accounting_entries WHERE organization_id=$1 AND ($2::date IS NULL OR entry_date>=$2) AND ($3::date IS NULL OR entry_date<=$3)',org,from??null,to??null);}
+
 
   campaigns(org:string){return this.prisma.$queryRawUnsafe('SELECT * FROM marketing_campaigns WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 200',org);}
   createCampaign(org:string,b:any){const name=s(b.name); if(!name) throw new BadRequestException('name is required'); return this.prisma.$queryRawUnsafe('INSERT INTO marketing_campaigns(organization_id,branch_id,name,channel,template_key,audience_filter,status,scheduled_at) VALUES($1,$2,$3,$4,$5,$6,\'DRAFT\',$7) RETURNING *',org,b.branchId??null,name,s(b.channel,'EMAIL'),s(b.templateKey)||null,JSON.stringify(b.audienceFilter??{}),b.scheduledAt?new Date(b.scheduledAt):null);}
