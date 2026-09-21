@@ -82,7 +82,12 @@ export class CustomerEnquiryImportService implements OnModuleInit {
 
   async onModuleInit() {
     const enabled = process.env.CUSTOMER_ENQUIRY_IMPORT_ENABLED === 'true';
-    const payload = process.env.CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64;
+    const payloadParts = Object.keys(process.env)
+      .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64(?:_\d+)?$/.test(key))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((key) => process.env[key])
+      .filter((value): value is string => Boolean(value));
+    const payload = payloadParts.join('');
     if (!enabled || !payload) return;
 
     // Fire-and-forget after Nest is ready. The operation is idempotent and
