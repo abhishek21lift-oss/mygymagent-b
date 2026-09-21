@@ -31,12 +31,10 @@ export class HrPayrollService {
       throw new BadRequestException('Leave type name and code are required');
     }
 
-    const branch = dto.branchId
-      ? await this.prisma.branch.findFirst({
-          where: { id: dto.branchId, organizationId, deletedAt: null },
-          select: { id: true },
-        })
-      : null;
+    const branch = dto.branchId ? await this.prisma.branch.findFirst({
+      where: { id: dto.branchId, organizationId, deletedAt: null },
+      select: { id: true },
+    }) : null;
 
     if (dto.branchId && !branch) {
       throw new BadRequestException(
@@ -55,7 +53,9 @@ export class HrPayrollService {
       select: { id: true },
     });
     if (duplicate) {
-      throw new ConflictException('Leave type code already exists in this scope');
+      throw new ConflictException(
+        'Leave type code already exists in this scope',
+      );
     }
 
     return this.prisma.leaveType.create({
@@ -78,14 +78,19 @@ export class HrPayrollService {
       'REJECTED',
       'CANCELLED',
     ] as const;
-    if (status && !allowedStatuses.includes(status as (typeof allowedStatuses)[number])) {
+    if (
+      status &&
+      !allowedStatuses.includes(status as (typeof allowedStatuses)[number])
+    ) {
       throw new BadRequestException('Invalid leave request status');
     }
 
     return this.prisma.leaveRequest.findMany({
       where: {
         organizationId,
-        ...(status ? { status: status as (typeof allowedStatuses)[number] } : {}),
+        ...(status
+          ? { status: status as (typeof allowedStatuses)[number] }
+          : {}),
       },
       orderBy: { startDate: 'desc' },
       include: {
@@ -102,10 +107,7 @@ export class HrPayrollService {
     });
   }
 
-  async createLeaveRequest(
-    organizationId: string,
-    dto: CreateLeaveRequestDto,
-  ) {
+  async createLeaveRequest(organizationId: string, dto: CreateLeaveRequestDto) {
     const [staff, leaveType, branch] = await Promise.all([
       this.prisma.staffProfile.findFirst({
         where: {
@@ -391,9 +393,9 @@ export class HrPayrollService {
                 net: gross,
                 payableDays: new Prisma.Decimal(days),
                 metadata: {
-                  salaryType: s.salaryType,
-                  hourlyRate: hourlyRate.toFixed(2),
-                },
+                salaryType: s.salaryType,
+                hourlyRate: hourlyRate.toFixed(2),
+              },
               };
             }),
           });
@@ -455,12 +457,15 @@ export class HrPayrollService {
     );
 
     const metadata =
-      item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
+      item.metadata &&
+      typeof item.metadata === 'object' &&
+      !Array.isArray(item.metadata)
         ? (item.metadata as Record<string, unknown>)
         : {};
     const salaryType = metadata.salaryType;
     const hourlyRate = new Prisma.Decimal(
-      typeof metadata.hourlyRate === 'string' || typeof metadata.hourlyRate === 'number'
+      typeof metadata.hourlyRate === 'string' ||
+      typeof metadata.hourlyRate === 'number'
         ? metadata.hourlyRate
         : 0,
     );
