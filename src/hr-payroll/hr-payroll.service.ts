@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -26,13 +27,13 @@ export class HrPayrollService {
 
   async createLeaveType(organizationId: string, dto: CreateLeaveTypeDto) {
     const code = dto.code.trim().toUpperCase();
+    if (!code || !dto.name.trim()) {
+      throw new BadRequestException('Leave type name and code are required');
+    }
+
     const branch = dto.branchId
       ? await this.prisma.branch.findFirst({
-          where: {
-            id: dto.branchId,
-            organizationId,
-            deletedAt: null,
-          },
+          where: { id: dto.branchId, organizationId, deletedAt: null },
           select: { id: true },
         })
       : null;
@@ -41,6 +42,20 @@ export class HrPayrollService {
       throw new BadRequestException(
         'Branch does not belong to this organization',
       );
+    }
+
+    const duplicate = await this.prisma.leaveType.findFirst({
+      where: {
+        organizationId,
+        code,
+        ...(dto.branchId
+          ? { branchId: dto.branchId }
+          : { branchId: null }),
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Leave type code already exists in this scope');
     }
 
     return this.prisma.leaveType.create({
@@ -57,10 +72,20 @@ export class HrPayrollService {
   }
 
   async leaveRequests(organizationId: string, status?: string) {
+    const allowedStatuses = [
+      'PENDING',
+      'APPROVED',
+      'REJECTED',
+      'CANCELLED',
+    ] as const;
+    if (status && !allowedStatuses.includes(status as (typeof allowedStatuses)[number])) {
+      throw new BadRequestException('Invalid leave request status');
+    }
+
     return this.prisma.leaveRequest.findMany({
       where: {
         organizationId,
-        ...(status ? { status: status as any } : {}),
+        ...(status ? { status: status as (typeof allowedStatuses)[number] } : {}),
       },
       orderBy: { startDate: 'desc' },
       include: {
@@ -77,7 +102,10 @@ export class HrPayrollService {
     });
   }
 
-  async createLeaveRequest(organizationId: string, dto: CreateLeaveRequestDto) {
+  async createLeaveRequest(
+    organizationId: string,
+    dto: CreateLeaveRequestDto,
+  ) {
     const [staff, leaveType, branch] = await Promise.all([
       this.prisma.staffProfile.findFirst({
         where: {
@@ -85,15 +113,11 @@ export class HrPayrollService {
           organizationId,
           user: { deletedAt: null },
         },
-        select: { id: true },
+        select: { id: true, branchId: true },
       }),
       this.prisma.leaveType.findFirst({
-        where: {
-          id: dto.leaveTypeId,
-          organizationId,
-          active: true,
-        },
-        select: { id: true },
+        where: { id: dto.leaveTypeId, organizationId, active: true },
+        select: { id: true, branchId: true },
       }),
       this.prisma.branch.findFirst({
         where: {
@@ -111,11 +135,48 @@ export class HrPayrollService {
       );
     }
 
+    if (staff.branchId && staff.branchId !== dto.branchId) {
+      throw new BadRequestException(
+        'Leave branch must match the staff member branch',
+      );
+    }
+
+    if (leaveType.branchId && leaveType.branchId !== dto.branchId) {
+      throw new BadRequestException(
+        'Leave type is not available for this branch',
+      );
+    }
+
     const start = new Date(dto.startDate);
     const end = new Date(dto.endDate);
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      end < start
+    ) {
+      throw new BadRequestException('Invalid leave date range');
+    }
 
-    if (end < start) {
-      throw new BadRequestException('endDate must be on or after startDate');
+    if (dto.unit === 'HALF_DAY' && dto.days > 0.5) {
+      throw new BadRequestException(
+        'A half-day leave request cannot exceed 0.5 day',
+      );
+    }
+
+    const overlapping = await this.prisma.leaveRequest.findFirst({
+      where: {
+        organizationId,
+        staffProfileId: dto.staffProfileId,
+        status: 'APPROVED',
+        startDate: { lte: end },
+        endDate: { gte: start },
+      },
+      select: { id: true },
+    });
+    if (overlapping) {
+      throw new ConflictException(
+        'An approved leave already overlaps this date range',
+      );
     }
 
     return this.prisma.leaveRequest.create({
@@ -128,7 +189,7 @@ export class HrPayrollService {
         endDate: end,
         unit: dto.unit,
         days: new Prisma.Decimal(dto.days),
-        reason: dto.reason,
+        reason: dto.reason?.trim() || null,
       },
     });
   }
@@ -139,23 +200,80 @@ export class HrPayrollService {
     dto: ReviewLeaveDto,
     reviewerId: string,
   ) {
-    const existing = await this.prisma.leaveRequest.findFirst({
-      where: { id, organizationId, status: 'PENDING' },
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.leaveRequest.findFirst({
+          where: { id, organizationId, status: 'PENDING' },
+          include: {
+            leaveType: true,
+            staffProfile: { select: { id: true } },
+          },
+        });
 
-    if (!existing) {
-      throw new NotFoundException('Pending leave request not found');
-    }
+        if (!existing) {
+          throw new NotFoundException('Pending leave request not found');
+        }
 
-    return this.prisma.leaveRequest.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        reviewedByUserId: reviewerId,
-        reviewedAt: new Date(),
-        reviewNote: dto.note,
+        if (dto.status === 'APPROVED' && existing.leaveType.paid) {
+          const year = existing.startDate.getUTCFullYear();
+          const requestedDays = new Prisma.Decimal(existing.days);
+
+          const balance = await tx.leaveBalance.upsert({
+            where: {
+              staffProfileId_leaveTypeId_year: {
+                staffProfileId: existing.staffProfileId,
+                leaveTypeId: existing.leaveTypeId,
+                year,
+              },
+            },
+            create: {
+              organizationId,
+              staffProfileId: existing.staffProfileId,
+              leaveTypeId: existing.leaveTypeId,
+              year,
+              accrued: existing.leaveType.annualQuota,
+              closing: existing.leaveType.annualQuota,
+            },
+            update: {},
+          });
+
+          const available = balance.opening
+            .plus(balance.accrued)
+            .plus(balance.adjustment)
+            .minus(balance.used);
+
+          if (requestedDays.greaterThan(available)) {
+            throw new BadRequestException(
+              `Insufficient leave balance. Available: ${available.toFixed(2)}`,
+            );
+          }
+
+          const used = balance.used.plus(requestedDays);
+          const closing = balance.opening
+            .plus(balance.accrued)
+            .plus(balance.adjustment)
+            .minus(used);
+
+          await tx.leaveBalance.update({
+            where: { id: balance.id },
+            data: { used, closing },
+          });
+        }
+
+        return tx.leaveRequest.update({
+          where: { id: existing.id },
+          data: {
+            status: dto.status,
+            reviewedByUserId: reviewerId,
+            reviewedAt: new Date(),
+            reviewNote: dto.note?.trim() || null,
+          },
+        });
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 
   async listPayrollRuns(organizationId: string) {
@@ -187,10 +305,12 @@ export class HrPayrollService {
     const start = new Date(dto.periodStart);
     const end = new Date(dto.periodEnd);
 
-    if (end < start) {
-      throw new BadRequestException(
-        'periodEnd must be on or after periodStart',
-      );
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      end < start
+    ) {
+      throw new BadRequestException('Invalid payroll period');
     }
 
     if (dto.branchId) {
@@ -210,58 +330,94 @@ export class HrPayrollService {
       }
     }
 
-    const staff = await this.prisma.staffProfile.findMany({
-      where: {
-        organizationId,
-        payrollEnabled: true,
-        ...(dto.branchId ? { branchId: dto.branchId } : {}),
-      },
-      select: { id: true, baseSalary: true, salaryType: true },
-    });
-
-    if (staff.length === 0) {
-      throw new BadRequestException(
-        'No payroll-enabled staff found for this scope',
-      );
-    }
-
-    const run = await this.prisma.payrollRun.create({
-      data: {
-        organizationId,
-        branchId: dto.branchId,
-        createdByUserId: userId,
-        periodStart: start,
-        periodEnd: end,
-        notes: dto.notes,
-      },
-    });
-
     const days = Math.max(
       1,
       Math.floor((end.getTime() - start.getTime()) / 86400000) + 1,
     );
 
-    await this.prisma.payrollItem.createMany({
-      data: staff.map((s) => {
-        const base = s.baseSalary ?? new Prisma.Decimal(0);
-        const gross = s.salaryType === 'MONTHLY' ? base : base.mul(days);
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const staff = await tx.staffProfile.findMany({
+            where: {
+              organizationId,
+              payrollEnabled: true,
+              ...(dto.branchId ? { branchId: dto.branchId } : {}),
+            },
+            select: {
+              id: true,
+              baseSalary: true,
+              hourlyRate: true,
+              salaryType: true,
+            },
+          });
 
-        return {
-          organizationId,
-          payrollRunId: run.id,
-          staffProfileId: s.id,
-          baseSalary: base,
-          gross,
-          net: gross,
-          payableDays: new Prisma.Decimal(days),
-        };
-      }),
-    });
+          if (staff.length === 0) {
+            throw new BadRequestException(
+              'No payroll-enabled staff found for this scope',
+            );
+          }
 
-    return this.prisma.payrollRun.findUnique({
-      where: { id: run.id },
-      include: { items: true },
-    });
+          const run = await tx.payrollRun.create({
+            data: {
+              organizationId,
+              branchId: dto.branchId,
+              createdByUserId: userId,
+              periodStart: start,
+              periodEnd: end,
+              notes: dto.notes?.trim() || null,
+            },
+          });
+
+          await tx.payrollItem.createMany({
+            data: staff.map((s) => {
+              const base = s.baseSalary ?? new Prisma.Decimal(0);
+              const hourlyRate = s.hourlyRate ?? new Prisma.Decimal(0);
+
+              let gross = new Prisma.Decimal(0);
+              if (s.salaryType === 'MONTHLY') {
+                gross = base;
+              } else if (s.salaryType === 'DAILY') {
+                gross = base.mul(days);
+              }
+
+              return {
+                organizationId,
+                payrollRunId: run.id,
+                staffProfileId: s.id,
+                baseSalary:
+                  s.salaryType === 'HOURLY' ? hourlyRate : base,
+                gross,
+                net: gross,
+                payableDays: new Prisma.Decimal(days),
+                metadata: {
+                  salaryType: s.salaryType,
+                  hourlyRate: hourlyRate.toFixed(2),
+                },
+              };
+            }),
+          });
+
+          return tx.payrollRun.findUnique({
+            where: { id: run.id },
+            include: { items: true },
+          });
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A payroll run already exists for this organization, branch, and period',
+        );
+      }
+      throw error;
+    }
   }
 
   async adjustPayrollItem(
@@ -271,6 +427,7 @@ export class HrPayrollService {
   ) {
     const run = await this.prisma.payrollRun.findFirst({
       where: { id: runId, organizationId, status: 'DRAFT' },
+      select: { id: true },
     });
 
     if (!run) {
@@ -292,8 +449,36 @@ export class HrPayrollService {
     const overtime = new Prisma.Decimal(dto.overtime ?? item.overtime);
     const incentives = new Prisma.Decimal(dto.incentives ?? item.incentives);
     const deductions = new Prisma.Decimal(dto.deductions ?? item.deductions);
-    const gross = item.baseSalary.plus(overtime).plus(incentives);
-    const net = gross.minus(deductions).minus(item.unpaidLeave);
+    const unpaidLeave = new Prisma.Decimal(dto.unpaidLeave ?? item.unpaidLeave);
+    const regularHours = new Prisma.Decimal(
+      dto.regularHours ?? item.regularHours,
+    );
+
+    const metadata =
+      item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
+        ? (item.metadata as Record<string, unknown>)
+        : {};
+    const salaryType = metadata.salaryType;
+    const hourlyRate = new Prisma.Decimal(
+      typeof metadata.hourlyRate === 'string' || typeof metadata.hourlyRate === 'number'
+        ? metadata.hourlyRate
+        : 0,
+    );
+
+    let baseGross = item.baseSalary;
+    if (salaryType === 'HOURLY') {
+      if (regularHours.isZero()) {
+        throw new BadRequestException(
+          'Regular hours are required for hourly payroll',
+        );
+      }
+      baseGross = hourlyRate.mul(regularHours);
+    } else if (salaryType === 'DAILY') {
+      baseGross = item.baseSalary.mul(item.payableDays);
+    }
+
+    const gross = baseGross.plus(overtime).plus(incentives);
+    const net = gross.minus(deductions).minus(unpaidLeave);
 
     return this.prisma.payrollItem.update({
       where: { id: item.id },
@@ -301,9 +486,11 @@ export class HrPayrollService {
         overtime,
         incentives,
         deductions,
+        unpaidLeave,
+        regularHours,
         gross,
         net,
-        notes: dto.notes ?? item.notes,
+        notes: dto.notes?.trim() ?? item.notes,
       },
     });
   }
@@ -313,41 +500,76 @@ export class HrPayrollService {
     runId: string,
     userId: string,
   ) {
-    const run = await this.prisma.payrollRun.findFirst({
-      where: { id: runId, organizationId, status: 'DRAFT' },
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const run = await tx.payrollRun.findFirst({
+          where: { id: runId, organizationId, status: 'DRAFT' },
+          select: { id: true },
+        });
 
-    if (!run) {
-      throw new NotFoundException('Draft payroll run not found');
-    }
+        if (!run) {
+          throw new NotFoundException('Draft payroll run not found');
+        }
 
-    return this.prisma.payrollRun.update({
-      where: { id: runId },
-      data: {
-        status: 'APPROVED',
-        approvedByUserId: userId,
-        approvedAt: new Date(),
+        const itemCount = await tx.payrollItem.count({
+          where: { payrollRunId: runId, organizationId },
+        });
+        if (itemCount === 0) {
+          throw new BadRequestException(
+            'Cannot approve a payroll run without payroll items',
+          );
+        }
+
+        return tx.payrollRun.update({
+          where: { id: runId },
+          data: {
+            status: 'APPROVED',
+            approvedByUserId: userId,
+            approvedAt: new Date(),
+          },
+        });
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 
   async processPayrollRun(organizationId: string, runId: string) {
-    const run = await this.prisma.payrollRun.findFirst({
-      where: { id: runId, organizationId, status: 'APPROVED' },
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const run = await tx.payrollRun.findFirst({
+          where: { id: runId, organizationId, status: 'APPROVED' },
+          select: { id: true },
+        });
 
-    if (!run) {
-      throw new NotFoundException('Approved payroll run not found');
-    }
+        if (!run) {
+          throw new NotFoundException('Approved payroll run not found');
+        }
 
-    await this.prisma.payrollItem.updateMany({
-      where: { payrollRunId: runId, organizationId },
-      data: { status: 'FINALIZED' },
-    });
+        const result = await tx.payrollItem.updateMany({
+          where: {
+            payrollRunId: runId,
+            organizationId,
+            status: { not: 'FINALIZED' },
+          },
+          data: { status: 'FINALIZED' },
+        });
 
-    return this.prisma.payrollRun.update({
-      where: { id: runId },
-      data: { status: 'PROCESSED', processedAt: new Date() },
-    });
+        if (result.count === 0) {
+          throw new BadRequestException(
+            'Payroll run has no finalizable payroll items',
+          );
+        }
+
+        return tx.payrollRun.update({
+          where: { id: runId },
+          data: { status: 'PROCESSED', processedAt: new Date() },
+        });
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 }
