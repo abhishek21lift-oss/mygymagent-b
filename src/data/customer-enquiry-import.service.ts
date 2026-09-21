@@ -215,7 +215,7 @@ export class CustomerEnquiryImportService implements OnModuleInit {
     }
 
     const existingLeads = await this.prisma.lead.findMany({
-      where: { organizationId, deletedAt: null },
+      where: { organizationId },
       select: { phone: true, email: true, firstName: true, lastName: true, notes: true },
     });
     const leadKeys = new Set<string>();
