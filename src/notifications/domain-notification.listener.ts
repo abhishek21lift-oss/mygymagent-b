@@ -31,7 +31,9 @@ export class DomainNotificationListener {
     return this.notifications.notifyOrganization(event.organizationId, {
       type: 'MEMBER_CREATED',
       title: 'New member added',
-      body: event.firstName ? `${event.firstName} was added as a new member.` : 'A new member was added.',
+      body: event.firstName
+        ? `${event.firstName} was added as a new member.`
+        : 'A new member was added.',
       actionUrl: `/members/${event.memberId}`,
       metadata: { memberId: event.memberId, branchId: event.branchId },
     });
@@ -88,7 +90,11 @@ export class DomainNotificationListener {
       title: 'Payment refunded',
       body: `A refund of ${event.amount} was recorded.`,
       actionUrl: `/members/${event.memberId}`,
-      metadata: { refundId: event.refundId, paymentId: event.paymentId, memberId: event.memberId },
+      metadata: {
+        refundId: event.refundId,
+        paymentId: event.paymentId,
+        memberId: event.memberId,
+      },
     });
   }
 
@@ -110,7 +116,11 @@ export class DomainNotificationListener {
       title: 'New lead',
       body: 'A new CRM lead has been created.',
       actionUrl: `/crm/leads/${event.leadId}`,
-      metadata: { leadId: event.leadId, branchId: event.branchId, channel: event.channel },
+      metadata: {
+        leadId: event.leadId,
+        branchId: event.branchId,
+        channel: event.channel,
+      },
     });
   }
 
@@ -121,7 +131,10 @@ export class DomainNotificationListener {
       title: 'Workout assigned',
       body: 'A workout plan has been assigned to a member.',
       actionUrl: `/members/${event.memberId}`,
-      metadata: { workoutAssignmentId: event.workoutAssignmentId, memberId: event.memberId },
+      metadata: {
+        workoutAssignmentId: event.workoutAssignmentId,
+        memberId: event.memberId,
+      },
     });
   }
 
@@ -132,7 +145,10 @@ export class DomainNotificationListener {
       title: 'Workout started',
       body: 'A member workout session has started.',
       actionUrl: `/members/${event.memberId}`,
-      metadata: { workoutSessionId: event.workoutSessionId, memberId: event.memberId },
+      metadata: {
+        workoutSessionId: event.workoutSessionId,
+        memberId: event.memberId,
+      },
     });
   }
 
@@ -154,7 +170,10 @@ export class DomainNotificationListener {
       title: 'Diet assigned',
       body: 'A diet plan has been assigned to a member.',
       actionUrl: `/members/${event.memberId}`,
-      metadata: { dietAssignmentId: event.dietAssignmentId, memberId: event.memberId },
+      metadata: {
+        dietAssignmentId: event.dietAssignmentId,
+        memberId: event.memberId,
+      },
     });
   }
 
@@ -181,7 +200,11 @@ export class DomainNotificationListener {
       title: 'PT session booked',
       body: 'A personal training session has been booked.',
       actionUrl: `/pt/sessions/${event.ptSessionId}`,
-      metadata: { ptSessionId: event.ptSessionId, memberId: event.memberId, trainerId: event.trainerId },
+      metadata: {
+        ptSessionId: event.ptSessionId,
+        memberId: event.memberId,
+        trainerId: event.trainerId,
+      },
     });
   }
 
