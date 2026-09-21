@@ -85,6 +85,55 @@ export class NotificationsService {
     });
   }
 
+  async notifyOrganization(
+    organizationId: string,
+    input: {
+      type: string;
+      title: string;
+      body: string;
+      actionUrl?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    const users = await this.prisma.user.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    });
+    if (users.length === 0) return { created: 0 };
+
+    const category = input.type.trim().toUpperCase();
+    const preferences = await this.prisma.notificationPreference.findMany({
+      where: {
+        organizationId,
+        userId: { in: users.map((user) => user.id) },
+        category,
+      },
+      select: { userId: true, inApp: true },
+    });
+    const optedOut = new Set(
+      preferences.filter((preference) => !preference.inApp).map((preference) => preference.userId),
+    );
+    const recipients = users.filter((user) => !optedOut.has(user.id));
+    if (recipients.length === 0) return { created: 0 };
+
+    const result = await this.prisma.notification.createMany({
+      data: recipients.map((user) => ({
+        organizationId,
+        userId: user.id,
+        type: input.type,
+        title: input.title,
+        body: input.body,
+        actionUrl: input.actionUrl,
+        metadata: input.metadata as Prisma.InputJsonValue,
+      })),
+    });
+    return { created: result.count };
+  }
+
   async createInApp(input: {
     organizationId: string;
     userId: string;
