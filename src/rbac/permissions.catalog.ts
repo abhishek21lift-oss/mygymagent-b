@@ -136,6 +136,10 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
   ...resource('search', {
     read: 'Search organization data across supported domains',
   }),
+  ...resource('hr', {
+    read: 'View staff HR records, leave, and payroll settings',
+    manage: 'Manage staff HR records and leave workflows',
+  }),
   ...resource('payroll', {
     read: 'View trainer commissions and payroll periods',
     manage:
