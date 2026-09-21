@@ -31,10 +31,12 @@ export class HrPayrollService {
       throw new BadRequestException('Leave type name and code are required');
     }
 
-    const branch = dto.branchId ? await this.prisma.branch.findFirst({
-      where: { id: dto.branchId, organizationId, deletedAt: null },
-      select: { id: true },
-    }) : null;
+    const branch = dto.branchId
+      ? await this.prisma.branch.findFirst({
+          where: { id: dto.branchId, organizationId, deletedAt: null },
+          select: { id: true },
+        })
+      : null;
 
     if (dto.branchId && !branch) {
       throw new BadRequestException(
@@ -46,9 +48,7 @@ export class HrPayrollService {
       where: {
         organizationId,
         code,
-        ...(dto.branchId
-          ? { branchId: dto.branchId }
-          : { branchId: null }),
+        ...(dto.branchId ? { branchId: dto.branchId } : { branchId: null }),
       },
       select: { id: true },
     });
@@ -393,9 +393,9 @@ export class HrPayrollService {
                 net: gross,
                 payableDays: new Prisma.Decimal(days),
                 metadata: {
-                salaryType: s.salaryType,
-                hourlyRate: hourlyRate.toFixed(2),
-              },
+                  salaryType: s.salaryType,
+                  hourlyRate: hourlyRate.toFixed(2),
+                },
               };
             }),
           });
@@ -465,7 +465,7 @@ export class HrPayrollService {
     const salaryType = metadata.salaryType;
     const hourlyRate = new Prisma.Decimal(
       typeof metadata.hourlyRate === 'string' ||
-      typeof metadata.hourlyRate === 'number'
+        typeof metadata.hourlyRate === 'number'
         ? metadata.hourlyRate
         : 0,
     );
