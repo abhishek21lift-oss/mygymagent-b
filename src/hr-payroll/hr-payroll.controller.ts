@@ -102,20 +102,14 @@ export class HrPayrollController {
   @Post('payroll-runs/:id/approve')
   @RequirePermissions('payroll.manage')
   @Audited({ resource: 'payroll_run', action: 'approve' })
-  approve(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  approve(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.hr.approvePayrollRun(user.organizationId!, id, user.id);
   }
 
   @Post('payroll-runs/:id/process')
   @RequirePermissions('payroll.manage')
   @Audited({ resource: 'payroll_run', action: 'process' })
-  process(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  process(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.hr.processPayrollRun(user.organizationId!, id);
   }
 }
