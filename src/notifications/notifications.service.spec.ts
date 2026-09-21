@@ -4,11 +4,13 @@ describe('NotificationsService', () => {
   it('fans out only to active users who have not disabled the category in-app', async () => {
     const prisma = {
       user: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'user-1' },
-          { id: 'user-2' },
-          { id: 'user-3' },
-        ]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'user-1' },
+            { id: 'user-2' },
+            { id: 'user-3' },
+          ]),
       },
       notificationPreference: {
         findMany: jest
