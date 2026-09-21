@@ -12,6 +12,7 @@ export class BusinessOsController {
   @Post('loyalty/:memberId/adjust') @RequirePermissions('loyalty.manage') adjust(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string,@Body()b:any){return this.s.loyaltyAdjust(u.organizationId!,u.id,id,Number(b.points),String(b.reason??'manual'));}
   @Get('referrals') @RequirePermissions('referrals.read') referrals(@CurrentUser()u:AuthenticatedUser){return this.s.referrals(u.organizationId!);}
   @Post('referrals/:memberId') @RequirePermissions('referrals.manage') referral(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string){return this.s.createReferral(u.organizationId!,id);}
+  @Post('referrals/:id/convert') @RequirePermissions('referrals.manage') convertReferral(@CurrentUser()u:AuthenticatedUser,@Param('id')id:string,@Body('memberId')memberId:string){return this.s.convertReferral(u.organizationId!,id,memberId);}
   @Get('support/tickets') @RequirePermissions('support.read') tickets(@CurrentUser()u:AuthenticatedUser,@Query('status')status?:string){return this.s.tickets(u.organizationId!,status);}
   @Post('support/tickets') @RequirePermissions('support.manage') ticket(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.createTicket(u.organizationId!,u.id,b);}
   @Post('support/tickets/:id/messages') @RequirePermissions('support.manage') message(@CurrentUser()u:AuthenticatedUser,@Param('id')id:string,@Body('body')body:string){return this.s.addTicketMessage(u.organizationId!,u.id,id,body);}
@@ -27,7 +28,10 @@ export class BusinessOsController {
   @Get('accounting/accounts') @RequirePermissions('accounting.read') accounts(@CurrentUser()u:AuthenticatedUser){return this.s.accounts(u.organizationId!);}
   @Post('accounting/accounts') @RequirePermissions('accounting.manage') account(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.createAccount(u.organizationId!,b);}
   @Post('accounting/entries') @RequirePermissions('accounting.manage') entry(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.entry(u.organizationId!,u.id,b);}
+  @Post('accounting/journal') @RequirePermissions('accounting.manage') journal(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.accountingJournal(u.organizationId!,u.id,b);}
+  @Get('accounting/tax-summary') @RequirePermissions('accounting.read') tax(@CurrentUser()u:AuthenticatedUser,@Query('from')from?:string,@Query('to')to?:string){return this.s.taxSummary(u.organizationId!,from,to);}
   @Get('accounting/trial-balance') @RequirePermissions('accounting.read') trial(@CurrentUser()u:AuthenticatedUser,@Query('from')from?:string,@Query('to')to?:string){return this.s.trialBalance(u.organizationId!,from,to);}
+  @Get('pt-intelligence/:memberId') @RequirePermissions('reports.view') ptIntelligence(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string){return this.s.ptIntelligence(u.organizationId!,id);}
   @Post('portal/invites/:memberId') @RequirePermissions('portal.manage') invite(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string){return this.s.createPortalInvite(u.organizationId!,u.id,id);}
   @Public() @Get('portal/bootstrap/:token') portal(@Param('token')token:string){return this.s.portalBootstrap(token);}
   @Post('kiosk/devices') @RequirePermissions('kiosk.manage') kiosk(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.registerKiosk(u.organizationId!,u.id,b);}
