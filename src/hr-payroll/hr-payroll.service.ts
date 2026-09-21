@@ -387,8 +387,7 @@ export class HrPayrollService {
                 organizationId,
                 payrollRunId: run.id,
                 staffProfileId: s.id,
-                baseSalary:
-                  s.salaryType === 'HOURLY' ? hourlyRate : base,
+                baseSalary: s.salaryType === 'HOURLY' ? hourlyRate : base,
                 gross,
                 net: gross,
                 payableDays: new Prisma.Decimal(days),
