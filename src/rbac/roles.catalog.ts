@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { PERMISSION_KEYS } from './permissions.catalog';
 
 export interface RoleDefinition {
