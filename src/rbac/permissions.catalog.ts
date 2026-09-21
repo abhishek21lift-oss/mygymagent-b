@@ -125,6 +125,14 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     read: 'View WhatsApp integration status and messages',
     manage: 'Connect/disconnect WhatsApp and send messages',
   }),
+  ...resource('hr', {
+    read: 'View staff HR records, leave, and payroll settings',
+    manage: 'Manage staff HR records and leave workflows',
+  }),
+  ...resource('payroll', {
+    read: 'View payroll runs and payroll results',
+    manage: 'Create, adjust, approve, and process payroll runs',
+  }),
   ...resource('reports', { view: 'View analytics and business reports' }),
   ...resource('ai', {
     generate: 'Invoke AI generation features',
