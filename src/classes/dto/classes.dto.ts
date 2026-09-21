@@ -1,4 +1,14 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateClassProgramDto {
   @IsUUID() branchId!: string;
@@ -22,9 +32,13 @@ export class ListClassSessionsDto {
   @IsOptional() @IsUUID() branchId?: string;
   @IsOptional() @IsUUID() instructorId?: string;
 }
-export class BookClassDto { @IsUUID() memberId!: string; }
-export class ClassAttendanceDto { @IsIn(['ATTENDED','NO_SHOW']) status!: 'ATTENDED'|'NO_SHOW'; }
+export class BookClassDto {
+  @IsUUID() memberId!: string;
+}
+export class ClassAttendanceDto {
+  @IsIn(['ATTENDED', 'NO_SHOW']) status!: 'ATTENDED' | 'NO_SHOW';
+}
 export class ListClassesDto {
   @IsOptional() @IsUUID() branchId?: string;
-  @IsOptional() @IsIn(['ACTIVE','INACTIVE']) status?: 'ACTIVE'|'INACTIVE';
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: 'ACTIVE' | 'INACTIVE';
 }
