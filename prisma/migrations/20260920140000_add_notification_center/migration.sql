@@ -23,8 +23,7 @@ CREATE TABLE "notification_preferences" (
   "sms" BOOLEAN NOT NULL DEFAULT false,
   "push" BOOLEAN NOT NULL DEFAULT false,
   "updatedAt" TIMESTAMP(3) NOT NULL,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX "notifications_organizationId_userId_createdAt_idx"
