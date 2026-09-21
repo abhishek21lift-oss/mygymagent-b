@@ -332,15 +332,6 @@ model User {
   @@map("users")
 }
 
-  salaryType      SalaryType?
-  baseSalary      Decimal?  @db.Decimal(14, 2)
-  hourlyRate      Decimal?  @db.Decimal(14, 2)
-  payrollEnabled  Boolean   @default(false)
-/// Staff/trainer-specific fields, kept off User to keep the auth identity lean.
-  payrollItems    PayrollItem[]
-  leaveBalances   LeaveBalance[]
-  leaveRequests   LeaveRequest[]
-
 model StaffProfile {
   id             String  @id @default(uuid())
   userId         String  @unique
@@ -356,6 +347,14 @@ model StaffProfile {
   bio             String?
   commissionRate  Decimal?  @db.Decimal(5, 2)
   hireDate        DateTime?
+  salaryType      SalaryType?
+  baseSalary      Decimal?  @db.Decimal(14, 2)
+  hourlyRate      Decimal?  @db.Decimal(14, 2)
+  payrollEnabled  Boolean   @default(false)
+
+  payrollItems    PayrollItem[]
+  leaveBalances   LeaveBalance[]
+  leaveRequests   LeaveRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
