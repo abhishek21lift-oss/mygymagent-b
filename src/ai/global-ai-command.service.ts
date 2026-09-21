@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
+import { AiService } from './ai.service';
+import { AuditService } from '../audit/audit.service';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import { AiToolName } from './tools/tool-definitions';
 import type {} from '@prisma/client';
@@ -27,6 +29,8 @@ export class GlobalAiCommandService {
   constructor(
     private readonly supervisor: AiSupervisorService,
     private readonly aiActions: AiActionsService,
+    private readonly ai: AiService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -41,10 +45,24 @@ export class GlobalAiCommandService {
     this.logger.debug(`Processing global AI command: ${request.command}`);
 
     try {
-      // Parse command to determine intent and extract parameters
-      const { toolName, args, isActionable } = await this.parseCommand(
-        request.command,
-      );
+      // Prefer deterministic safe tool routing for known commands. For
+      // natural-language commands outside the deterministic catalog, delegate
+      // to the same supervised tool-calling loop used by the AI chat surface.
+      let parsed: { toolName: AiToolName; args: unknown; isActionable: boolean } | null = null;
+      try {
+        parsed = await this.parseCommand(request.command);
+      } catch {
+        const chat = await this.ai.chat(request.organizationId, request.userId, { message: request.command });
+        await this.audit.record({
+          organizationId: request.organizationId,
+          actorUserId: request.userId,
+          action: 'AI_GLOBAL_COMMAND',
+          resource: 'ai_command',
+          afterState: { command: request.command, mode: 'supervised-chat', toolCalls: chat.toolCalls },
+        });
+        return { type: 'response', content: chat.reply, data: { conversationId: chat.conversationId, toolCalls: chat.toolCalls } };
+      }
+      const { toolName, args, isActionable } = parsed;
 
       // Execute the tool via AI Supervisor
       let result: unknown;
@@ -340,7 +358,12 @@ export class GlobalAiCommandService {
       `Global AI Command - User: ${request.userId}, Org: ${request.organizationId}, Command: "${request.command}", Response Type: ${response.type}`,
     );
 
-    // In a full implementation, this would store to database for audit trail
-    // For now, we log to the service logger which is captured in application logs
+    void this.audit.record({
+      organizationId: request.organizationId,
+      actorUserId: request.userId,
+      action: 'AI_GLOBAL_COMMAND_RESULT',
+      resource: 'ai_command',
+      afterState: { command: request.command, type: response.type, tool: response.suggestedTools?.[0] },
+    });
   }
 }
