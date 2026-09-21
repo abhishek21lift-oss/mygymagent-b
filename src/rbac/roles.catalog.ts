@@ -73,6 +73,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'expenses.read',
       'expenses.create',
       'expenses.update',
+      'hr.read',
+      'hr.manage',
       'whatsapp.read',
       'whatsapp.manage',
     ),
