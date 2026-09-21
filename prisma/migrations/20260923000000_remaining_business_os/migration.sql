@@ -1,6 +1,6 @@
 -- MyGymAgent remaining business OS
 CREATE TABLE IF NOT EXISTS loyalty_accounts (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   points integer NOT NULL DEFAULT 0 CHECK (points >= 0),
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS loyalty_accounts (
 CREATE INDEX IF NOT EXISTS loyalty_accounts_org_idx ON loyalty_accounts(organization_id);
 
 CREATE TABLE IF NOT EXISTS loyalty_ledger (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   points integer NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS loyalty_ledger (
 CREATE INDEX IF NOT EXISTS loyalty_ledger_org_member_idx ON loyalty_ledger(organization_id, member_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS referrals (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   referrer_member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   referred_member_id text REFERENCES members(id) ON DELETE SET NULL,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS referrals (
 );
 
 CREATE TABLE IF NOT EXISTS support_tickets (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   branch_id text REFERENCES branches(id) ON DELETE SET NULL,
   member_id text REFERENCES members(id) ON DELETE SET NULL,
@@ -56,16 +56,16 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 CREATE INDEX IF NOT EXISTS support_tickets_org_status_idx ON support_tickets(organization_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS support_ticket_messages (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  ticket_id uuid NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+  ticket_id text NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
   author_user_id text REFERENCES users(id) ON DELETE SET NULL,
   body text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS feedback_surveys (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name text NOT NULL,
   kind text NOT NULL DEFAULT 'CSAT',
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS feedback_surveys (
 );
 
 CREATE TABLE IF NOT EXISTS feedback_responses (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   survey_id text NOT NULL REFERENCES feedback_surveys(id) ON DELETE CASCADE,
   member_id text REFERENCES members(id) ON DELETE SET NULL,
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS feedback_responses (
 CREATE INDEX IF NOT EXISTS feedback_responses_org_idx ON feedback_responses(organization_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS marketing_campaigns (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   branch_id text REFERENCES branches(id) ON DELETE SET NULL,
   name text NOT NULL,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS marketing_campaigns (
 CREATE INDEX IF NOT EXISTS marketing_campaigns_org_idx ON marketing_campaigns(organization_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS marketing_campaign_members (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   campaign_id text NOT NULL REFERENCES marketing_campaigns(id) ON DELETE CASCADE,
   member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS marketing_campaign_members (
 );
 
 CREATE TABLE IF NOT EXISTS accounting_accounts (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   code text NOT NULL,
   name text NOT NULL,
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS accounting_accounts (
 );
 
 CREATE TABLE IF NOT EXISTS accounting_entries (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   account_id text NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
   branch_id text REFERENCES branches(id) ON DELETE SET NULL,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS accounting_entries (
 CREATE INDEX IF NOT EXISTS accounting_entries_org_date_idx ON accounting_entries(organization_id, entry_date DESC);
 
 CREATE TABLE IF NOT EXISTS portal_invites (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   member_id text NOT NULL REFERENCES members(id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE,
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS portal_invites (
 );
 
 CREATE TABLE IF NOT EXISTS kiosk_devices (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   branch_id text NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   name text NOT NULL,
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS kiosk_devices (
 );
 
 CREATE TABLE IF NOT EXISTS kiosk_events (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   branch_id text NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   device_id text REFERENCES kiosk_devices(id) ON DELETE SET NULL,
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS kiosk_events (
 );
 
 CREATE TABLE IF NOT EXISTS notification_devices (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   member_id text REFERENCES members(id) ON DELETE CASCADE,
   user_id text REFERENCES users(id) ON DELETE CASCADE,
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS notification_devices (
 CREATE INDEX IF NOT EXISTS notification_devices_org_idx ON notification_devices(organization_id, channel, active);
 
 CREATE TABLE IF NOT EXISTS ai_command_logs (
-  id text PRIMARY KEY DEFAULT gen_random_uuid()::text DEFAULT gen_random_uuid(),
+  id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id text REFERENCES users(id) ON DELETE SET NULL,
   command text NOT NULL,
