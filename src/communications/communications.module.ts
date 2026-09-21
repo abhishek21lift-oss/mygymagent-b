@@ -9,7 +9,6 @@ import {
   WHATSAPP_PROVIDER,
 } from './communications.service';
 import { MessageTemplateService } from './message-template.service';
-import { UnimplementedChannelProvider } from './interfaces/message-provider.interface';
 import { MetaWhatsappProvider } from './providers/meta-whatsapp.provider';
 import { HttpChannelProvider } from './providers/http-channel.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
