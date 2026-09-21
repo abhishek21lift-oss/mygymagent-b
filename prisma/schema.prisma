@@ -100,11 +100,6 @@ model Organization {
   dietAssignments         DietAssignment[]
   products                Product[]
   stockMovements          StockMovement[]
-  inventoryStocks         ProductStock[]
-  inventorySuppliers      InventorySupplier[]
-  inventoryPurchaseOrders InventoryPurchaseOrder[]
-  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
-  inventorySales          InventorySale[]
   aiUsageLogs             AiUsageLog[]
   memberAddresses         MemberAddress[]
   memberEmergencyContacts MemberEmergencyContact[]
@@ -123,8 +118,6 @@ model Organization {
   memberDocuments         MemberDocument[]
   messageTemplates        MessageTemplate[]
   messageLogs             MessageLog[]
-  notifications           Notification[]
-  notificationPreferences NotificationPreference[]
   automationRuns          AutomationRun[]
   aiActions               AiAction[]
   aiConversations         AiConversation[]
@@ -148,6 +141,11 @@ model Organization {
   riskProfiles            MemberRiskProfile[]
   segments                MemberSegment[]
   recommendedActions      RecommendedAction[]
+  leaveTypes              LeaveType[]
+  leaveBalances           LeaveBalance[]
+  leaveRequests           LeaveRequest[]
+  payrollRuns             PayrollRun[]
+  payrollItems             PayrollItem[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -205,12 +203,9 @@ model Branch {
   ptPackages              PtPackage[]
   invoices                Invoice[]
   deviceMaps              DeviceMap[]
-  stockMovements          StockMovement[]
-  inventoryStocks         ProductStock[]
-  inventoryPurchaseOrders InventoryPurchaseOrder[]
-  inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromBranch")
-  inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
-  inventorySales          InventorySale[]
+  leaveTypes              LeaveType[]
+  leaveRequests           LeaveRequest[]
+  payrollRuns             PayrollRun[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -285,7 +280,6 @@ model User {
   dietPlansCreated         DietPlan[]                @relation("DietPlanCreatedBy")
   dietAssignmentsMade      DietAssignment[]          @relation("DietAssignedBy")
   stockMovementsRecorded   StockMovement[]           @relation("StockMovementRecordedBy")
-  inventorySalesCreated    InventorySale[]            @relation("InventorySaleCreatedBy")
   aiUsageLogs              AiUsageLog[]              @relation("AiUsageActor")
   memberNotesAuthored      MemberNote[]              @relation("MemberNoteAuthor")
   memberConsentsRecorded   MemberConsent[]           @relation("MemberConsentRecordedBy")
@@ -313,8 +307,9 @@ model User {
   memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberTagsAssigned       MemberTagAssignment[]     @relation("MemberTagAssignedBy")
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
-  notifications            Notification[]
-  notificationPreferences NotificationPreference[]
+  payrollRunsCreated       PayrollRun[]              @relation("PayrollRunCreatedBy")
+  payrollRunsApproved      PayrollRun[]              @relation("PayrollRunApprovedBy")
+  leaveRequestsReviewed    LeaveRequest[]            @relation("LeaveRequestReviewedBy")
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -337,6 +332,14 @@ model StaffProfile {
   bio             String?
   commissionRate  Decimal?  @db.Decimal(5, 2)
   hireDate        DateTime?
+  salaryType      SalaryType?
+  baseSalary      Decimal?  @db.Decimal(14, 2)
+  hourlyRate      Decimal?  @db.Decimal(14, 2)
+  payrollEnabled  Boolean   @default(false)
+
+  payrollItems    PayrollItem[]
+  leaveBalances   LeaveBalance[]
+  leaveRequests   LeaveRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -626,7 +629,6 @@ model Member {
   recommendedActions RecommendedAction[]
   ptPackages         PtPackage[]
   invoices           Invoice[]
-  inventorySales     InventorySale[]
   qrToken            MemberQrToken?
   deviceMaps         DeviceMap[]
 
@@ -1160,7 +1162,6 @@ model Invoice {
 
   paymentLinks    InvoicePayment[]
   dunningAttempts DunningAttempt[]
-  inventorySales   InventorySale[]
 
   @@unique([organizationId, number])
   @@index([organizationId, status, dueAt])
@@ -1768,24 +1769,15 @@ model Product {
 
   quantityOnHand Int     @default(0)
   reorderLevel   Int     @default(0)
-  reorderQuantity Int    @default(0)
-  barcode        String?
-  unit           String  @default("unit")
   isActive       Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   stockMovements StockMovement[]
-  branchStocks ProductStock[]
-  purchaseOrderItems InventoryPurchaseOrderItem[]
-  transferItems InventoryTransferItem[]
-  saleItems InventorySaleItem[]
 
   @@unique([organizationId, sku])
-  @@unique([organizationId, barcode])
   @@index([organizationId])
-  @@index([organizationId, category, isActive])
   @@map("products")
 }
 
@@ -1794,32 +1786,6 @@ enum StockMovementType {
   SALE
   ADJUSTMENT
   DAMAGED
-  OPENING
-  TRANSFER_IN
-  TRANSFER_OUT
-  RETURN
-}
-
-enum InventoryPurchaseOrderStatus {
-  DRAFT
-  ORDERED
-  PARTIALLY_RECEIVED
-  RECEIVED
-  CANCELLED
-}
-
-enum InventoryTransferStatus {
-  DRAFT
-  IN_TRANSIT
-  RECEIVED
-  CANCELLED
-}
-
-enum InventorySaleStatus {
-  COMPLETED
-  CANCELLED
-  RETURNED
-  PARTIALLY_RETURNED
 }
 
 /// Append-only ledger entry. `quantity` is the *signed* delta actually
@@ -1834,15 +1800,8 @@ model StockMovement {
   productId      String
   product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  branchId       String?
-  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
-
   type     StockMovementType
   quantity Int
-  unitCost Decimal? @db.Decimal(10, 2)
-  totalCost Decimal? @db.Decimal(12, 2)
-  referenceType String?
-  referenceId String?
   note     String?
 
   recordedByUserId String?
@@ -1852,8 +1811,6 @@ model StockMovement {
 
   @@index([organizationId])
   @@index([productId])
-  @@index([organizationId, branchId, createdAt])
-  @@index([organizationId, referenceType, referenceId])
   @@map("stock_movements")
 }
 
@@ -2662,47 +2619,6 @@ model Expense {
 }
 
 // ----------------------------------------------------------------------------
-// In-app notification center
-// ----------------------------------------------------------------------------
-
-model Notification {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  title     String
-  body      String
-  actionUrl String?
-  metadata  Json?
-  readAt    DateTime?
-  createdAt DateTime @default(now())
-  @@index([organizationId, userId, createdAt])
-  @@index([organizationId, userId, readAt])
-  @@map("notifications")
-}
-
-model NotificationPreference {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category  String
-  inApp     Boolean @default(true)
-  email     Boolean @default(true)
-  whatsapp  Boolean @default(false)
-  sms       Boolean @default(false)
-  push      Boolean @default(false)
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-  @@unique([organizationId, userId, category])
-  @@index([organizationId, userId])
-  @@map("notification_preferences")
-}
-
-// ----------------------------------------------------------------------------
 // WhatsApp Business integration -- one row per organization holding the
 // org's own WABA connection (Meta Cloud API). Credentials stay server-side;
 // message delivery itself is logged to MessageLog like every other channel.
@@ -2986,258 +2902,177 @@ model RecommendedAction {
   @@map("recommended_actions")
 }
 
-model ProductStock {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quantityOnHand Int @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  @@unique([organizationId, branchId, productId])
-  @@index([organizationId, branchId])
-  @@index([productId])
-  @@map("product_stocks")
+
+// ============================================================================
+// HR & PAYROLL OS
+// ============================================================================
+
+enum SalaryType {
+  MONTHLY
+  DAILY
+  HOURLY
 }
 
-model InventorySupplier {
-  id             String       @id @default(uuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name           String
-  phone          String?
-  email          String?
-  address        String?
-  taxId          String?
-  isActive       Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  purchaseOrders InventoryPurchaseOrder[]
-  @@index([organizationId, isActive])
-  @@map("inventory_suppliers")
+enum PayrollRunStatus {
+  DRAFT
+  APPROVED
+  PROCESSED
+  CANCELLED
 }
 
-model InventoryPurchaseOrder {
+enum PayrollItemStatus {
+  PENDING
+  FINALIZED
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveUnit {
+  DAY
+  HALF_DAY
+}
+
+model LeaveType {
   id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierId     String
-  supplier       InventorySupplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   branchId       String?
-  branch         Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  number         String
-  status         InventoryPurchaseOrderStatus @default(DRAFT)
-  notes          String?
-  orderedAt      DateTime?
-  expectedAt     DateTime?
-  receivedAt     DateTime?
-  totalCost      Decimal @db.Decimal(12, 2) @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  items InventoryPurchaseOrderItem[]
-  @@unique([organizationId, number])
-  @@index([organizationId, status])
-  @@index([supplierId])
-  @@map("inventory_purchase_orders")
-}
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-model InventoryPurchaseOrderItem {
-  id             String @id @default(uuid())
-  purchaseOrderId String
-  purchaseOrder   InventoryPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  orderedQuantity Int
-  receivedQuantity Int @default(0)
-  unitCost Decimal @db.Decimal(10, 2)
+  name          String
+  code          String
+  paid          Boolean       @default(true)
+  annualQuota   Decimal       @default(0) @db.Decimal(8, 2)
+  carryForward  Boolean       @default(false)
+  active        Boolean       @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  @@unique([purchaseOrderId, productId])
-  @@index([productId])
-  @@map("inventory_purchase_order_items")
+
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@index([branchId])
+  @@map("leave_types")
 }
 
-model InventoryTransfer {
-  id             String @id @default(uuid())
+model LeaveBalance {
+  id             String       @id @default(uuid())
   organizationId String
-  organization   Organization @relation("InventoryTransferOrg", fields: [organizationId], references: [id], onDelete: Cascade)
-  fromBranchId   String
-  fromBranch     Branch @relation("InventoryTransferFromBranch", fields: [fromBranchId], references: [id], onDelete: Restrict)
-  toBranchId     String
-  toBranch       Branch @relation("InventoryTransferToBranch", fields: [toBranchId], references: [id], onDelete: Restrict)
-  number         String
-  status         InventoryTransferStatus @default(DRAFT)
-  notes          String?
-  shippedAt      DateTime?
-  receivedAt     DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  items InventoryTransferItem[]
-  @@unique([organizationId, number])
-  @@index([organizationId, status])
-  @@index([fromBranchId])
-  @@index([toBranchId])
-  @@map("inventory_transfers")
-}
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  leaveTypeId    String
+  leaveType      LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
 
-model InventoryTransferItem {
-  id String @id @default(uuid())
-  transferId String
-  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  productId String
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  quantity Int
-  @@unique([transferId, productId])
-  @@index([productId])
-  @@map("inventory_transfer_items")
-}
+  year       Int
+  opening    Decimal @default(0) @db.Decimal(8, 2)
+  accrued    Decimal @default(0) @db.Decimal(8, 2)
+  used       Decimal @default(0) @db.Decimal(8, 2)
+  adjustment Decimal @default(0) @db.Decimal(8, 2)
+  closing    Decimal @default(0) @db.Decimal(8, 2)
 
-model InventorySale {
-  id String @id @default(uuid())
-  organizationId String
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId String?
-  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  memberId String?
-  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  invoiceId String?
-  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  createdByUserId String?
-  createdByUser User? @relation("InventorySaleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  number String
-  status InventorySaleStatus @default(COMPLETED)
-  subtotal Decimal @db.Decimal(12, 2)
-  discount Decimal @db.Decimal(12, 2) @default(0)
-  total Decimal @db.Decimal(12, 2)
-  currency String @default("USD")
   createdAt DateTime @default(now())
-  items InventorySaleItem[]
-  @@unique([organizationId, number])
-  @@index([organizationId, createdAt])
-  @@index([organizationId, branchId, createdAt])
-  @@index([memberId])
-  @@index([invoiceId])
-  @@map("inventory_sales")
+  updatedAt DateTime @updatedAt
+
+  @@unique([staffProfileId, leaveTypeId, year])
+  @@index([organizationId, year])
+  @@map("leave_balances")
 }
 
-model InventorySaleItem {
-  id String @id @default(uuid())
-  saleId String
-  sale InventorySale @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  productId String
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  quantity Int
-  returnedQuantity Int @default(0)
-  unitPrice Decimal @db.Decimal(10, 2)
-  unitCost Decimal @db.Decimal(10, 2)
-  total Decimal @db.Decimal(12, 2)
-  @@index([productId])
-  @@map("inventory_sale_items")
-}
-
-// -----------------------------------------------------------------------------
-// Business OS completion: trainer commissions, payroll periods and SaaS billing.
-// These records intentionally remain operationally separate from gym member
-// payments: platform billing is what the organization pays the SaaS platform.
-// -----------------------------------------------------------------------------
-
-model TrainerCommissionRule {
-  id             String   @id @default(uuid())
+model LeaveRequest {
+  id             String       @id @default(uuid())
   organizationId String
-  trainerId      String
-  percentage     Decimal  @db.Decimal(5, 2)
-  fixedAmount    Decimal  @db.Decimal(10, 2) @default(0)
-  sessionType    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  leaveTypeId    String
+  leaveType      LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  reviewedByUserId String?
+  reviewedByUser   User?      @relation("LeaveRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
-  @@index([organizationId, trainerId])
-  @@map("trainer_commission_rules")
+  startDate DateTime
+  endDate   DateTime
+  unit      LeaveUnit @default(DAY)
+  days      Decimal   @db.Decimal(8, 2)
+  reason    String?
+  status    LeaveRequestStatus @default(PENDING)
+  reviewedAt DateTime?
+  reviewNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([staffProfileId, startDate])
+  @@index([branchId, startDate])
+  @@map("leave_requests")
 }
 
-model TrainerCommission {
-  id              String   @id @default(uuid())
-  organizationId  String
-  trainerId       String
-  ptSessionId     String
-  sessionAt       DateTime
-  baseAmount      Decimal  @db.Decimal(10, 2)
-  rate            Decimal  @db.Decimal(5, 2)
-  commissionAmount Decimal @db.Decimal(10, 2)
-  status          String   @default("PENDING")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([organizationId, ptSessionId])
-  @@index([organizationId, sessionAt])
-  @@index([organizationId, trainerId])
-  @@map("trainer_commissions")
-}
-
-model PayrollPeriod {
-  id             String   @id @default(uuid())
+model PayrollRun {
+  id             String       @id @default(uuid())
   organizationId String
-  startDate      DateTime
-  endDate        DateTime
-  status         String   @default("OPEN")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdByUserId String
+  createdByUser   User        @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  approvedByUserId String?
+  approvedByUser   User?      @relation("PayrollRunApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  periodStart DateTime
+  periodEnd   DateTime
+  status      PayrollRunStatus @default(DRAFT)
+  approvedAt  DateTime?
+  processedAt DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PayrollItem[]
+
+  @@unique([organizationId, branchId, periodStart, periodEnd])
+  @@index([organizationId, status])
+  @@index([branchId, periodStart])
+  @@map("payroll_runs")
+}
+
+model PayrollItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payrollRunId   String
+  payrollRun     PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Restrict)
+
+  baseSalary     Decimal @default(0) @db.Decimal(14, 2)
+  overtime       Decimal @default(0) @db.Decimal(14, 2)
+  incentives     Decimal @default(0) @db.Decimal(14, 2)
+  deductions     Decimal @default(0) @db.Decimal(14, 2)
+  unpaidLeave    Decimal @default(0) @db.Decimal(14, 2)
+  gross          Decimal @default(0) @db.Decimal(14, 2)
+  net            Decimal @default(0) @db.Decimal(14, 2)
+  attendanceDays Decimal @default(0) @db.Decimal(8, 2)
+  payableDays    Decimal @default(0) @db.Decimal(8, 2)
+  status         PayrollItemStatus @default(PENDING)
   notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  metadata       Json @default("{}")
 
-  @@index([organizationId, startDate])
-  @@map("payroll_periods")
-}
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-model SubscriptionPlan {
-  id                 String   @id @default(uuid())
-  key                String   @unique
-  name               String
-  maxMembers         Int?
-  maxBranches        Int?
-  maxStaff           Int?
-  aiMonthlyRequests  Int?
-  storageMb          Int?
-  whatsappMonthly    Int?
-  apiMonthlyCalls    Int?
-  priceMinor         Int      @default(0)
-  currency           String   @default("INR")
-  isActive           Boolean  @default(true)
-  sortOrder          Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  @@map("subscription_plans")
-}
-
-model OrganizationSubscription {
-  id                  String   @id @default(uuid())
-  organizationId      String   @unique
-  planId              String
-  status              String   @default("ACTIVE")
-  currentPeriodStart  DateTime
-  currentPeriodEnd    DateTime
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@index([planId])
-  @@map("organization_subscriptions")
-}
-
-model PlatformInvoice {
-  id             String   @id @default(uuid())
-  organizationId String
-  planId         String?
-  amountMinor    Int
-  currency       String   @default("INR")
-  status         String   @default("OPEN")
-  periodStart    DateTime
-  periodEnd      DateTime
-  paidAt         DateTime?
-  createdAt      DateTime @default(now())
-
-  @@index([organizationId, periodStart])
-  @@map("platform_invoices")
+  @@unique([payrollRunId, staffProfileId])
+  @@index([organizationId, staffProfileId])
+  @@map("payroll_items")
 }
