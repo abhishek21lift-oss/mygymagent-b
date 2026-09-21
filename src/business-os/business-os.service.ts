@@ -573,7 +573,7 @@ export class BusinessOsService {
       d.organization_id,
       memberId,
     );
-    let result = decision.allowed ? 'ALLOWED' : 'DENIED';
+    const result = decision.allowed ? 'ALLOWED' : 'DENIED';
     await this.prisma.$executeRawUnsafe(
       "INSERT INTO kiosk_events(organization_id,branch_id,device_id,member_id,event_type,result) VALUES($1,$2,$3,$4,'CHECK_IN',$5)",
       d.organization_id,
