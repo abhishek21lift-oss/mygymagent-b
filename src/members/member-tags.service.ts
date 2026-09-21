@@ -129,7 +129,12 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const tags = await this.prisma.memberTag.findMany({
       where: { organizationId, id: { in: dto.tagIds } },
     });
@@ -159,7 +164,12 @@ export class MemberTagsService {
         ),
       );
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   async addOne(
@@ -170,7 +180,12 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     const tag = await this.prisma.memberTag.findFirst({
       where: { id: tagId, organizationId },
     });
@@ -180,7 +195,12 @@ export class MemberTagsService {
       create: { organizationId, memberId, tagId, assignedByUserId },
       update: {},
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   async removeOne(
@@ -190,10 +210,20 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     await this.prisma.memberTagAssignment.deleteMany({
       where: { organizationId, memberId, tagId },
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

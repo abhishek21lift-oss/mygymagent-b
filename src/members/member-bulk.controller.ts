@@ -62,6 +62,11 @@ export class MemberBulkController {
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.bulk.export(user.organizationId!, dto, branchScope, assignmentScope);
+    return this.bulk.export(
+      user.organizationId!,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

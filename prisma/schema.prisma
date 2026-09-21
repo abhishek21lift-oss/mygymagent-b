@@ -141,6 +141,11 @@ model Organization {
   riskProfiles            MemberRiskProfile[]
   segments                MemberSegment[]
   recommendedActions      RecommendedAction[]
+  leaveTypes              LeaveType[]
+  leaveBalances           LeaveBalance[]
+  leaveRequests           LeaveRequest[]
+  payrollRuns             PayrollRun[]
+  payrollItems             PayrollItem[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -198,6 +203,9 @@ model Branch {
   ptPackages              PtPackage[]
   invoices                Invoice[]
   deviceMaps              DeviceMap[]
+  leaveTypes              LeaveType[]
+  leaveRequests           LeaveRequest[]
+  payrollRuns             PayrollRun[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -299,6 +307,9 @@ model User {
   memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberTagsAssigned       MemberTagAssignment[]     @relation("MemberTagAssignedBy")
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
+  payrollRunsCreated       PayrollRun[]              @relation("PayrollRunCreatedBy")
+  payrollRunsApproved      PayrollRun[]              @relation("PayrollRunApprovedBy")
+  leaveRequestsReviewed    LeaveRequest[]            @relation("LeaveRequestReviewedBy")
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -321,6 +332,14 @@ model StaffProfile {
   bio             String?
   commissionRate  Decimal?  @db.Decimal(5, 2)
   hireDate        DateTime?
+  salaryType      SalaryType?
+  baseSalary      Decimal?  @db.Decimal(14, 2)
+  hourlyRate      Decimal?  @db.Decimal(14, 2)
+  payrollEnabled  Boolean   @default(false)
+
+  payrollItems    PayrollItem[]
+  leaveBalances   LeaveBalance[]
+  leaveRequests   LeaveRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2881,4 +2900,179 @@ model RecommendedAction {
   @@index([organizationId, status])
   @@index([organizationId, memberId])
   @@map("recommended_actions")
+}
+
+
+// ============================================================================
+// HR & PAYROLL OS
+// ============================================================================
+
+enum SalaryType {
+  MONTHLY
+  DAILY
+  HOURLY
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  APPROVED
+  PROCESSED
+  CANCELLED
+}
+
+enum PayrollItemStatus {
+  PENDING
+  FINALIZED
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveUnit {
+  DAY
+  HALF_DAY
+}
+
+model LeaveType {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name          String
+  code          String
+  paid          Boolean       @default(true)
+  annualQuota   Decimal       @default(0) @db.Decimal(8, 2)
+  carryForward  Boolean       @default(false)
+  active        Boolean       @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+  @@index([branchId])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  leaveTypeId    String
+  leaveType      LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  year       Int
+  opening    Decimal @default(0) @db.Decimal(8, 2)
+  accrued    Decimal @default(0) @db.Decimal(8, 2)
+  used       Decimal @default(0) @db.Decimal(8, 2)
+  adjustment Decimal @default(0) @db.Decimal(8, 2)
+  closing    Decimal @default(0) @db.Decimal(8, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([staffProfileId, leaveTypeId, year])
+  @@index([organizationId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  leaveTypeId    String
+  leaveType      LeaveType    @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  reviewedByUserId String?
+  reviewedByUser   User?      @relation("LeaveRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  startDate DateTime
+  endDate   DateTime
+  unit      LeaveUnit @default(DAY)
+  days      Decimal   @db.Decimal(8, 2)
+  reason    String?
+  status    LeaveRequestStatus @default(PENDING)
+  reviewedAt DateTime?
+  reviewNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([staffProfileId, startDate])
+  @@index([branchId, startDate])
+  @@map("leave_requests")
+}
+
+model PayrollRun {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdByUserId String
+  createdByUser   User        @relation("PayrollRunCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  approvedByUserId String?
+  approvedByUser   User?      @relation("PayrollRunApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  periodStart DateTime
+  periodEnd   DateTime
+  status      PayrollRunStatus @default(DRAFT)
+  approvedAt  DateTime?
+  processedAt DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PayrollItem[]
+
+  @@unique([organizationId, branchId, periodStart, periodEnd])
+  @@index([organizationId, status])
+  @@index([branchId, periodStart])
+  @@map("payroll_runs")
+}
+
+model PayrollItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payrollRunId   String
+  payrollRun     PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  staffProfileId String
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Restrict)
+
+  baseSalary     Decimal @default(0) @db.Decimal(14, 2)
+  overtime       Decimal @default(0) @db.Decimal(14, 2)
+  incentives     Decimal @default(0) @db.Decimal(14, 2)
+  deductions     Decimal @default(0) @db.Decimal(14, 2)
+  unpaidLeave    Decimal @default(0) @db.Decimal(14, 2)
+  gross          Decimal @default(0) @db.Decimal(14, 2)
+  net            Decimal @default(0) @db.Decimal(14, 2)
+  attendanceDays Decimal @default(0) @db.Decimal(8, 2)
+  payableDays    Decimal @default(0) @db.Decimal(8, 2)
+  status         PayrollItemStatus @default(PENDING)
+  notes          String?
+  metadata       Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([payrollRunId, staffProfileId])
+  @@index([organizationId, staffProfileId])
+  @@map("payroll_items")
 }

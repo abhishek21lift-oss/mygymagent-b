@@ -97,7 +97,7 @@ export class MemberBulkService {
           id: { in: dto.memberIds },
           deletedAt: null,
           ...(branchScope ? { primaryBranchId: branchScope } : {}),
-        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
         },
         select: { id: true },
       }),
