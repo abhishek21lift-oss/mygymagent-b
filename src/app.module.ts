@@ -48,6 +48,7 @@ import { CommunicationsModule } from './communications/communications.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { HrPayrollModule } from './hr-payroll/hr-payroll.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { PlatformBillingModule } from './platform-billing/platform-billing.module';
 import { DataModule } from './data/data.module';
@@ -118,6 +119,7 @@ import { DataModule } from './data/data.module';
     AppointmentsModule,
     ExpensesModule,
     WhatsappModule,
+    HrPayrollModule,
     PayrollModule,
     PlatformBillingModule,
     DataModule,
