@@ -100,6 +100,7 @@ export class MemberFollowUpsController {
       memberId,
       followUpId,
       branchScope,
+      assignmentScope,
     );
   }
 
