@@ -200,6 +200,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'expenses.create',
       'expenses.update',
       'expenses.delete',
+      'hr.read',
+      'hr.manage',
+      'payroll.read',
+      'payroll.manage',
     ),
   },
   {
