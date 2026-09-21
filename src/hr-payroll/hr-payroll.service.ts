@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateLeaveRequestDto, CreateLeaveTypeDto, CreatePayrollRunDto, PayrollItemAdjustmentDto, ReviewLeaveDto } from './dto/hr-payroll.dto';
 
