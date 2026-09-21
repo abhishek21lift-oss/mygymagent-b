@@ -5,7 +5,7 @@ import { AiService } from './ai.service';
 import { AuditService } from '../audit/audit.service';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import { AiToolName } from './tools/tool-definitions';
-import type {} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface GlobalCommandRequest {
   organizationId: string;
@@ -32,6 +32,7 @@ export class GlobalAiCommandService {
     private readonly aiActions: AiActionsService,
     private readonly ai: AiService,
     private readonly audit: AuditService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -62,6 +63,11 @@ export class GlobalAiCommandService {
           request.userId,
           { message: request.command },
         );
+        await this.recordCommandLog(request, {
+          type: 'response',
+          toolName: chat.toolCalls?.[0]?.toolName,
+          success: true,
+        });
         await this.audit.record({
           organizationId: request.organizationId,
           actorUserId: request.userId,
@@ -123,7 +129,7 @@ export class GlobalAiCommandService {
         content: `Successfully executed ${toolName}`,
         data: result,
         requiresApproval: isActionable,
-      });
+      }, toolName);
 
       // Return appropriate response
       if (isActionable) {
@@ -370,13 +376,37 @@ export class GlobalAiCommandService {
   /**
    * Log the command interaction for audit purposes
    */
+  private async recordCommandLog(
+    request: GlobalCommandRequest,
+    input: { type: GlobalCommandResponse['type']; toolName?: string; success: boolean },
+  ): Promise<void> {
+    await this.prisma.$executeRawUnsafe(
+      'INSERT INTO ai_command_logs(organization_id,user_id,command,response_type,tool_name,success) VALUES($1,$2,$3,$4,$5,$6)',
+      request.organizationId,
+      request.userId,
+      request.command,
+      input.type,
+      input.toolName ?? null,
+      input.success,
+    );
+  }
+
   private async logCommandInteraction(
     request: GlobalCommandRequest,
     response: GlobalCommandResponse,
+    toolName?: string,
   ): Promise<void> {
     this.logger.debug(
       `Global AI Command - User: ${request.userId}, Org: ${request.organizationId}, Command: "${request.command}", Response Type: ${response.type}`,
     );
+
+    void this.recordCommandLog(request, {
+      type: response.type,
+      toolName,
+      success: response.type !== 'error',
+    }).catch((error) => {
+      this.logger.error(`Failed to persist AI command log: ${error.message}`);
+    });
 
     void this.audit.record({
       organizationId: request.organizationId,
@@ -386,7 +416,7 @@ export class GlobalAiCommandService {
       afterState: {
         command: request.command,
         type: response.type,
-        tool: response.suggestedTools?.[0],
+        tool: toolName ?? response.suggestedTools?.[0],
       },
     });
   }
