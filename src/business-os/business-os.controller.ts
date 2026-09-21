@@ -9,7 +9,7 @@ import { BusinessOsService } from './business-os.service';
 export class BusinessOsController {
   constructor(private readonly s:BusinessOsService){}
   @Get('loyalty/:memberId') @RequirePermissions('loyalty.read') loyalty(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string){return this.s.loyaltyAccount(u.organizationId!,id);}
-  @Post('loyalty/:memberId/adjust') @RequirePermissions('loyalty.manage') adjust(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string,@Body()b:any){return this.s.loyaltyAdjust(u.organizationId!,u.id,id,numeric(b.points),String(b.reason??'manual'));}
+  @Post('loyalty/:memberId/adjust') @RequirePermissions('loyalty.manage') adjust(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string,@Body()b:any){return this.s.loyaltyAdjust(u.organizationId!,u.id,id,Number(b.points),String(b.reason??'manual'));}
   @Get('referrals') @RequirePermissions('referrals.read') referrals(@CurrentUser()u:AuthenticatedUser){return this.s.referrals(u.organizationId!);}
   @Post('referrals/:memberId') @RequirePermissions('referrals.manage') referral(@CurrentUser()u:AuthenticatedUser,@Param('memberId')id:string){return this.s.createReferral(u.organizationId!,id);}
   @Get('support/tickets') @RequirePermissions('support.read') tickets(@CurrentUser()u:AuthenticatedUser,@Query('status')status?:string){return this.s.tickets(u.organizationId!,status);}
@@ -33,4 +33,3 @@ export class BusinessOsController {
   @Post('kiosk/devices') @RequirePermissions('kiosk.manage') kiosk(@CurrentUser()u:AuthenticatedUser,@Body()b:any){return this.s.registerKiosk(u.organizationId!,u.id,b);}
   @Public() @Post('kiosk/check-in') kioskCheckin(@Body()b:any){return this.s.kioskCheckin(String(b.deviceKey??''),String(b.memberId??''));}
 }
-function numeric(v:unknown){const x=Number(v);if(!Number.isInteger(x))throw new Error('points must be integer');return x;}
