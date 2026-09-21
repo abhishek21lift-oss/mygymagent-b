@@ -2901,6 +2901,10 @@ enum ActionType {
 }
 
 enum Priority {
+  P0
+  P1
+  P2
+}
 
 // ============================================================================
 // HR & PAYROLL OS
@@ -3077,10 +3081,6 @@ model PayrollItem {
   @@map("payroll_items")
 }
 
-  P0
-  P1
-  P2
-}
 
 /// Suggested channel for a recommended action. Distinct from
 /// CommunicationChannel, which is limited to channels the system can actually
