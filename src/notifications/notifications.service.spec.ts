@@ -18,9 +18,9 @@ describe('NotificationsService', () => {
       notification: {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
-    } as never;
+    };
 
-    const service = new NotificationsService(prisma);
+    const service = new NotificationsService(prisma as never);
 
     await expect(
       service.notifyOrganization('org-1', {
@@ -76,9 +76,9 @@ describe('NotificationsService', () => {
       user: { findMany: jest.fn().mockResolvedValue([]) },
       notificationPreference: { findMany: jest.fn() },
       notification: { createMany: jest.fn() },
-    } as never;
+    };
 
-    const service = new NotificationsService(prisma);
+    const service = new NotificationsService(prisma as never);
 
     await expect(
       service.notifyOrganization('org-1', {
