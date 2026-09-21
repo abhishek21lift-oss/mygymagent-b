@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CommunicationsController } from './communications.controller';
 import {
   CommunicationsService,
@@ -10,6 +11,7 @@ import {
 import { MessageTemplateService } from './message-template.service';
 import { UnimplementedChannelProvider } from './interfaces/message-provider.interface';
 import { MetaWhatsappProvider } from './providers/meta-whatsapp.provider';
+import { HttpChannelProvider } from './providers/http-channel.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
 /**
@@ -38,11 +40,13 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     },
     {
       provide: SMS_PROVIDER,
-      useValue: new UnimplementedChannelProvider('SMS'),
+      useFactory: (config: ConfigService) => new HttpChannelProvider(config, 'SMS'),
+      inject: [ConfigService],
     },
     {
       provide: PUSH_PROVIDER,
-      useValue: new UnimplementedChannelProvider('Push'),
+      useFactory: (config: ConfigService) => new HttpChannelProvider(config, 'PUSH'),
+      inject: [ConfigService],
     },
   ],
   exports: [CommunicationsService],
