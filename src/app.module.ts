@@ -52,6 +52,7 @@ import { HrPayrollModule } from './hr-payroll/hr-payroll.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { PlatformBillingModule } from './platform-billing/platform-billing.module';
 import { DataModule } from './data/data.module';
+import { ClassesModule } from './classes/classes.module';
 
 @Module({
   imports: [
@@ -123,6 +124,7 @@ import { DataModule } from './data/data.module';
     PayrollModule,
     PlatformBillingModule,
     DataModule,
+    ClassesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },

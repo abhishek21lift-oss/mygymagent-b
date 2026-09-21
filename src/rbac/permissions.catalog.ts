@@ -125,6 +125,12 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     read: 'View WhatsApp integration status and messages',
     manage: 'Connect/disconnect WhatsApp and send messages',
   }),
+  ...resource('classes', {
+    read: 'View group training programs, sessions and analytics',
+    manage: 'Create and schedule group training programs and sessions',
+    book: 'Book or cancel a member class reservation',
+    attendance: 'Record class attendance and no-shows',
+  }),
   ...resource('reports', { view: 'View analytics and business reports' }),
   ...resource('ai', {
     generate: 'Invoke AI generation features',

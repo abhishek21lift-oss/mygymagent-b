@@ -77,6 +77,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'hr.manage',
       'whatsapp.read',
       'whatsapp.manage',
+      'classes.read',
+      'classes.manage',
+      'classes.book',
+      'classes.attendance',
     ),
   },
   {
@@ -130,6 +134,10 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'appointments.read_assigned',
       'appointments.create',
       'appointments.update',
+      'classes.read',
+      'classes.manage',
+      'classes.book',
+      'classes.attendance',
     ),
   },
   {
@@ -163,6 +171,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'appointments.read',
       'appointments.create',
       'appointments.update',
+      'classes.read',
+      'classes.book',
     ),
   },
   {
