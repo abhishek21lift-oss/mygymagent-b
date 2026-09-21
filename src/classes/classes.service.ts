@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
+/** Tenant-scoped group training orchestration. */
 export class ClassesService {
   constructor(private readonly prisma: PrismaService) {}
   private async branch(org: string, id: string) {
