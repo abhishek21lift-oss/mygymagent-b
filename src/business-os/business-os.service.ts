@@ -21,7 +21,7 @@ export class BusinessOsService {
   async loyaltyAccount(org:string, memberId:string){
     const member=await this.prisma.member.findFirst({where:{id:memberId,organizationId:org,deletedAt:null},select:{id:true,firstName:true,lastName:true}});
     if(!member) throw new NotFoundException('Member not found');
-    const rows=await this.prisma.$queryRawUnsafe<any[]>('SELECT * FROM loyalty_accounts WHERE organization_id=$1 AND member_id=$2',[org,memberId]);
+    const rows=await this.prisma.$queryRawUnsafe<any[]>('SELECT * FROM loyalty_accounts WHERE organization_id=$1 AND member_id=$2',org,memberId]);
     if(rows[0]) return rows[0];
     await this.prisma.$executeRawUnsafe('INSERT INTO loyalty_accounts(organization_id,member_id) VALUES($1,$2)',org,memberId);
     return (await this.prisma.$queryRawUnsafe<any[]>('SELECT * FROM loyalty_accounts WHERE organization_id=$1 AND member_id=$2',org,memberId))[0];
