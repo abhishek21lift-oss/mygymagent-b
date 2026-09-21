@@ -77,10 +77,7 @@ export class HrPayrollService {
     });
   }
 
-  async createLeaveRequest(
-    organizationId: string,
-    dto: CreateLeaveRequestDto,
-  ) {
+  async createLeaveRequest(organizationId: string, dto: CreateLeaveRequestDto) {
     const [staff, leaveType, branch] = await Promise.all([
       this.prisma.staffProfile.findFirst({
         where: {
@@ -118,9 +115,7 @@ export class HrPayrollService {
     const end = new Date(dto.endDate);
 
     if (end < start) {
-      throw new BadRequestException(
-        'endDate must be on or after startDate',
-      );
+      throw new BadRequestException('endDate must be on or after startDate');
     }
 
     return this.prisma.leaveRequest.create({
@@ -249,8 +244,7 @@ export class HrPayrollService {
     await this.prisma.payrollItem.createMany({
       data: staff.map((s) => {
         const base = s.baseSalary ?? new Prisma.Decimal(0);
-        const gross =
-          s.salaryType === 'MONTHLY' ? base : base.mul(days);
+        const gross = s.salaryType === 'MONTHLY' ? base : base.mul(days);
 
         return {
           organizationId,
@@ -296,12 +290,8 @@ export class HrPayrollService {
     }
 
     const overtime = new Prisma.Decimal(dto.overtime ?? item.overtime);
-    const incentives = new Prisma.Decimal(
-      dto.incentives ?? item.incentives,
-    );
-    const deductions = new Prisma.Decimal(
-      dto.deductions ?? item.deductions,
-    );
+    const incentives = new Prisma.Decimal(dto.incentives ?? item.incentives);
+    const deductions = new Prisma.Decimal(dto.deductions ?? item.deductions);
     const gross = item.baseSalary.plus(overtime).plus(incentives);
     const net = gross.minus(deductions).minus(item.unpaidLeave);
 
