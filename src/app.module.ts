@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -53,6 +54,7 @@ import { PayrollModule } from './payroll/payroll.module';
 import { PlatformBillingModule } from './platform-billing/platform-billing.module';
 import { DataModule } from './data/data.module';
 import { ClassesModule } from './classes/classes.module';
+import { BusinessOsModule } from './business-os/business-os.module';
 
 @Module({
   imports: [
@@ -125,6 +127,7 @@ import { ClassesModule } from './classes/classes.module';
     PlatformBillingModule,
     DataModule,
     ClassesModule,
+    BusinessOsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },

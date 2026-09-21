@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { PERMISSION_KEYS } from './permissions.catalog';
 
 export interface RoleDefinition {
@@ -81,6 +82,21 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'classes.manage',
       'classes.book',
       'classes.attendance',
+      'loyalty.read',
+      'loyalty.manage',
+      'referrals.read',
+      'referrals.manage',
+      'support.read',
+      'support.manage',
+      'feedback.read',
+      'feedback.manage',
+      'feedback.respond',
+      'marketing.read',
+      'marketing.manage',
+      'accounting.read',
+      'accounting.manage',
+      'portal.manage',
+      'kiosk.manage',
     ),
   },
   {
