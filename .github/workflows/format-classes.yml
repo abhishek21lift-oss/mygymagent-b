@@ -18,7 +18,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx prettier --write src/classes src/app.module.ts src/rbac/permissions.catalog.ts src/rbac/roles.catalog.ts prisma/migrations/20260922230000_add_group_training_os/migration.sql
+      - run: npx prettier --write src/classes src/app.module.ts src/rbac/permissions.catalog.ts src/rbac/roles.catalog.ts
       - name: Commit formatted files
         run: |
           git config user.name "github-actions[bot]"
