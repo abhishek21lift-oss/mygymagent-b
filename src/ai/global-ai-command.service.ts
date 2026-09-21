@@ -48,19 +48,38 @@ export class GlobalAiCommandService {
       // Prefer deterministic safe tool routing for known commands. For
       // natural-language commands outside the deterministic catalog, delegate
       // to the same supervised tool-calling loop used by the AI chat surface.
-      let parsed: { toolName: AiToolName; args: unknown; isActionable: boolean } | null = null;
+      let parsed: {
+        toolName: AiToolName;
+        args: unknown;
+        isActionable: boolean;
+      } | null = null;
       try {
         parsed = await this.parseCommand(request.command);
       } catch {
-        const chat = await this.ai.chat(request.organizationId, request.userId, { message: request.command });
+        const chat = await this.ai.chat(
+          request.organizationId,
+          request.userId,
+          { message: request.command },
+        );
         await this.audit.record({
           organizationId: request.organizationId,
           actorUserId: request.userId,
           action: 'AI_GLOBAL_COMMAND',
           resource: 'ai_command',
-          afterState: { command: request.command, mode: 'supervised-chat', toolCalls: chat.toolCalls },
+          afterState: {
+            command: request.command,
+            mode: 'supervised-chat',
+            toolCalls: chat.toolCalls,
+          },
         });
-        return { type: 'response', content: chat.reply, data: { conversationId: chat.conversationId, toolCalls: chat.toolCalls } };
+        return {
+          type: 'response',
+          content: chat.reply,
+          data: {
+            conversationId: chat.conversationId,
+            toolCalls: chat.toolCalls,
+          },
+        };
       }
       const { toolName, args, isActionable } = parsed;
 
@@ -363,7 +382,11 @@ export class GlobalAiCommandService {
       actorUserId: request.userId,
       action: 'AI_GLOBAL_COMMAND_RESULT',
       resource: 'ai_command',
-      afterState: { command: request.command, type: response.type, tool: response.suggestedTools?.[0] },
+      afterState: {
+        command: request.command,
+        type: response.type,
+        tool: response.suggestedTools?.[0],
+      },
     });
   }
 }

@@ -131,12 +131,31 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     book: 'Book or cancel a member class reservation',
     attendance: 'Record class attendance and no-shows',
   }),
-  ...resource('loyalty', { read: 'View loyalty balances and history', manage: 'Adjust loyalty points and tiers' }),
-  ...resource('referrals', { read: 'View referral activity', manage: 'Create and manage referral codes' }),
-  ...resource('support', { read: 'View support tickets', manage: 'Create, update and reply to support tickets' }),
-  ...resource('feedback', { read: 'View NPS/CSAT surveys and analytics', manage: 'Create and manage feedback surveys', respond: 'Record feedback responses' }),
-  ...resource('marketing', { read: 'View campaigns and audiences', manage: 'Create, enroll and execute campaigns' }),
-  ...resource('accounting', { read: 'View chart of accounts and trial balance', manage: 'Create accounts and journal entries' }),
+  ...resource('loyalty', {
+    read: 'View loyalty balances and history',
+    manage: 'Adjust loyalty points and tiers',
+  }),
+  ...resource('referrals', {
+    read: 'View referral activity',
+    manage: 'Create and manage referral codes',
+  }),
+  ...resource('support', {
+    read: 'View support tickets',
+    manage: 'Create, update and reply to support tickets',
+  }),
+  ...resource('feedback', {
+    read: 'View NPS/CSAT surveys and analytics',
+    manage: 'Create and manage feedback surveys',
+    respond: 'Record feedback responses',
+  }),
+  ...resource('marketing', {
+    read: 'View campaigns and audiences',
+    manage: 'Create, enroll and execute campaigns',
+  }),
+  ...resource('accounting', {
+    read: 'View chart of accounts and trial balance',
+    manage: 'Create accounts and journal entries',
+  }),
   ...resource('portal', { manage: 'Create member portal invites' }),
   ...resource('kiosk', { manage: 'Register and manage kiosk devices' }),
   ...resource('reports', { view: 'View analytics and business reports' }),
