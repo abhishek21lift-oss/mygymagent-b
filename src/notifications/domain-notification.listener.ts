@@ -233,7 +233,11 @@ export class DomainNotificationListener {
       title: 'PT session cancelled',
       body: 'A personal training session has been cancelled.',
       actionUrl: `/pt/sessions/${event.ptSessionId}`,
-      metadata: { ptSessionId: event.ptSessionId, memberId: event.memberId, trainerId: event.trainerId },
+      metadata: {
+        ptSessionId: event.ptSessionId,
+        memberId: event.memberId,
+        trainerId: event.trainerId,
+      },
     });
   }
 
