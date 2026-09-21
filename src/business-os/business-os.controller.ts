@@ -7,12 +7,14 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BusinessOsService } from './business-os.service';
+import type { Request } from 'express';
 
 @Controller()
 export class BusinessOsController {
@@ -182,10 +184,24 @@ export class BusinessOsController {
   ) {
     return this.s.createPortalInvite(u.organizationId!, u.id, id);
   }
+  @Post('portal/invites/:memberId/revoke')
+  @RequirePermissions('portal.manage')
+  revokePortal(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('memberId') id: string,
+  ) {
+    return this.s.revokePortalInvites(u.organizationId!, u.id, id);
+  }
   @Public() @Get('portal/bootstrap/:token') portal(
     @Param('token') token: string,
+    @Req() req: Request,
   ) {
-    return this.s.portalBootstrap(token);
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientKey =
+      (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) ||
+      req.ip ||
+      'unknown';
+    return this.s.portalBootstrap(token, clientKey);
   }
   @Post('kiosk/devices') @RequirePermissions('kiosk.manage') kiosk(
     @CurrentUser() u: AuthenticatedUser,
@@ -193,10 +209,19 @@ export class BusinessOsController {
   ) {
     return this.s.registerKiosk(u.organizationId!, u.id, b);
   }
-  @Public() @Post('kiosk/check-in') kioskCheckin(@Body() b: any) {
+  @Public() @Post('kiosk/check-in') kioskCheckin(
+    @Body() b: any,
+    @Req() req: Request,
+  ) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientKey =
+      (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) ||
+      req.ip ||
+      'unknown';
     return this.s.kioskCheckin(
       String(b.deviceKey ?? ''),
       String(b.memberId ?? ''),
+      clientKey,
     );
   }
 }
