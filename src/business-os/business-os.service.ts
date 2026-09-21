@@ -3,7 +3,8 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-  TooManyRequestsException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -71,7 +72,7 @@ export class BusinessOsService {
 
   private async rateLimit(scope: string, key: string, limit: number, windowSeconds: number) {
     const rows = await this.prisma.$queryRawUnsafe<any[]>("INSERT INTO public_endpoint_rate_limits(scope,key,hits,window_started_at) VALUES($1,$2,1,now()) ON CONFLICT(scope,key) DO UPDATE SET hits=CASE WHEN public_endpoint_rate_limits.window_started_at <= now() - make_interval(secs => $3) THEN 1 ELSE public_endpoint_rate_limits.hits + 1 END, window_started_at=CASE WHEN public_endpoint_rate_limits.window_started_at <= now() - make_interval(secs => $3) THEN now() ELSE public_endpoint_rate_limits.window_started_at END RETURNING hits", scope, hash(key), windowSeconds);
-    if (Number(rows[0]?.hits ?? 0) > limit) throw new TooManyRequestsException('Too many requests. Please try again later.');
+    if (Number(rows[0]?.hits ?? 0) > limit) throw new HttpException('Too many requests. Please try again later.', HttpStatus.TOO_MANY_REQUESTS);
   }
 
   async loyaltyAdjust(
