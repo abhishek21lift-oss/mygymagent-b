@@ -11,9 +11,9 @@ describe('NotificationsService', () => {
         ]),
       },
       notificationPreference: {
-        findMany: jest.fn().mockResolvedValue([
-          { userId: 'user-2', inApp: false },
-        ]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ userId: 'user-2', inApp: false }]),
       },
       notification: {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
