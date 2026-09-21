@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 /**
  * Canonical `resource.action` permission catalog for the platform.
  */
