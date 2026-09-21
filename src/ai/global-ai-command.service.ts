@@ -65,7 +65,7 @@ export class GlobalAiCommandService {
         );
         await this.recordCommandLog(request, {
           type: 'response',
-          toolName: chat.toolCalls?.[0]?.toolName,
+          toolName: chat.toolCalls?.[0]?.name,
           success: true,
         });
         await this.audit.record({
