@@ -1,0 +1,1 @@
+ALTER TABLE "payroll_items" ADD COLUMN "regularHours" DECIMAL(10,2) NOT NULL DEFAULT 0;
