@@ -81,6 +81,7 @@ export const ROLES_CATALOG: RoleDefinition[] = [
       'classes.manage',
       'classes.book',
       'classes.attendance',
+      'loyalty.read',\n      'loyalty.manage',\n      'referrals.read',\n      'referrals.manage',\n      'support.read',\n      'support.manage',\n      'feedback.read',\n      'feedback.manage',\n      'feedback.respond',\n      'marketing.read',\n      'marketing.manage',\n      'accounting.read',\n      'accounting.manage',\n      'portal.manage',\n      'kiosk.manage',
     ),
   },
   {
