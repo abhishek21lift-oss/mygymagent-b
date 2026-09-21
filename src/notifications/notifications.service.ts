@@ -115,7 +115,9 @@ export class NotificationsService {
       select: { userId: true, inApp: true },
     });
     const optedOut = new Set(
-      preferences.filter((preference) => !preference.inApp).map((preference) => preference.userId),
+      preferences
+        .filter((preference) => !preference.inApp)
+        .map((preference) => preference.userId),
     );
     const recipients = users.filter((user) => !optedOut.has(user.id));
     if (recipients.length === 0) return { created: 0 };
