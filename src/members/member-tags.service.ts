@@ -210,10 +210,20 @@ export class MemberTagsService {
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
-    await this.requireMember(organizationId, memberId, branchScope, assignmentScope);
+    await this.requireMember(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
     await this.prisma.memberTagAssignment.deleteMany({
       where: { organizationId, memberId, tagId },
     });
-    return this.listAssignments(organizationId, memberId, branchScope, assignmentScope);
+    return this.listAssignments(
+      organizationId,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
   }
 }
