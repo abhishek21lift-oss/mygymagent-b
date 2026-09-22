@@ -219,6 +219,7 @@ model Branch {
   inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromBranch")
   inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
   inventorySales          InventorySale[]
+  notifications            Notification[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -314,6 +315,8 @@ model User {
   aiActionsProposed        AiAction[]                @relation("AiActionProposedBy")
   aiActionsDecided         AiAction[]                @relation("AiActionDecidedBy")
   aiConversations          AiConversation[]
+  notifications            Notification[]
+  notificationActors       Notification[]        @relation("NotificationActor")
   staffAppointments        Appointment[]             @relation("AppointmentStaff")
   createdAppointments      Appointment[]             @relation("AppointmentCreatedBy")
   availabilityRules        TrainerAvailabilityRule[] @relation("AvailabilityStaff")
@@ -324,7 +327,6 @@ model User {
   memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberTagsAssigned       MemberTagAssignment[]     @relation("MemberTagAssignedBy")
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
-  notifications            Notification[]
   notificationPreferences NotificationPreference[]
 
   @@index([organizationId])
@@ -2689,15 +2691,33 @@ model Notification {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  title     String
-  body      String
-  actionUrl String?
-  metadata  Json?
-  readAt    DateTime?
-  createdAt DateTime @default(now())
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  actorUserId    String?
+  actorUser      User?        @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  type           String
+  category       String       @default("GENERAL")
+  priority       String       @default("NORMAL")
+  title          String
+  body           String
+  actionUrl      String?
+  entityType     String?
+  entityId       String?
+  groupKey       String?
+  dedupeKey      String?
+  metadata       Json?
+  readAt        DateTime?
+  archivedAt    DateTime?
+  snoozedUntil  DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+
   @@index([organizationId, userId, createdAt])
   @@index([organizationId, userId, readAt])
+  @@index([organizationId, userId, archivedAt, createdAt])
+  @@index([organizationId, branchId, createdAt])
+  @@index([organizationId, groupKey, createdAt])
+  @@unique([organizationId, userId, dedupeKey])
   @@map("notifications")
 }
 

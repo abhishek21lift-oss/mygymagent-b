@@ -39,6 +39,7 @@ export interface MembershipStartedEvent {
 }
 
 export interface MembershipCancelledEvent {
+  branchId?: string;
   organizationId: string;
   membershipId: string;
   memberId: string;
@@ -64,6 +65,7 @@ export interface PaymentRecordedEvent {
 
 export interface PaymentRefundedEvent {
   organizationId: string;
+  branchId?: string;
   paymentId: string;
   refundId: string;
   memberId: string;
@@ -71,6 +73,7 @@ export interface PaymentRefundedEvent {
 }
 
 export interface WorkoutAssignedEvent {
+  branchId?: string;
   organizationId: string;
   workoutAssignmentId: string;
   workoutPlanId: string;
@@ -98,6 +101,7 @@ export interface WorkoutSessionCompletedEvent {
 }
 
 export interface LeadConvertedEvent {
+  branchId?: string;
   organizationId: string;
   leadId: string;
   memberId: string;
@@ -111,6 +115,7 @@ export interface LeadCreatedEvent {
 }
 
 export interface DietAssignedEvent {
+  branchId?: string;
   organizationId: string;
   dietAssignmentId: string;
   dietPlanId: string;
@@ -119,6 +124,7 @@ export interface DietAssignedEvent {
 }
 
 export interface InventoryLowEvent {
+  branchId?: string;
   organizationId: string;
   productId: string;
   sku: string;
@@ -159,6 +165,7 @@ export interface PtSessionCancelledEvent {
 }
 
 export interface WhatsappReceivedEvent {
+  branchId?: string;
   organizationId: string;
   inboundMessageId: string;
   from: string;
