@@ -146,7 +146,7 @@ export class CustomerEnquiryImportService implements OnModuleInit {
     for (const key of ambiguous) trainerMap.delete(key);
 
     const memberRows = rows.filter(
-      (r) => clean(r['Membership Status']) !== 'Not assigned' && clean(r['Conversion Date']),
+      (r) => clean(r['Membership Status']) !== 'Not assigned',
     );
     const leadRows = rows.filter(
       (r) => clean(r['Membership Status']) === 'Not assigned' && !clean(r['Conversion Date']),
