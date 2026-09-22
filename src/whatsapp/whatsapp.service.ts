@@ -463,7 +463,7 @@ export class WhatsappService {
       const status = s.status ? toMessageStatus[s.status] : undefined;
       if (!s.id || !status) continue;
       await this.prisma.messageLog.updateMany({
-        where: { providerMessageId: s.id },
+        where: { providerMessageId: s.id, organizationId },
         data: {
           status,
           ...(status === 'FAILED'

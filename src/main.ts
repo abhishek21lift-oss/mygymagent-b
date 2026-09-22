@@ -16,11 +16,16 @@ async function bootstrap() {
   // `x-razorpay-signature` is HMAC-SHA256 over the raw body -- parsing
   // then re-serializing would change the bytes and break verification).
   const app = await NestFactory.create(AppModule, {
-    bufferLogs: true,
     rawBody: true,
   });
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
+  const logger = new Logger('Main');
+
+  // Trust the first proxy hop so `req.ip` / throttler see the real client
+  // IP from X-Forwarded-For (Render/Vercel edge → app). Without this, all
+  // proxied auth requests share one rate-limit bucket.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.use(
     helmet({
@@ -35,12 +40,14 @@ async function bootstrap() {
           scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
           imgSrc: ["'self'", 'data:', 'https:'],
           fontSrc: ["'self'", 'https://cdnjs.cloudflare.com'],
-          connectSrc: [
-            "'self'",
-            'https:',
-            'http://localhost:3000',
-            'http://localhost:5173',
-          ],
+          connectSrc: isProduction
+            ? ["'self'", 'https:']
+            : [
+                "'self'",
+                'https:',
+                'http://localhost:3000',
+                'http://localhost:5173',
+              ],
           frameSrc: ["'none'"],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
@@ -71,13 +78,20 @@ async function bootstrap() {
   const fallbackCors = isProduction
     ? 'https://mygymagent-f.vercel.app'
     : 'http://localhost:3000,http://localhost:5173';
+  if (isProduction && !configuredCors) {
+    // Fail fast rather than silently pinning production CORS to a hardcoded
+    // origin that may not match the deployed frontend.
+    throw new Error(
+      'CORS_ORIGIN must be set in production (comma-separated allowed origins).',
+    );
+  }
   const origins = (configuredCors || fallbackCors)
     .split(',')
     .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
 
   if (!configuredCors) {
-    new Logger('Main').warn(
+    logger.warn(
       `CORS_ORIGIN is not configured; using safe fallback: ${origins.join(', ')}`,
     );
   }
@@ -109,7 +123,20 @@ async function bootstrap() {
 
   const port = config.get<number>('PORT', 4000);
   await app.listen(port);
-  console.log(`MyGymAgent API listening on port ${port}`);
+  logger.log(`The Cult Client API listening on port ${port}`);
 }
 
-void bootstrap();
+process.on('unhandledRejection', (reason) => {
+  // Log loudly but let the process keep serving; fail-fast exit would drop
+  // in-flight requests during a transient DB/Redis blip.
+  console.error('[fatal] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException:', err);
+  process.exit(1);
+});
+
+bootstrap().catch((err) => {
+  console.error('[fatal] bootstrap failed:', err);
+  process.exit(1);
+});

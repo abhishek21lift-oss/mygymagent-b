@@ -15,9 +15,14 @@ export class ChurnEngineController {
   @RequirePermissions('reports.view')
   async getMemberChurnAssessment(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
     @Param('memberId', ParseUUIDPipe) memberId: string,
   ) {
-    return this.churnEngine.assessMemberChurn(user.organizationId!, memberId);
+    return this.churnEngine.assessMemberChurn(
+      user.organizationId!,
+      memberId,
+      branchScope ?? undefined,
+    );
   }
 
   @Get('members/at-risk/assessments')

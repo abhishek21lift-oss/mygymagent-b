@@ -200,14 +200,17 @@ describe('Notification centre (e2e)', () => {
     ).expect(404);
   });
 
+  // Preferences are keyed by *category*, not by notification `type`:
+  // MEMBER_CREATED notifications are filed under the MEMBERS category,
+  // so opting out of "members" is what silences them.
   describe('preferences', () => {
     it('upserts a preference, normalizing the category to upper case', async () => {
       const res = await asOwner(
         request(app.getHttpServer())
-          .patch('/notifications/preferences/member_created')
+          .patch('/notifications/preferences/members')
           .send({ inApp: false, email: true }),
       ).expect(200);
-      expect(res.body.data.category).toBe('MEMBER_CREATED');
+      expect(res.body.data.category).toBe('MEMBERS');
       expect(res.body.data.inApp).toBe(false);
       expect(res.body.data.email).toBe(true);
 
@@ -215,7 +218,7 @@ describe('Notification centre (e2e)', () => {
         request(app.getHttpServer()).get('/notifications/preferences'),
       ).expect(200);
       const pref = list.body.data.find(
-        (p: { category: string }) => p.category === 'MEMBER_CREATED',
+        (p: { category: string }) => p.category === 'MEMBERS',
       );
       expect(pref.inApp).toBe(false);
     });
@@ -228,7 +231,7 @@ describe('Notification centre (e2e)', () => {
       for (const value of ['nope', 'false', '0']) {
         await asOwner(
           request(app.getHttpServer())
-            .patch('/notifications/preferences/member_created')
+            .patch('/notifications/preferences/members')
             .send({ inApp: value }),
         ).expect(400);
       }
@@ -238,7 +241,7 @@ describe('Notification centre (e2e)', () => {
         request(app.getHttpServer()).get('/notifications/preferences'),
       ).expect(200);
       const pref = list.body.data.find(
-        (p: { category: string }) => p.category === 'MEMBER_CREATED',
+        (p: { category: string }) => p.category === 'MEMBERS',
       );
       expect(pref.inApp).toBe(false);
     });
@@ -263,7 +266,7 @@ describe('Notification centre (e2e)', () => {
     it('resumes fan-out once the preference is turned back on', async () => {
       await asOwner(
         request(app.getHttpServer())
-          .patch('/notifications/preferences/member_created')
+          .patch('/notifications/preferences/members')
           .send({ inApp: true }),
       ).expect(200);
 

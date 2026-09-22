@@ -141,6 +141,7 @@ export class IntelligenceAnalyticsService {
   async getRiskTrend(
     organizationId: string,
     days: number = 30,
+    branchScope?: string,
   ): Promise<RiskTrendPoint[]> {
     const now = Date.now();
     const startDate = new Date(now - days * 24 * 60 * 60 * 1000);
@@ -149,6 +150,7 @@ export class IntelligenceAnalyticsService {
       where: {
         organizationId,
         computedAt: { gte: startDate },
+        ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
       },
       select: {
         overallScore: true,
@@ -194,15 +196,22 @@ export class IntelligenceAnalyticsService {
 
   async getRevenueAtRisk(
     organizationId: string,
-    _branchScope?: string,
+    branchScope?: string,
   ): Promise<RevenueAtRisk> {
+    const memberFilter = branchScope
+      ? { member: { primaryBranchId: branchScope } }
+      : {};
     const [activeMemberships, riskProfiles] = await Promise.all([
       this.prisma.membership.findMany({
-        where: { organizationId, status: { in: ['ACTIVE', 'PENDING'] } },
+        where: {
+          organizationId,
+          status: { in: ['ACTIVE', 'PENDING'] },
+          ...memberFilter,
+        },
         select: { price: true, memberId: true },
       }),
       this.prisma.memberRiskProfile.findMany({
-        where: { organizationId },
+        where: { organizationId, ...memberFilter },
         select: { memberId: true, riskLevel: true, overallScore: true },
       }),
     ]);

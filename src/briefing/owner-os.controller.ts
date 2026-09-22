@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -16,7 +17,13 @@ export class OwnerOsController {
 
   @Get('briefing')
   @RequirePermissions('reports.view')
-  getBriefing(@CurrentUser() user: AuthenticatedUser) {
-    return this.ownerOs.getBriefing(user.organizationId!);
+  getBriefing(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.ownerOs.getBriefing(
+      user.organizationId!,
+      branchScope ?? undefined,
+    );
   }
 }

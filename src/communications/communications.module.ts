@@ -40,12 +40,14 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     },
     {
       provide: SMS_PROVIDER,
-      useFactory: (config: ConfigService) => new HttpChannelProvider(config, 'SMS'),
+      useFactory: (config: ConfigService) =>
+        new HttpChannelProvider(config, 'SMS'),
       inject: [ConfigService],
     },
     {
       provide: PUSH_PROVIDER,
-      useFactory: (config: ConfigService) => new HttpChannelProvider(config, 'PUSH'),
+      useFactory: (config: ConfigService) =>
+        new HttpChannelProvider(config, 'PUSH'),
       inject: [ConfigService],
     },
   ],

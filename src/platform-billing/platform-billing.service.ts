@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -160,8 +161,11 @@ export class PlatformBillingService {
     }
 
     if (current + requested > limit) {
-      throw new ForbiddenException(
+      // 402 (not 403) so clients can distinguish quota exhaustion from
+      // permission denial; 403 was indistinguishable from RBAC failures.
+      throw new HttpException(
         `Subscription limit reached for ${key}: ${current}/${limit} used; requested ${requested} more.`,
+        402,
       );
     }
   }

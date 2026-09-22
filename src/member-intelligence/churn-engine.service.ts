@@ -46,6 +46,7 @@ export class ChurnEngineService {
   async assessMemberChurn(
     organizationId: string,
     memberId: string,
+    branchScope?: string,
   ): Promise<MemberChurnAssessment | null> {
     const [
       member,
@@ -96,6 +97,8 @@ export class ChurnEngineService {
     ]);
 
     if (!member) return null;
+    // Branch-scoped callers may only assess members in their own branch.
+    if (branchScope && member.primaryBranchId !== branchScope) return null;
 
     const indicators: ChurnIndicatorResult[] = [];
     const now = Date.now();
@@ -299,12 +302,13 @@ export class ChurnEngineService {
 
   async getAtRiskMembersWithAssessment(
     organizationId: string,
-    _branchScope?: string,
+    branchScope?: string,
   ): Promise<MemberChurnAssessment[]> {
     const atRiskProfiles = await this.prisma.memberRiskProfile.findMany({
       where: {
         organizationId,
         riskLevel: { in: ['HIGH', 'CRITICAL'] },
+        ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
       },
       select: { memberId: true },
     });
@@ -315,6 +319,7 @@ export class ChurnEngineService {
       const assessment = await this.assessMemberChurn(
         organizationId,
         profile.memberId,
+        branchScope,
       );
       if (assessment && assessment.isAtRisk) {
         assessments.push(assessment);

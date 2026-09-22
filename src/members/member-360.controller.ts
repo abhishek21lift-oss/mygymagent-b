@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
@@ -6,6 +6,14 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequireAnyPermission } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { Member360Service } from './member-360.service';
+
+function requireMemberId(raw: string | undefined): string {
+  const memberId = raw?.trim();
+  if (!memberId) {
+    throw new BadRequestException('memberId query parameter is required');
+  }
+  return memberId;
+}
 
 /// Member 360 aggregations. NOTE on route registration: these static
 /// sub-paths (`/members/overview`, `/members/timeline`) MUST stay
@@ -21,13 +29,13 @@ export class Member360Controller {
   @RequireAnyPermission('members.read', 'members.read_assigned')
   getOverview(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('memberId') memberId: string,
+    @Query('memberId') memberIdRaw: string | undefined,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.member360.getOverview(
       user.organizationId!,
-      memberId,
+      requireMemberId(memberIdRaw),
       branchScope,
       assignmentScope,
     );
@@ -37,7 +45,7 @@ export class Member360Controller {
   @RequireAnyPermission('members.read', 'members.read_assigned')
   getTimeline(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('memberId') memberId: string,
+    @Query('memberId') memberIdRaw: string | undefined,
     @Query('page') pageRaw?: string,
     @Query('pageSize') pageSizeRaw?: string,
     @CurrentBranchScope() branchScope?: string | null,
@@ -47,7 +55,7 @@ export class Member360Controller {
     const pageSize = pageSizeRaw ? Number(pageSizeRaw) : 50;
     return this.member360.getTimeline(
       user.organizationId!,
-      memberId,
+      requireMemberId(memberIdRaw),
       Number.isFinite(page) ? page : 1,
       Number.isFinite(pageSize) ? pageSize : 50,
       branchScope ?? null,

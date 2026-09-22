@@ -163,10 +163,13 @@ describe('Auth (e2e)', () => {
         .expect(401);
     }
 
+    // Correct password is rejected: the account is locked. The message must
+    // stay identical to a plain password mismatch -- a distinct "locked"
+    // message would be an account-existence oracle for email enumeration.
     const res = await request(app.getHttpServer())
       .post('/auth/login')
-      .send({ email: lockEmail, password }) // correct password, but now locked
+      .send({ email: lockEmail, password })
       .expect(401);
-    expect(res.body.error.message).toMatch(/locked/i);
+    expect(res.body.error.message).toBe('Invalid email or password');
   });
 });

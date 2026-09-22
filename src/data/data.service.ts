@@ -1,7 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Gender } from '@prisma/client';
+import { Gender, MemberStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
+
+const ALLOWED_MEMBER_STATUSES = new Set(['ACTIVE', 'INACTIVE']);
+
+const ALLOWED_GENDERS = new Set(['MALE', 'FEMALE', 'OTHER']);
 
 @Injectable()
 export class DataService {
@@ -61,6 +65,27 @@ export class DataService {
     let created = 0;
     let skipped = 0;
     const errors: Array<{ row: number; message: string }> = [];
+    const defaultBranchId = await this.defaultBranch(org);
+    const existingEmails = new Set(
+      (
+        await this.prisma.member.findMany({
+          where: { organizationId: org, deletedAt: null, email: { not: null } },
+          select: { email: true },
+        })
+      )
+        .map((m) => m.email?.toLowerCase())
+        .filter(Boolean),
+    );
+    const existingPhones = new Set(
+      (
+        await this.prisma.member.findMany({
+          where: { organizationId: org, deletedAt: null, phone: { not: null } },
+          select: { phone: true },
+        })
+      )
+        .map((m) => m.phone)
+        .filter(Boolean),
+    );
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -74,19 +99,36 @@ export class DataService {
 
       try {
         const email = r.email?.trim() || null;
-        const existing = email
-          ? await this.prisma.member.findFirst({
-              where: { organizationId: org, email, deletedAt: null },
-            })
-          : null;
+        const phone = r.phone?.trim() || null;
+        const status = (
+          r.status?.trim() || 'ACTIVE'
+        ).toUpperCase() as MemberStatus;
+        if (!ALLOWED_MEMBER_STATUSES.has(status)) {
+          errors.push({
+            row: i + 1,
+            message: `Invalid status "${r.status}" (expected ACTIVE or INACTIVE)`,
+          });
+          continue;
+        }
+        const genderRaw = r.gender?.trim().toUpperCase() || null;
+        if (genderRaw && !ALLOWED_GENDERS.has(genderRaw)) {
+          errors.push({
+            row: i + 1,
+            message: `Invalid gender "${r.gender}" (expected MALE, FEMALE, or OTHER)`,
+          });
+          continue;
+        }
 
-        if (existing) {
+        const emailKey = email?.toLowerCase() ?? null;
+        const duplicate =
+          (emailKey && existingEmails.has(emailKey)) ||
+          (phone && existingPhones.has(phone));
+        if (duplicate) {
           skipped++;
           continue;
         }
 
-        const fallbackBranchId =
-          r.primaryBranchId?.trim() || (await this.defaultBranch(org));
+        const fallbackBranchId = r.primaryBranchId?.trim() || defaultBranchId;
 
         await this.prisma.member.create({
           data: {
@@ -96,13 +138,15 @@ export class DataService {
             firstName: r.firstName.trim(),
             lastName: r.lastName.trim(),
             email,
-            phone: r.phone?.trim() || null,
+            phone,
             dateOfBirth: r.dateOfBirth ? new Date(r.dateOfBirth) : null,
-            gender: r.gender ? (r.gender.trim().toUpperCase() as Gender) : null,
-            status: (r.status?.trim() || 'ACTIVE') as any,
+            gender: genderRaw as Gender | null,
+            status,
             assignedTrainerId: r.assignedTrainerId?.trim() || null,
           },
         });
+        if (emailKey) existingEmails.add(emailKey);
+        if (phone) existingPhones.add(phone);
         created++;
       } catch (e) {
         errors.push({

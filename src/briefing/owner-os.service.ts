@@ -63,12 +63,20 @@ export class OwnerOsService {
     private readonly aiActions: AiActionsService,
   ) {}
 
-  async getBriefing(organizationId: string): Promise<OwnerOsBriefing> {
+  async getBriefing(
+    organizationId: string,
+    branchScope?: string,
+  ): Promise<OwnerOsBriefing> {
     const now = new Date();
     const startOfToday = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
     const in7Days = new Date(now.getTime() + 7 * MS_PER_DAY);
+    const memberWhere = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
 
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
@@ -89,13 +97,21 @@ export class OwnerOsService {
       pendingAiActions,
     ] = await Promise.all([
       this.prisma.member.count({
-        where: { organizationId, deletedAt: null },
+        where: memberWhere,
       }),
       this.prisma.membership.count({
-        where: { organizationId, status: 'ACTIVE' },
+        where: {
+          organizationId,
+          status: 'ACTIVE',
+          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+        },
       }),
       this.prisma.attendance.count({
-        where: { organizationId, checkInAt: { gte: startOfToday } },
+        where: {
+          organizationId,
+          checkInAt: { gte: startOfToday },
+          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+        },
       }),
       this.prisma.payment.findMany({
         where: {
@@ -103,6 +119,7 @@ export class OwnerOsService {
           currency,
           status: 'COMPLETED',
           createdAt: { gte: startOfToday },
+          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
         select: { amount: true },
       }),
@@ -111,6 +128,11 @@ export class OwnerOsService {
           organizationId,
           payment: { currency },
           createdAt: { gte: startOfToday },
+          ...(branchScope
+            ? {
+                payment: { currency, member: { primaryBranchId: branchScope } },
+              }
+            : {}),
         },
         select: { amount: true },
       }),
@@ -119,10 +141,16 @@ export class OwnerOsService {
           organizationId,
           status: 'ACTIVE',
           endDate: { gte: now, lte: in7Days },
+          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
       this.prisma.membership.findMany({
-        where: { organizationId, status: 'ACTIVE', currency },
+        where: {
+          organizationId,
+          status: 'ACTIVE',
+          currency,
+          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+        },
         select: {
           price: true,
           payments: {
@@ -133,7 +161,10 @@ export class OwnerOsService {
           },
         },
       }),
-      this.memberIntelligence.getAtRiskMembers(organizationId, null),
+      this.memberIntelligence.getAtRiskMembers(
+        organizationId,
+        branchScope ?? null,
+      ),
       this.inventoryIntelligence.getStockForecast(organizationId),
       this.aiActions.countPending(organizationId),
     ]);
