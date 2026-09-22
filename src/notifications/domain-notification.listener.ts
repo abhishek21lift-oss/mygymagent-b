@@ -30,25 +30,6 @@ export class DomainNotificationListener {
     private readonly prisma: PrismaService,
   ) {}
 
-  private base(input: {
-    type: string;
-    category: string;
-    title: string;
-    body: string;
-    actionUrl?: string;
-    branchId?: string | null;
-    actorUserId?: string | null;
-    entityType: string;
-    entityId: string;
-    metadata?: Record<string, unknown>;
-    priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
-  }) {
-    return this.notifications.notifyOrganization(input.metadata?.organizationId as string, {
-      ...input,
-      metadata: input.metadata,
-    });
-  }
-
   private async notify(organizationId: string, input: Omit<Parameters<NotificationsService['notifyOrganization']>[1], 'metadata'> & { metadata?: Record<string, unknown> }) {
     return this.notifications.notifyOrganization(organizationId, input);
   }
