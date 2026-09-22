@@ -16,8 +16,12 @@ export class NotificationsService {
   private decodeCursor(value?: string): NotificationCursor | undefined {
     if (!value) return undefined;
     try {
-      const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<NotificationCursor>;
-      if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') return undefined;
+      const parsed = JSON.parse(
+        Buffer.from(value, 'base64url').toString('utf8'),
+      ) as Partial<NotificationCursor>;
+      if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') {
+        return undefined;
+      }
       const date = new Date(parsed.createdAt);
       if (!Number.isFinite(date.getTime())) return undefined;
       return { createdAt: date.toISOString(), id: parsed.id };
@@ -82,7 +86,10 @@ export class NotificationsService {
     const items = hasMore ? rows.slice(0, safeLimit) : rows;
     const last = items.at(-1);
     const nextCursor = hasMore && last
-      ? this.encodeCursor({ createdAt: last.createdAt.toISOString(), id: last.id })
+      ? this.encodeCursor({
+          createdAt: last.createdAt.toISOString(),
+          id: last.id,
+        })
       : null;
 
     const unreadCount = await this.prisma.notification.count({
