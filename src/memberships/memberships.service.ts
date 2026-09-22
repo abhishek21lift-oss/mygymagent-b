@@ -327,10 +327,14 @@ export class MembershipsService {
   async getAnalyticsSummary(
     organizationId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ): Promise<Record<string, number | string>> {
     const scoped = {
       organizationId,
       ...(branchScope ? { branchId: branchScope } : {}),
+      ...(assignmentScope
+        ? { member: { assignedTrainerId: assignmentScope } }
+        : {}),
     };
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * MS_PER_DAY);
@@ -380,6 +384,7 @@ export class MembershipsService {
     organizationId: string,
     days = 7,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const now = new Date();
     const horizon = new Date(now.getTime() + days * MS_PER_DAY);
@@ -387,6 +392,9 @@ export class MembershipsService {
       where: {
         organizationId,
         ...(branchScope ? { branchId: branchScope } : {}),
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
         status: 'ACTIVE',
         endDate: { gte: now, lte: horizon },
       },
@@ -410,8 +418,17 @@ export class MembershipsService {
     organizationId: string,
     membershipId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    await this.getOne(organizationId, membershipId, branchScope);
+    // getOne already enforces both scopes and 404s outside them, so passing
+    // the assignment scope through is what keeps a trainer from reading the
+    // audit trail of a membership belonging to someone else's client.
+    await this.getOne(
+      organizationId,
+      membershipId,
+      branchScope,
+      assignmentScope,
+    );
     const entries = await this.prisma.auditLog.findMany({
       where: {
         organizationId,

@@ -48,10 +48,12 @@ export class MembershipsController {
   getAnalyticsSummary(
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membershipsService.getAnalyticsSummary(
       user.organizationId!,
       branchScope,
+      assignmentScope,
     );
   }
 
@@ -61,12 +63,14 @@ export class MembershipsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') daysRaw?: string,
     @CurrentBranchScope() branchScope?: string | null,
+    @CurrentAssignmentScope() assignmentScope?: string | null,
   ) {
     const days = daysRaw ? Number(daysRaw) : 7;
     return this.membershipsService.getRenewalReminders(
       user.organizationId!,
       Number.isFinite(days) && days > 0 ? Math.min(days, 90) : 7,
       branchScope ?? null,
+      assignmentScope ?? null,
     );
   }
 
@@ -76,11 +80,13 @@ export class MembershipsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.membershipsService.getHistory(
       user.organizationId!,
       id,
       branchScope,
+      assignmentScope,
     );
   }
 

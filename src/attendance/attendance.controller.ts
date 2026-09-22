@@ -50,8 +50,13 @@ export class AttendanceController {
   live(
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.attendanceService.live(user.organizationId!, branchScope);
+    return this.attendanceService.live(
+      user.organizationId!,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   /**
@@ -69,10 +74,12 @@ export class AttendanceController {
   qrToken(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.attendanceService.getOrRotateQrToken(
       user.organizationId!,
       memberId,
+      assignmentScope,
     );
   }
 

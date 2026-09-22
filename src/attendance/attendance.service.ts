@@ -274,9 +274,19 @@ export class AttendanceService {
   async getOrRotateQrToken(
     organizationId: string,
     memberId: string,
+    assignmentScope: string | null = null,
   ): Promise<{ token: string; rotatesAt: string; memberId: string }> {
+    // This mints a working entry credential, so it must respect assignment
+    // scope like any other member-addressed route: an assignment-scoped
+    // caller asking for a member who isn't theirs gets the same "not found"
+    // as if the member were in another org, never a usable token.
     const member = await this.prisma.member.findFirst({
-      where: { id: memberId, organizationId, deletedAt: null },
+      where: {
+        id: memberId,
+        organizationId,
+        deletedAt: null,
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      },
       select: { id: true },
     });
     if (!member) throw new NotFoundException('Member not found');
@@ -406,7 +416,11 @@ export class AttendanceService {
    * check-out, allowed rows only) plus today's denied attempts. Branch
    * scope folds into both lists the same way `list()` does.
    */
-  async live(organizationId: string, branchScope: string | null = null) {
+  async live(
+    organizationId: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
     const now = new Date();
     const startOfToday = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -414,6 +428,9 @@ export class AttendanceService {
     const scope = {
       organizationId,
       ...(branchScope ? { branchId: branchScope } : {}),
+      ...(assignmentScope
+        ? { member: { assignedTrainerId: assignmentScope } }
+        : {}),
     };
     const [inside, denied] = await Promise.all([
       this.prisma.attendance.findMany({
