@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
@@ -13,18 +13,34 @@ export class NotificationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('unreadOnly') unreadOnly?: string,
     @Query('limit') rawLimit?: string,
+    @Query('type') type?: string,
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
   ) {
+    if (unreadOnly && unreadOnly !== 'true' && unreadOnly !== 'false') {
+      throw new BadRequestException('unreadOnly must be true or false');
+    }
+    const parsedLimit = Number.parseInt(rawLimit ?? '50', 10);
+    const limit = Number.isFinite(parsedLimit) ? parsedLimit : 50;
     return this.notifications.list(
       user.id,
       user.organizationId!,
       unreadOnly === 'true',
-      Number.parseInt(rawLimit ?? '50', 10) || 50,
+      limit,
+      type,
+      search,
+      cursor,
     );
   }
 
   @Patch(':id/read')
   markRead(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.notifications.markRead(user.id, user.organizationId!, id);
+  }
+
+  @Patch(':id/unread')
+  markUnread(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.notifications.markUnread(user.id, user.organizationId!, id);
   }
 
   @Patch('read-all')
