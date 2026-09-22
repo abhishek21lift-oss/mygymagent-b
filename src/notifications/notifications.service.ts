@@ -19,7 +19,10 @@ export class NotificationsService {
       const parsed = JSON.parse(
         Buffer.from(value, 'base64url').toString('utf8'),
       ) as Partial<NotificationCursor>;
-      if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') {
+      if (
+        typeof parsed.createdAt !== 'string' ||
+        typeof parsed.id !== 'string'
+      ) {
         return undefined;
       }
       const date = new Date(parsed.createdAt);
@@ -85,12 +88,13 @@ export class NotificationsService {
     const hasMore = rows.length > safeLimit;
     const items = hasMore ? rows.slice(0, safeLimit) : rows;
     const last = items.at(-1);
-    const nextCursor = hasMore && last
-      ? this.encodeCursor({
-          createdAt: last.createdAt.toISOString(),
-          id: last.id,
-        })
-      : null;
+    const nextCursor =
+      hasMore && last
+        ? this.encodeCursor({
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          })
+        : null;
 
     const unreadCount = await this.prisma.notification.count({
       where: { organizationId, userId, readAt: null },
