@@ -105,7 +105,6 @@ model Organization {
   inventoryPurchaseOrders InventoryPurchaseOrder[]
   inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferOrg")
   inventorySales          InventorySale[]
-  notifications            Notification[]
   aiUsageLogs             AiUsageLog[]
   memberAddresses         MemberAddress[]
   memberEmergencyContacts MemberEmergencyContact[]
@@ -220,7 +219,6 @@ model Branch {
   inventoryTransfersFrom  InventoryTransfer[] @relation("InventoryTransferFromBranch")
   inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
   inventorySales          InventorySale[]
-  notifications            Notification[]
   notifications            Notification[]
 
   @@unique([organizationId, slug])
