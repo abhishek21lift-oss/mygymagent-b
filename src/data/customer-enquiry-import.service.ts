@@ -83,13 +83,12 @@ export class CustomerEnquiryImportService implements OnModuleInit {
   async onModuleInit() {
     const enabled = process.env.CUSTOMER_ENQUIRY_IMPORT_ENABLED === 'true';
     const basePayload = process.env.CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64;
-    const payloadParts = basePayload
-      ? [basePayload]
-      : Object.keys(process.env)
-          .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_\d+$/.test(key))
-          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-          .map((key) => process.env[key])
-          .filter((value): value is string => Boolean(value));
+    const chunkPayloads = Object.keys(process.env)
+      .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_\d+$/.test(key))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((key) => process.env[key])
+      .filter((value): value is string => Boolean(value));
+    const payloadParts = chunkPayloads.length ? chunkPayloads : basePayload ? [basePayload] : [];
     const payload = payloadParts.join('');
     if (!enabled || !payload) return;
 
