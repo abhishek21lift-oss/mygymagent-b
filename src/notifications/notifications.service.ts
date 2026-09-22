@@ -1,5 +1,9 @@
 /* eslint-disable prettier/prettier */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
@@ -35,10 +39,15 @@ export class NotificationsService {
   private decodeCursor(value?: string): NotificationCursor | undefined {
     if (!value) return undefined;
     try {
-      const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<NotificationCursor>;
-      if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') return undefined;
+      const parsed = JSON.parse(
+        Buffer.from(value, 'base64url').toString('utf8'),
+      ) as Partial<NotificationCursor>;
+      if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string')
+        return undefined;
       const date = new Date(parsed.createdAt);
-      return Number.isFinite(date.getTime()) ? { createdAt: date.toISOString(), id: parsed.id } : undefined;
+      return Number.isFinite(date.getTime())
+        ? { createdAt: date.toISOString(), id: parsed.id }
+        : undefined;
     } catch {
       return undefined;
     }
@@ -79,20 +88,34 @@ export class NotificationsService {
       ...(normalizedCategory ? { category: normalizedCategory } : {}),
       ...(normalizedPriority ? { priority: normalizedPriority } : {}),
       ...(normalizedSearch
-        ? { OR: [
-            { title: { contains: normalizedSearch, mode: 'insensitive' } },
-            { body: { contains: normalizedSearch, mode: 'insensitive' } },
-            { entityType: { contains: normalizedSearch, mode: 'insensitive' } },
-            { entityId: { contains: normalizedSearch, mode: 'insensitive' } },
-          ] }
+        ? {
+            OR: [
+              { title: { contains: normalizedSearch, mode: 'insensitive' } },
+              { body: { contains: normalizedSearch, mode: 'insensitive' } },
+              {
+                entityType: { contains: normalizedSearch, mode: 'insensitive' },
+              },
+              { entityId: { contains: normalizedSearch, mode: 'insensitive' } },
+            ],
+          }
         : {}),
     };
 
     const cursorWhere = decodedCursor
-      ? { AND: [where, { OR: [
-          { createdAt: { lt: new Date(decodedCursor.createdAt) } },
-          { createdAt: new Date(decodedCursor.createdAt), id: { lt: decodedCursor.id } },
-        ] }] }
+      ? {
+          AND: [
+            where,
+            {
+              OR: [
+                { createdAt: { lt: new Date(decodedCursor.createdAt) } },
+                {
+                  createdAt: new Date(decodedCursor.createdAt),
+                  id: { lt: decodedCursor.id },
+                },
+              ],
+            },
+          ],
+        }
       : where;
 
     const rows = await this.prisma.notification.findMany({
@@ -103,9 +126,13 @@ export class NotificationsService {
     const hasMore = rows.length > safeLimit;
     const items = hasMore ? rows.slice(0, safeLimit) : rows;
     const last = items.at(-1);
-    const nextCursor = hasMore && last
-      ? this.encodeCursor({ createdAt: last.createdAt.toISOString(), id: last.id })
-      : null;
+    const nextCursor =
+      hasMore && last
+        ? this.encodeCursor({
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          })
+        : null;
 
     const unreadCount = await this.prisma.notification.count({
       where: { organizationId, userId, ...this.activeWhere(), readAt: null },
@@ -114,16 +141,28 @@ export class NotificationsService {
   }
 
   async markRead(userId: string, organizationId: string, id: string) {
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true, readAt: true } });
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true, readAt: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
     if (existing.readAt) return existing;
-    return this.prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
+    return this.prisma.notification.update({
+      where: { id },
+      data: { readAt: new Date() },
+    });
   }
 
   async markUnread(userId: string, organizationId: string, id: string) {
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true, readAt: true } });
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true, readAt: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
-    return this.prisma.notification.update({ where: { id }, data: { readAt: null } });
+    return this.prisma.notification.update({
+      where: { id },
+      data: { readAt: null },
+    });
   }
 
   async markAllRead(userId: string, organizationId: string) {
@@ -135,40 +174,82 @@ export class NotificationsService {
   }
 
   async archive(userId: string, organizationId: string, id: string) {
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true } });
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
-    return this.prisma.notification.update({ where: { id }, data: { archivedAt: new Date() } });
+    return this.prisma.notification.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+    });
   }
 
   async unarchive(userId: string, organizationId: string, id: string) {
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true } });
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
-    return this.prisma.notification.update({ where: { id }, data: { archivedAt: null } });
+    return this.prisma.notification.update({
+      where: { id },
+      data: { archivedAt: null },
+    });
   }
 
-  async snooze(userId: string, organizationId: string, id: string, until: Date) {
-    if (!Number.isFinite(until.getTime()) || until <= new Date()) throw new NotFoundException('Snooze time must be in the future');
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true } });
+  async snooze(
+    userId: string,
+    organizationId: string,
+    id: string,
+    until: Date,
+  ) {
+    if (!Number.isFinite(until.getTime()) || until <= new Date())
+      throw new BadRequestException('Snooze time must be in the future');
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
-    return this.prisma.notification.update({ where: { id }, data: { snoozedUntil: until } });
+    return this.prisma.notification.update({
+      where: { id },
+      data: { snoozedUntil: until },
+    });
   }
 
   async delete(userId: string, organizationId: string, id: string) {
-    const existing = await this.prisma.notification.findFirst({ where: { id, organizationId, userId }, select: { id: true } });
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true },
+    });
     if (!existing) throw new NotFoundException('Notification not found');
     await this.prisma.notification.delete({ where: { id } });
     return { deleted: true };
   }
 
   async getPreferences(userId: string, organizationId: string) {
-    return this.prisma.notificationPreference.findMany({ where: { organizationId, userId }, orderBy: { category: 'asc' } });
+    return this.prisma.notificationPreference.findMany({
+      where: { organizationId, userId },
+      orderBy: { category: 'asc' },
+    });
   }
 
-  async updatePreferences(userId: string, organizationId: string, category: string, dto: UpdateNotificationPreferencesDto) {
+  async updatePreferences(
+    userId: string,
+    organizationId: string,
+    category: string,
+    dto: UpdateNotificationPreferencesDto,
+  ) {
     const normalizedCategory = category.trim().toUpperCase();
-    if (!normalizedCategory) throw new NotFoundException('Notification category is required');
+    if (!normalizedCategory)
+      throw new NotFoundException('Notification category is required');
     return this.prisma.notificationPreference.upsert({
-      where: { organizationId_userId_category: { organizationId, userId, category: normalizedCategory } },
+      where: {
+        organizationId_userId_category: {
+          organizationId,
+          userId,
+          category: normalizedCategory,
+        },
+      },
       create: { organizationId, userId, category: normalizedCategory, ...dto },
       update: { ...dto },
     });
@@ -177,22 +258,28 @@ export class NotificationsService {
   async notifyOrganization(organizationId: string, input: NotificationInput) {
     const recipientIds = input.recipientUserIds?.length
       ? [...new Set(input.recipientUserIds)]
-      : (await this.prisma.user.findMany({
-          where: {
-            organizationId,
-            deletedAt: null,
-            status: 'ACTIVE',
-            ...(input.branchId ? {
-              OR: [
-                { primaryBranchId: input.branchId },
-                { staffProfile: { branchId: input.branchId } },
-                { userRoles: { some: { branchId: input.branchId } } },
-                { userRoles: { some: { organizationId, branchId: null } } },
-              ],
-            } : {}),
-          },
-          select: { id: true },
-        })).map((user) => user.id);
+      : (
+          await this.prisma.user.findMany({
+            where: {
+              organizationId,
+              deletedAt: null,
+              status: 'ACTIVE',
+              ...(input.branchId
+                ? {
+                    OR: [
+                      { primaryBranchId: input.branchId },
+                      { staffProfile: { branchId: input.branchId } },
+                      { userRoles: { some: { branchId: input.branchId } } },
+                      {
+                        userRoles: { some: { organizationId, branchId: null } },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            select: { id: true },
+          })
+        ).map((user) => user.id);
 
     if (!recipientIds.length) return { created: 0 };
 
@@ -201,11 +288,21 @@ export class NotificationsService {
       where: { organizationId, userId: { in: recipientIds }, category },
       select: { userId: true, inApp: true },
     });
-    const optedOut = new Set(preferences.filter((p) => !p.inApp).map((p) => p.userId));
+    const optedOut = new Set(
+      preferences.filter((p) => !p.inApp).map((p) => p.userId),
+    );
     const recipients = recipientIds.filter((id) => !optedOut.has(id));
     if (!recipients.length) return { created: 0 };
 
-    const dedupeKey = input.dedupeKey ?? (input.entityId ? `${input.type}:${input.entityId}` : undefined);
+    // Time-bucket the default dedupe key so recurring events (low stock,
+    // restarted memberships) can notify again on a later day instead of
+    // being permanently suppressed by the unique constraint.
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    const dedupeKey =
+      input.dedupeKey ??
+      (input.entityId
+        ? `${input.type}:${input.entityId}:${dayBucket}`
+        : undefined);
     const data = recipients.map((userId) => ({
       organizationId,
       userId,
@@ -224,15 +321,24 @@ export class NotificationsService {
       metadata: input.metadata as Prisma.InputJsonValue,
       expiresAt: input.expiresAt,
     }));
-    const result = await this.prisma.notification.createMany({ data, skipDuplicates: true });
+    const result = await this.prisma.notification.createMany({
+      data,
+      skipDuplicates: true,
+    });
     return { created: result.count };
   }
 
-  async createInApp(input: NotificationInput & { organizationId: string; userId: string }) {
+  async createInApp(
+    input: NotificationInput & { organizationId: string; userId: string },
+  ) {
     const preference = await this.prisma.notificationPreference.findUnique({
-      where: { organizationId_userId_category: {
-        organizationId: input.organizationId, userId: input.userId, category: (input.category ?? input.type).toUpperCase(),
-      } },
+      where: {
+        organizationId_userId_category: {
+          organizationId: input.organizationId,
+          userId: input.userId,
+          category: (input.category ?? input.type).toUpperCase(),
+        },
+      },
       select: { inApp: true },
     });
     if (preference?.inApp === false) return null;

@@ -497,10 +497,16 @@ export class ToolExecutorService {
     { organizationId, userId, requestedBranchId }: ToolCallContext,
   ) {
     validateToolArgs(EmptyArgsDto, rawArgs);
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'reports.view',
-    ]);
-    return this.ownerOsService.getBriefing(organizationId);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.ownerOsService.getBriefing(
+      organizationId,
+      branchScope ?? undefined,
+    );
   }
 
   private async createMemberFollowup(

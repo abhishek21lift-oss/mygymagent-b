@@ -124,12 +124,16 @@ export class GlobalAiCommandService {
       }
 
       // Log the successful interaction
-      await this.logCommandInteraction(request, {
-        type: isActionable ? 'approval_required' : 'response',
-        content: `Successfully executed ${toolName}`,
-        data: result,
-        requiresApproval: isActionable,
-      }, toolName);
+      await this.logCommandInteraction(
+        request,
+        {
+          type: isActionable ? 'approval_required' : 'response',
+          content: `Successfully executed ${toolName}`,
+          data: result,
+          requiresApproval: isActionable,
+        },
+        toolName,
+      );
 
       // Return appropriate response
       if (isActionable) {
@@ -161,9 +165,17 @@ export class GlobalAiCommandService {
         content: `Failed to process command: ${error.message}`,
       });
 
+      // Never echo raw internal error messages (may contain SQL/provider
+      // details) back to the API client.
+      const isSafeClientError =
+        error instanceof Error &&
+        (error.message.startsWith('To ') ||
+          error.message.startsWith("I couldn't"));
       return {
         type: 'error',
-        content: `I encountered an error while processing your request: ${error.message}`,
+        content: isSafeClientError
+          ? error.message
+          : 'I encountered an error while processing your request. Please try again.',
       };
     }
   }
@@ -378,7 +390,11 @@ export class GlobalAiCommandService {
    */
   private async recordCommandLog(
     request: GlobalCommandRequest,
-    input: { type: GlobalCommandResponse['type']; toolName?: string; success: boolean },
+    input: {
+      type: GlobalCommandResponse['type'];
+      toolName?: string;
+      success: boolean;
+    },
   ): Promise<void> {
     await this.prisma.$executeRawUnsafe(
       'INSERT INTO ai_command_logs(organization_id,user_id,command,response_type,tool_name,success) VALUES($1,$2,$3,$4,$5,$6)',
@@ -408,16 +424,22 @@ export class GlobalAiCommandService {
       this.logger.error(`Failed to persist AI command log: ${error.message}`);
     });
 
-    void this.audit.record({
-      organizationId: request.organizationId,
-      actorUserId: request.userId,
-      action: 'AI_GLOBAL_COMMAND_RESULT',
-      resource: 'ai_command',
-      afterState: {
-        command: request.command,
-        type: response.type,
-        tool: toolName ?? response.suggestedTools?.[0],
-      },
-    });
+    void this.audit
+      .record({
+        organizationId: request.organizationId,
+        actorUserId: request.userId,
+        action: 'AI_GLOBAL_COMMAND_RESULT',
+        resource: 'ai_command',
+        afterState: {
+          command: request.command,
+          type: response.type,
+          tool: toolName ?? response.suggestedTools?.[0],
+        },
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Failed to persist AI command audit: ${error.message}`,
+        );
+      });
   }
 }

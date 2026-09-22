@@ -42,9 +42,11 @@ export class QueueConnection implements OnApplicationShutdown {
         maxRetriesPerRequest: null,
         lazyConnect: true,
         retryStrategy: (times: number) => {
-          if (this.isShuttingDown || times > 3) {
+          if (this.isShuttingDown) {
             return null;
           }
+          // Reconnect indefinitely with capped backoff while the app is
+          // running -- a brief Redis blip must not permanently kill queues.
           return Math.min(times * 100, 1000);
         },
       },

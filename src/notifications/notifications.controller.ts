@@ -30,8 +30,10 @@ export class NotificationsController {
     @Query('cursor') cursor?: string,
     @Query('includeArchived') includeArchived?: string,
   ) {
-    if (unreadOnly && !['true', 'false'].includes(unreadOnly)) throw new BadRequestException('unreadOnly must be true or false');
-    if (includeArchived && !['true', 'false'].includes(includeArchived)) throw new BadRequestException('includeArchived must be true or false');
+    if (unreadOnly && !['true', 'false'].includes(unreadOnly))
+      throw new BadRequestException('unreadOnly must be true or false');
+    if (includeArchived && !['true', 'false'].includes(includeArchived))
+      throw new BadRequestException('includeArchived must be true or false');
     const parsedLimit = Number.parseInt(rawLimit ?? '50', 10);
     const limit = Number.isFinite(parsedLimit) ? parsedLimit : 50;
     return this.notifications.list(
@@ -69,9 +71,14 @@ export class NotificationsController {
   }
 
   @Patch(':id/snooze')
-  snooze(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { until?: string }) {
+  snooze(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { until?: string },
+  ) {
     const until = new Date(body.until ?? '');
-    if (!Number.isFinite(until.getTime())) throw new BadRequestException('until must be a valid ISO date');
+    if (!Number.isFinite(until.getTime()))
+      throw new BadRequestException('until must be a valid ISO date');
     return this.notifications.snooze(user.id, user.organizationId!, id, until);
   }
 
@@ -96,6 +103,11 @@ export class NotificationsController {
     @Param('category') category: string,
     @Body() dto: UpdateNotificationPreferencesDto,
   ) {
-    return this.notifications.updatePreferences(user.id, user.organizationId!, category, dto);
+    return this.notifications.updatePreferences(
+      user.id,
+      user.organizationId!,
+      category,
+      dto,
+    );
   }
 }

@@ -119,6 +119,10 @@ export class TokensService {
       });
       if (!record || record.expiresAt < now) return null;
       if (record.revokedAt) {
+        // No grace window: ANY presentation of a rotated-out token is a
+        // compromise signal. A grace period would let an attacker who raced
+        // the legitimate holder keep their stolen successor session alive.
+        // Multi-tab races are handled client-side by single-flight refresh.
         await tx.refreshToken.updateMany({
           where: { userId: record.userId, revokedAt: null },
           data: { revokedAt: now },

@@ -2,6 +2,7 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  Logger,
   NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -32,6 +33,8 @@ function sanitize(value: unknown): unknown {
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name);
+
   constructor(
     private readonly reflector: Reflector,
     private readonly auditService: AuditService,
@@ -57,23 +60,33 @@ export class AuditInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap((response) => {
-        void this.auditService.record({
-          organizationId: user?.organizationId ?? null,
-          branchId: branchId ?? null,
-          actorUserId: user?.id ?? null,
-          action: options.action,
-          resource: options.resource,
-          resourceId:
-            (Array.isArray(request.params?.id)
-              ? request.params.id[0]
-              : request.params?.id) ??
-            (response as { id?: string })?.id ??
-            null,
-          afterState: sanitize(response),
-          ipAddress: request.ip,
-          userAgent,
-          requestId: request.requestId,
-        });
+        this.auditService
+          .record({
+            organizationId: user?.organizationId ?? null,
+            branchId: branchId ?? null,
+            actorUserId: user?.id ?? null,
+            action: options.action,
+            resource: options.resource,
+            resourceId:
+              (Array.isArray(request.params?.id)
+                ? request.params.id[0]
+                : request.params?.id) ??
+              (response as { id?: string })?.id ??
+              null,
+            afterState: sanitize(response),
+            ipAddress: request.ip,
+            userAgent,
+            requestId: request.requestId,
+          })
+          .catch((err: unknown) => {
+            // Audit writes must never crash the request or become an
+            // unhandled rejection (Node 22 crashes the process on those).
+            this.logger.warn(
+              `Audit record failed for ${options.action}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
       }),
     );
   }

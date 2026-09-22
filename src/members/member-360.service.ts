@@ -106,18 +106,22 @@ export class Member360Service {
         where: { organizationId, memberId },
         orderBy: { checkInAt: 'desc' },
         select: { checkInAt: true },
+        take: 365,
       }),
       this.prisma.payment.findMany({
         where: { organizationId, memberId, status: 'COMPLETED' },
         select: { id: true, amount: true, membershipId: true },
+        take: 200,
       }),
       this.prisma.refund.findMany({
         where: { organizationId, payment: { memberId } },
         select: { amount: true, paymentId: true },
+        take: 100,
       }),
       this.prisma.ptSession.findMany({
         where: { organizationId, memberId },
         select: { status: true, startTime: true, price: true },
+        take: 200,
       }),
       this.prisma.memberMeasurement.findFirst({
         where: { organizationId, memberId },
@@ -377,12 +381,16 @@ export class Member360Service {
     ] = await Promise.all([
       this.prisma.memberStatusHistory.findMany({
         where: { organizationId, memberId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
         include: {
           changedByUser: { select: { firstName: true, lastName: true } },
         },
       }),
       this.prisma.memberBranchHistory.findMany({
         where: { organizationId, memberId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
         include: {
           toBranch: { select: { name: true } },
           changedByUser: { select: { firstName: true, lastName: true } },
@@ -390,6 +398,8 @@ export class Member360Service {
       }),
       this.prisma.memberTrainerHistory.findMany({
         where: { organizationId, memberId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
         include: {
           toTrainer: { select: { firstName: true, lastName: true } },
           changedByUser: { select: { firstName: true, lastName: true } },
@@ -397,15 +407,19 @@ export class Member360Service {
       }),
       this.prisma.membership.findMany({
         where: { organizationId, memberId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
         include: { membershipPlan: { select: { name: true } } },
       }),
       this.prisma.attendance.findMany({
         where: { organizationId, memberId },
         orderBy: { checkInAt: 'desc' },
+        take: 200,
       }),
       this.prisma.payment.findMany({
         where: { organizationId, memberId },
         orderBy: { createdAt: 'desc' },
+        take: 100,
       }),
       this.prisma.refund.findMany({
         where: { organizationId, payment: { memberId } },
@@ -415,10 +429,12 @@ export class Member360Service {
       this.prisma.ptSession.findMany({
         where: { organizationId, memberId },
         orderBy: { startTime: 'desc' },
+        take: 100,
       }),
       this.prisma.memberAssessment.findMany({
         where: { organizationId, memberId },
         orderBy: { conductedAt: 'desc' },
+        take: 50,
         include: {
           conductedByUser: { select: { firstName: true, lastName: true } },
         },
@@ -426,6 +442,7 @@ export class Member360Service {
       this.prisma.memberMeasurement.findMany({
         where: { organizationId, memberId },
         orderBy: { recordedAt: 'desc' },
+        take: 50,
       }),
       this.prisma.memberFitnessTestResult.findMany({
         where: { organizationId, memberId },
@@ -435,10 +452,12 @@ export class Member360Service {
       this.prisma.memberScreening.findMany({
         where: { organizationId, memberId },
         orderBy: { completedAt: 'desc' },
+        take: 20,
       }),
       this.prisma.memberGoal.findMany({
         where: { organizationId, memberId },
         orderBy: { createdAt: 'desc' },
+        take: 50,
       }),
       this.prisma.memberDocument.findMany({
         where: { organizationId, memberId },

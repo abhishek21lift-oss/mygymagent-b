@@ -180,9 +180,9 @@ export class AuthService {
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw new UnauthorizedException(
-        'Account temporarily locked due to repeated failed login attempts',
-      );
+      // Same message as password mismatch: a distinct lockout message is an
+      // account-existence oracle for attackers enumerating emails.
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     const passwordValid = await argon2.verify(user.passwordHash, dto.password);

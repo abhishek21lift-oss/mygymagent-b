@@ -40,7 +40,7 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     key: 'staff_invite',
     channel: 'EMAIL',
     subject: "You've been invited to {{organizationName}}",
-    body: "Hi {{firstName}},\n\nYou've been invited to join {{organizationName}} on MyGymAgent. Set your password using the link below. This link expires in 7 days.\n\n{{resetUrl}}",
+    body: "Hi {{firstName}},\n\nYou've been invited to join {{organizationName}} on THE CULT CLIENT. Set your password using the link below. This link expires in 7 days.\n\n{{resetUrl}}",
   },
   {
     key: 'membership_renewal_reminder',
@@ -134,7 +134,7 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     channel: 'EMAIL',
     subject:
       'Your PT package "{{packageName}}" expires in {{daysUntilExpiry}} day(s)',
-    body: 'Hi {{firstName}},\n\nYour PT package "{{packageName}}" has {{remainingSessions}} session(s) remaining and expires on {{expiryDate}} (in {{daysUntilExpiry}} day(s)).\n\nPlease book your remaining sessions before the package expires to avoid losing them.\n\n---\nMyGymAgent',
+    body: 'Hi {{firstName}},\n\nYour PT package "{{packageName}}" has {{remainingSessions}} session(s) remaining and expires on {{expiryDate}} (in {{daysUntilExpiry}} day(s)).\n\nPlease book your remaining sessions before the package expires to avoid losing them.\n\n---\nTHE CULT CLIENT',
   },
   {
     key: 'lead.first_touch',

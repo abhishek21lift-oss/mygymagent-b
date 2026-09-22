@@ -27,12 +27,14 @@ export class IntelligenceAnalyticsController {
   @RequirePermissions('reports.view')
   async getRiskTrend(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
     @Query('days') days: string = '30',
   ) {
     const daysNum = parseInt(days, 10);
     return this.analytics.getRiskTrend(
       user.organizationId!,
       isNaN(daysNum) ? 30 : daysNum,
+      branchScope ?? undefined,
     );
   }
 
