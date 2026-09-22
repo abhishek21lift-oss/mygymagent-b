@@ -221,6 +221,7 @@ model Branch {
   inventoryTransfersTo    InventoryTransfer[] @relation("InventoryTransferToBranch")
   inventorySales          InventorySale[]
   notifications            Notification[]
+  notifications            Notification[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
