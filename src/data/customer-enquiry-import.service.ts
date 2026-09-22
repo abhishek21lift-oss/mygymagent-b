@@ -84,7 +84,7 @@ export class CustomerEnquiryImportService implements OnModuleInit {
     const enabled = process.env.CUSTOMER_ENQUIRY_IMPORT_ENABLED === 'true';
     const basePayload = process.env.CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64;
     const chunkPayloads = Object.keys(process.env)
-      .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_\d+$/.test(key))
+      .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_[1-6]$/.test(key))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
       .map((key) => process.env[key])
       .filter((value): value is string => Boolean(value));
