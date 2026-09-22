@@ -82,11 +82,14 @@ export class CustomerEnquiryImportService implements OnModuleInit {
 
   async onModuleInit() {
     const enabled = process.env.CUSTOMER_ENQUIRY_IMPORT_ENABLED === 'true';
-    const payloadParts = Object.keys(process.env)
-      .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64(?:_\d+)?$/.test(key))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-      .map((key) => process.env[key])
-      .filter((value): value is string => Boolean(value));
+    const basePayload = process.env.CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64;
+    const payloadParts = basePayload
+      ? [basePayload]
+      : Object.keys(process.env)
+          .filter((key) => /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_\d+$/.test(key))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          .map((key) => process.env[key])
+          .filter((value): value is string => Boolean(value));
     const payload = payloadParts.join('');
     if (!enabled || !payload) return;
 
@@ -100,9 +103,36 @@ export class CustomerEnquiryImportService implements OnModuleInit {
   }
 
   private async run(encoded: string) {
-    const rows = JSON.parse(
+    const parsed = JSON.parse(
       gunzipSync(Buffer.from(encoded, 'base64')).toString('utf8'),
-    ) as SourceRow[];
+    ) as SourceRow[] | string[][];
+    const compactHeaders = [
+      'Code',
+      'Name',
+      'Number',
+      'Email',
+      'Gender',
+      'Date of Enquiry',
+      'Conversion Date',
+      'Handled By',
+      'Notes',
+      'Lead Type',
+      'Source of Promo',
+      'Employment Type',
+      'App Installed',
+      'Assigned Trainer',
+      'Membership Status',
+      'DOB',
+      'Address',
+      'Emergency Contact No',
+      'WhatsApp Numbers',
+      'Reference No',
+    ];
+    const rows = Array.isArray(parsed) && Array.isArray(parsed[0])
+      ? (parsed as string[][]).map((values) =>
+          Object.fromEntries(compactHeaders.map((header, index) => [header, values[index] ?? null])),
+        ) as SourceRow[]
+      : (parsed as SourceRow[]);
 
     if (!Array.isArray(rows) || rows.length !== 1342) {
       throw new Error(`Expected 1342 source rows, received ${rows?.length ?? 0}`);
