@@ -65,6 +65,7 @@ export interface PaymentRecordedEvent {
 
 export interface PaymentRefundedEvent {
   organizationId: string;
+  branchId?: string;
   paymentId: string;
   refundId: string;
   memberId: string;
