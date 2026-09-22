@@ -1,4 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+} from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
