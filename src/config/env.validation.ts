@@ -96,6 +96,12 @@ export const envSchema = z
     WHATSAPP_TOKEN_KEY: z.string().optional(),
     META_WABA_VERIFY_TOKEN: z.string().optional(),
 
+    // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
+    // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a
+    // deployment that hasn't turned on 2FA still starts; the enrolment
+    // endpoints answer 503 until it is set. Generate: `openssl rand -hex 32`.
+    MFA_TOTP_KEY: z.string().optional(),
+
     // Stripe webhooks (src/payments/stripe-webhook.controller.ts) -- optional
     // at boot. Unset means POST /payments/webhook returns a clear 500 naming
     // the missing secret instead of the app failing to boot over a missing

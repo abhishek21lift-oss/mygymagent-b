@@ -548,3 +548,64 @@ re-implementation of their queries. `DailyBriefingController`/`DailyBriefingServ
 model of their own beyond what `Promise.all` composes at request time -- there is nothing here to
 keep in sync with schema changes in the underlying domains beyond what those domains' own services
 already handle.
+
+---
+
+## AI-19: TOTP second factor is opt-in per user, with the challenge carried by a non-`access` JWT
+
+**Context:** B-P0-4 -- the platform handles payment and accounting data but had no second
+factor anywhere. Adding one raises four decisions that are easy to get subtly wrong, so they are
+recorded here rather than left implicit in the code.
+
+**Decision 1 -- the challenge is a short-lived JWT typed `mfa`, not an `access` token.** When a
+password check succeeds but a factor is still owed, `login` returns `{mfaRequired, mfaToken}` and
+issues no session and no refresh cookie. The token's payload is `{sub, type:'mfa'}`, and
+`JwtStrategy.validate()` already rejects any payload whose `type` is not `access` -- so the
+challenge token cannot be presented as a bearer credential. That single pre-existing line is what
+makes this design safe, so `test/auth-mfa.e2e-spec.ts` pins it with a test that tries exactly that
+bypass. The token is deliberately *not* stored server-side: on its own it authorizes nothing, and
+the code it must be paired with is itself replay-protected.
+
+**Decision 2 -- the accepted TOTP step is recorded, so a code cannot be replayed.** A code stays
+valid for its whole 30-second step (plus a +/-1 drift window). Without a marker, a code observed
+in transit is replayable for the remainder of that window. `UserMfa.lastUsedStep` stores the
+absolute step that was accepted and anything at or below it is refused. A real consequence worth
+knowing: two *successful* verifications genuinely cannot happen inside one 30s window -- that is
+the guard working, and the e2e suite documents it rather than weakening the window to dodge it.
+
+**Decision 3 -- failed codes share the password lockout budget.** `MAX_FAILED_LOGIN_ATTEMPTS` /
+`LOCKOUT_DURATION_MS` are now exported from `auth.service.ts` and reused by `MfaService`. A
+6-digit code is a keyspace of one million with a window that accepts three codes at any instant;
+unlimited guessing against a known-good password would make the second factor decorative. Reusing
+the existing counter (rather than adding a parallel one) means a mixed password/code attack
+against one account can't get two independent budgets.
+
+**Decision 4 -- enrolment is opt-in per user; nothing yet *requires* it.** The master prompt's
+framing ("at minimum for OWNER/ADMIN/ACCOUNTANT") could be read as "force these roles to enrol."
+Forcing enrolment is a rollout decision, not a code one: switched on for an existing org it locks
+every privileged user out of their own account until they complete a setup flow that, today, has
+no frontend. So this phase ships the *capability* -- enrol, verify, recover, disable -- and leaves
+the policy switch to B-P0-10, which needs a grace period, an admin-visible enrolment report, and
+the UI in `mygymagent-f` first. Shipping backend-first is safe precisely because it is opt-in: no
+existing user's login changes until they choose to enrol.
+
+**Alternatives considered:**
+- *Hand-rolling RFC 6238 on `node:crypto`.* Rejected. The HMAC itself would come from the stdlib,
+  but the drift window, base32 handling and constant-time comparison are exactly the details that
+  make hand-rolled auth crypto go wrong, and `otplib` is the standard, audited choice. This is the
+  one place where "no new dependency" (AI-9's instinct) loses to "don't hand-roll auth crypto."
+- *Storing the TOTP secret in a `User` column.* Rejected in favour of a separate `UserMfa` table:
+  a `disable` deletes the row and cascades the recovery codes with it, so nothing decryptable
+  survives, and the secret never rides along on the `User` row that most queries already select.
+- *A second envelope format for the secret.* Rejected -- `mfa-secret.vault.ts` deliberately mirrors
+  `whatsapp-token.vault.ts`'s `v1.<iv>.<tag>.<cipher>` AES-256-GCM shape. One reviewed format is
+  easier to reason about than two. It is a separate module and a separate key (`MFA_TOTP_KEY`)
+  because the blast radius differs: a leaked WhatsApp token lets an attacker send messages, leaked
+  TOTP secrets defeat every second factor at once.
+
+**Consequences:** `MFA_TOTP_KEY` joins the set of env vars whose absence degrades a feature to a
+clear 503 rather than failing boot (same pattern as `WHATSAPP_TOKEN_KEY`). Rotating or losing it
+makes every enrolled secret undecryptable -- users must re-enrol; hashed recovery codes are
+unaffected and keep working, which is the intended escape hatch. Any future second factor (WebAuthn,
+SMS) should reuse the same `login` -> challenge -> `/auth/mfa/verify` shape rather than adding a
+second login branch.

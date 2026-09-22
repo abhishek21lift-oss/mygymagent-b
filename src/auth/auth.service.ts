@@ -17,10 +17,14 @@ import {
   TokensService,
 } from './tokens.service';
 import type { LoginDto } from './dto/login.dto';
+import { MfaService } from './mfa/mfa.service';
 import type { RegisterDto } from './dto/register.dto';
 
-const MAX_FAILED_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+/** Exported so the MFA second factor reuses this same lockout rather than
+ * inventing a parallel one -- a 6-digit code is a small keyspace, so code
+ * guessing has to count against the same budget as password guessing. */
+export const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -68,6 +72,7 @@ export class AuthService {
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
+    private readonly mfa: MfaService,
   ) {}
 
   async register(dto: RegisterDto, meta: RequestMeta) {
@@ -205,19 +210,75 @@ export class AuthService {
       throw new UnauthorizedException('Account is not active');
     }
 
+    // The password is proven, so the guessing budget resets here. Whether
+    // the *session* starts depends on the second factor below, so
+    // lastLoginAt is only stamped once authentication actually completes.
     await this.prisma.user.update({
       where: { id: user.id },
-      data: {
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastLoginAt: new Date(),
-      },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    if (await this.mfa.isEnabled(user.id)) {
+      await this.audit.record({
+        organizationId: user.organizationId,
+        actorUserId: user.id,
+        action: 'login_mfa_challenged',
+        resource: 'user',
+        resourceId: user.id,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
+      // No session, no refresh cookie: the caller holds only a short-lived
+      // `mfa`-typed token, which JwtStrategy refuses as a bearer credential.
+      return {
+        mfaRequired: true as const,
+        ...this.mfa.issueChallengeToken(user.id),
+      };
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
     });
 
     await this.audit.record({
       organizationId: user.organizationId,
       actorUserId: user.id,
       action: 'login',
+      resource: 'user',
+      resourceId: user.id,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    const { accessToken, refreshToken, refreshExpiresAt } =
+      await this.issueSession(user.id, meta);
+
+    return {
+      mfaRequired: false as const,
+      user: publicUser(user),
+      accessToken,
+      refreshToken,
+      refreshExpiresAt,
+    };
+  }
+
+  /**
+   * Second half of an MFA login: exchanges the challenge token plus a
+   * TOTP/recovery code for a real session. Every account-state check the
+   * password path performs is re-run inside `completeChallenge`, since the
+   * challenge token outlives the moment the password was checked.
+   */
+  async completeMfaLogin(mfaToken: string, code: string, meta: RequestMeta) {
+    const userId = await this.mfa.completeChallenge(mfaToken, code);
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
+
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorUserId: user.id,
+      action: 'login_mfa_verified',
       resource: 'user',
       resourceId: user.id,
       ipAddress: meta.ipAddress,

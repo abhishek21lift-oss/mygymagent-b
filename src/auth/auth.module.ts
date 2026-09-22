@@ -5,6 +5,8 @@ import { CommunicationsModule } from '../communications/communications.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MfaController } from './mfa/mfa.controller';
+import { MfaService } from './mfa/mfa.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokensService } from './tokens.service';
 
@@ -15,8 +17,8 @@ import { TokensService } from './tokens.service';
     RbacModule,
     CommunicationsModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, TokensService, JwtStrategy],
-  exports: [AuthService, TokensService],
+  controllers: [AuthController, MfaController],
+  providers: [AuthService, TokensService, JwtStrategy, MfaService],
+  exports: [AuthService, TokensService, MfaService],
 })
 export class AuthModule {}

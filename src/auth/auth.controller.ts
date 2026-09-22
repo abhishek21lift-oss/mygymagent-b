@@ -19,6 +19,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AuthService, type RequestMeta } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { VerifyMfaDto } from './mfa/dto/mfa.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
@@ -131,6 +132,35 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.login(dto, this.requestMeta(req));
+    // A correct password alone earns no session when a second factor is
+    // enrolled: no tokens, no refresh cookie, just the challenge.
+    if (result.mfaRequired) {
+      return {
+        mfaRequired: true,
+        mfaToken: result.mfaToken,
+        expiresIn: result.expiresIn,
+      };
+    }
+    this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
+    return { user: result.user, accessToken: result.accessToken };
+  }
+
+  /** Second half of an MFA login. `@Public()` because the caller has no
+   * session yet -- the `mfa`-typed challenge token plus a valid code is
+   * what authenticates this request. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('mfa/verify')
+  async verifyMfa(
+    @Body() dto: VerifyMfaDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.completeMfaLogin(
+      dto.mfaToken,
+      dto.code,
+      this.requestMeta(req),
+    );
     this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
     return { user: result.user, accessToken: result.accessToken };
   }

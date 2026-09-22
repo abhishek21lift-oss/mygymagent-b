@@ -300,6 +300,7 @@ model User {
   userRoles                UserRole[]
   permissionOverrides      UserPermissionOverride[]
   refreshTokens            RefreshToken[]
+  mfa                      UserMfa?
   passwordResetTokens      PasswordResetToken[]
   emailVerificationTokens  EmailVerificationToken[]
   auditLogsAsActor         AuditLog[]                @relation("AuditActor")
@@ -506,6 +507,50 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+/// Per-user TOTP (RFC 6238) enrolment. The shared secret is only ever
+/// stored as an AES-256-GCM envelope keyed by `MFA_TOTP_KEY` (same vault
+/// shape as WhatsappCredential) -- never in plaintext, and never returned
+/// by any read path once enrolment is confirmed.
+model UserMfa {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  secretEnc String
+
+  /// Null while enrolment is pending: a secret exists but the user has not
+  /// yet proved possession of it, so MFA must NOT gate their login. Set on
+  /// the first successful code confirmation.
+  enabledAt DateTime?
+
+  /// Highest TOTP step already accepted for this user. A code stays valid
+  /// for its whole 30s step (plus drift window), so without this a code
+  /// observed in transit could be replayed within seconds.
+  lastUsedStep Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recoveryCodes MfaRecoveryCode[]
+
+  @@map("user_mfa")
+}
+
+/// Single-use recovery codes, stored only as sha256 hashes -- the same
+/// "persist the hash, compare by hash" rule the refresh/password-reset
+/// tokens follow. Shown to the user exactly once, at generation.
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  userMfaId String
+  userMfa   UserMfa   @relation(fields: [userMfaId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userMfaId])
+  @@map("mfa_recovery_codes")
 }
 
 model PasswordResetToken {
