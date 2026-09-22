@@ -3,30 +3,104 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 
+type NotificationCursor = { createdAt: string; id: string };
+
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private encodeCursor(cursor: NotificationCursor) {
+    return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+  }
+
+  private decodeCursor(value?: string): NotificationCursor | undefined {
+    if (!value) return undefined;
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(value, 'base64url').toString('utf8'),
+      ) as Partial<NotificationCursor>;
+      if (
+        typeof parsed.createdAt !== 'string' ||
+        typeof parsed.id !== 'string'
+      ) {
+        return undefined;
+      }
+      const date = new Date(parsed.createdAt);
+      if (!Number.isFinite(date.getTime())) return undefined;
+      return { createdAt: date.toISOString(), id: parsed.id };
+    } catch {
+      return undefined;
+    }
+  }
 
   async list(
     userId: string,
     organizationId: string,
     unreadOnly = false,
     limit = 50,
+    type?: string,
+    search?: string,
+    cursor?: string,
   ) {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const normalizedType = type?.trim().toUpperCase();
+    const normalizedSearch = search?.trim();
+    const decodedCursor = this.decodeCursor(cursor);
+
+    const baseWhere: Prisma.NotificationWhereInput = {
+      organizationId,
+      userId,
+      ...(unreadOnly ? { readAt: null } : {}),
+      ...(normalizedType ? { type: normalizedType } : {}),
+      ...(normalizedSearch
+        ? {
+            OR: [
+              { title: { contains: normalizedSearch, mode: 'insensitive' } },
+              { body: { contains: normalizedSearch, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const cursorWhere = decodedCursor
+      ? {
+          AND: [
+            baseWhere,
+            {
+              OR: [
+                { createdAt: { lt: new Date(decodedCursor.createdAt) } },
+                {
+                  createdAt: new Date(decodedCursor.createdAt),
+                  id: { lt: decodedCursor.id },
+                },
+              ],
+            },
+          ],
+        }
+      : baseWhere;
+
     const rows = await this.prisma.notification.findMany({
-      where: {
-        organizationId,
-        userId,
-        ...(unreadOnly ? { readAt: null } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: safeLimit,
+      where: cursorWhere,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: safeLimit + 1,
     });
+
+    const hasMore = rows.length > safeLimit;
+    const items = hasMore ? rows.slice(0, safeLimit) : rows;
+    const last = items.at(-1);
+    const nextCursor =
+      hasMore && last
+        ? this.encodeCursor({
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          })
+        : null;
+
     const unreadCount = await this.prisma.notification.count({
       where: { organizationId, userId, readAt: null },
     });
-    return { items: rows, unreadCount };
+
+    return { items, unreadCount, hasMore, nextCursor };
   }
 
   async markRead(userId: string, organizationId: string, id: string) {
@@ -39,6 +113,19 @@ export class NotificationsService {
     return this.prisma.notification.update({
       where: { id },
       data: { readAt: new Date() },
+    });
+  }
+
+  async markUnread(userId: string, organizationId: string, id: string) {
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, organizationId, userId },
+      select: { id: true, readAt: true },
+    });
+    if (!existing) throw new NotFoundException('Notification not found');
+    if (!existing.readAt) return existing;
+    return this.prisma.notification.update({
+      where: { id },
+      data: { readAt: null },
     });
   }
 
@@ -105,7 +192,6 @@ export class NotificationsService {
     });
     if (users.length === 0) return { created: 0 };
 
-    // Missing preferences intentionally inherit the default in-app=true behavior.
     const category = input.type.trim().toUpperCase();
     const preferences = await this.prisma.notificationPreference.findMany({
       where: {
