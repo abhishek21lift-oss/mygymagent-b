@@ -327,7 +327,6 @@ model User {
   memberFollowUpsAssigned  MemberFollowUp[]          @relation("MemberFollowUpAssignedTo")
   memberTagsAssigned       MemberTagAssignment[]     @relation("MemberTagAssignedBy")
   documentsReviewed        MemberDocument[]          @relation("MemberDocumentReviewedBy")
-  notifications            Notification[]
   notificationPreferences NotificationPreference[]
 
   @@index([organizationId])
