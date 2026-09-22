@@ -186,6 +186,7 @@ export class NotificationsService {
                 { primaryBranchId: input.branchId },
                 { staffProfile: { branchId: input.branchId } },
                 { userRoles: { some: { branchId: input.branchId } } },
+                { userRoles: { some: { organizationId, branchId: null } } },
               ],
             } : {}),
           },
