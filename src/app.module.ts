@@ -7,6 +7,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { TestableThrottlerGuard } from './common/guards/testable-throttler.guard';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { PublicRateLimitModule } from './common/rate-limit/public-rate-limit.module';
 import { QueueModule } from './queue/queue.module';
 import { FilesModule } from './files/files.module';
 import { AuditModule } from './audit/audit.module';
@@ -84,6 +85,7 @@ import { BusinessOsModule } from './business-os/business-os.module';
       },
     ]),
     PrismaModule,
+    PublicRateLimitModule,
     QueueModule,
     FilesModule,
     AuditModule,

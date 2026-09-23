@@ -670,3 +670,70 @@ not a warning. A covered user who loses their authenticator after enforcement be
 recovery codes (AI-19); if those are gone too, the escape hatch is an admin moving the policy back
 to `OPTIONAL`, which is itself audited -- there is deliberately no per-user exemption, because a
 per-user exemption list is a policy that erodes silently.
+
+---
+
+## AI-21 -- One table of record for device check-in (B-P0-5)
+
+**Context:** the backlog described two independent, never-reconciled device check-in mechanisms:
+`devices.controller.ts` (branch `deviceKey` + `DeviceMap`) and Business OS's kiosk endpoints
+(`kiosk_devices` / `kiosk_events`). Reading them showed the situation was worse than "two systems
+that disagree" -- neither worked end to end:
+
+- The kiosk path evaluated the gate correctly but wrote **only** a `kiosk_events` row, and nothing
+  in the codebase ever read that table. A member who checked in at a kiosk appeared in no
+  attendance list, no report and no live turnstile view, and raised no `AttendanceRecorded` event,
+  so none of the notifications that hang off attendance fired.
+- `DevicesController` was declared in **no module**, so `/devices/check-in` did not exist at
+  runtime -- while the branches UI hands admins a device key to point a scanner at.
+- `AttendanceMethod.KIOSK` existed in the enum and was never written by anything, which is the
+  clearest possible statement of what the original design intended.
+- The kiosk's "member not found" branch wrote a `kiosk_events` row containing the *unverified*
+  member id. That column is a foreign key, so an unknown id raised a constraint violation: a
+  wrong member number at a kiosk returned 500 instead of a decision the screen could display.
+
+**Decision 1 -- `Attendance` is the single table of record; `kiosk_events` is gone.** Device
+attribution was the only thing `kiosk_events` held that `Attendance` did not, so `Attendance`
+gains a nullable `deviceId`. The migration backfills the surviving kiosk history into
+`attendances` before dropping the table: rows with a real member become `KIOSK` attendance rows at
+their original timestamp. A denied row gets an explicit marker rather than a fabricated reason,
+because the old table recorded `result` but never *why* the gate refused.
+
+**Decision 2 -- `deviceId` is `SetNull`, not `Cascade`.** Decommissioning a kiosk must not delete
+the attendance history it recorded. This is the same reasoning as `recordedByUserId`.
+
+**Decision 3 -- one writer, `recordDeviceCheckIn()`.** Both device paths now go through it, so a
+kiosk row and a turnstile row are indistinguishable to every reader except for the method and the
+device. Two call sites writing `Attendance` with slightly different rules is how these drifted
+apart in the first place; the gate decision was already shared via `evaluateGate()`, but the
+*write* was not.
+
+**Decision 4 -- the kiosk moves into the attendance module, keeping its URLs.** A kiosk check-in
+is an attendance record, so it belongs beside the rest of attendance rather than in Business OS.
+The routes stay at `/kiosk/*` so deployed kiosks and the `/kiosk` page need no change.
+
+**Decision 5 -- `/kiosk/check-in` now answers 200 and 401 like `/devices/check-in`.** It used to
+answer 201 for a decision and 400 for a bad key. An unattended device treats a non-200 as a
+failure worth retrying, and an invalid credential is an authentication failure, not a malformed
+request. Aligning the two ingest endpoints is the point of the exercise. The one cost is that the
+public `/kiosk` page's API client fires a futile `/auth/refresh` on a 401; it fails fast and does
+not loop, and suppressing it would break session restore on page load, which legitimately depends
+on refreshing with no access token in memory.
+
+**Decision 6 -- the DB-backed rate limiter moves to `PublicRateLimitService`.** It was a private
+method on `BusinessOsService`, and the kiosk endpoint needed it after moving. These endpoints are
+hit by unauthenticated devices from the open internet, so the window has to hold across every
+application instance -- `@Throttle()` alone is per-process, and now sits on top as a cheap first
+line rather than the only one.
+
+**Not done, deliberately:** the biometric path is now *reachable* but still cannot succeed --
+`DeviceMap` has no write endpoint, so every call resolves to "unenrolled device user" (B-P1-8).
+And `Branch.deviceKey` remains a single plaintext secret shared by every scanner on a branch,
+where `KioskDevice.keyHash` is per-device, hashed and revocable (B-P0-13). Both are missing
+features rather than reconciliation problems, and folding them in here would have buried the
+change that matters.
+
+**Consequences:** a kiosk check-in now fires `AttendanceRecorded`, so it reaches the notification
+fan-out exactly as a front-desk check-in does -- gyms running kiosks will start seeing attendance
+notifications they never got before. Reports and the live view gain whatever kiosk history the
+backfill recovered.

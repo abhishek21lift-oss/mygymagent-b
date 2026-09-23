@@ -12,7 +12,7 @@ import {
  * B-P0-2 (BACKLOG.md): the first e2e coverage for src/business-os/, whose
  * ~20 endpoints previously had zero automated tests despite touching money
  * (accounting, loyalty), tenant-facing public routes (portal bootstrap,
- * kiosk check-in), and campaign audience selection. Written immediately
+ * portal bootstrap), and campaign audience selection. Written immediately
  * after B-P0-1 (moving the module off raw SQL onto the typed Prisma
  * Client), so several cases here are direct regression tests for bugs that
  * migration uncovered:
@@ -94,7 +94,7 @@ describe('Business OS (e2e)', () => {
     memberWithoutMembership = m2.body.data.id;
 
     // A TRAINER holds none of loyalty/support/feedback/marketing/accounting/
-    // portal/kiosk -- the negative-permission fixture for every group below.
+    // portal -- the negative-permission fixture for every group below.
     const trainerEmail = `trainer-${Date.now()}@example.com`;
     const invited = await asOwner(
       request(app.getHttpServer()).post('/users').send({
@@ -622,77 +622,6 @@ describe('Business OS (e2e)', () => {
 
       expect(statuses.slice(0, 20)).toEqual(Array(20).fill(404));
       expect(statuses[20]).toBe(429);
-    });
-  });
-
-  describe('kiosk', () => {
-    let deviceKey: string;
-
-    it('registers a device and allows check-in for an eligible member', async () => {
-      const device = await asOwner(
-        request(app.getHttpServer())
-          .post('/kiosk/devices')
-          .send({ branchId, name: 'Front Desk Tablet' }),
-      ).expect(201);
-      deviceKey = device.body.data.key;
-      expect(typeof deviceKey).toBe('string');
-
-      const checkin = await fromIp(
-        request(app.getHttpServer())
-          .post('/kiosk/check-in')
-          .send({ deviceKey, memberId: memberWithMembership }),
-      ).expect(201);
-      expect(checkin.body.data.allowed).toBe(true);
-      expect(checkin.body.data.member.id).toBe(memberWithMembership);
-    });
-
-    it('denies check-in for a member with no active membership', async () => {
-      const checkin = await fromIp(
-        request(app.getHttpServer())
-          .post('/kiosk/check-in')
-          .send({ deviceKey, memberId: memberWithoutMembership }),
-      ).expect(201);
-      expect(checkin.body.data.allowed).toBe(false);
-    });
-
-    it('denies check-in for a member assigned to a different branch', async () => {
-      const otherBranch = await asOwner(
-        request(app.getHttpServer())
-          .post('/branches')
-          .send({ name: 'Other Branch', slug: 'other-branch-' + Date.now() }),
-      ).expect(201);
-      const otherMember = await asOwner(
-        request(app.getHttpServer()).post('/members').send({
-          primaryBranchId: otherBranch.body.data.id,
-          firstName: 'Other',
-          lastName: 'Branch',
-        }),
-      ).expect(201);
-
-      const checkin = await fromIp(
-        request(app.getHttpServer())
-          .post('/kiosk/check-in')
-          .send({ deviceKey, memberId: otherMember.body.data.id }),
-      ).expect(201);
-      expect(checkin.body.data.allowed).toBe(false);
-      expect(checkin.body.data.reason).toMatch(/different branch/);
-    });
-
-    it('rejects an invalid device key', async () => {
-      await fromIp(
-        request(app.getHttpServer()).post('/kiosk/check-in').send({
-          deviceKey: 'not-a-real-key',
-          memberId: memberWithMembership,
-        }),
-      ).expect(400);
-    });
-
-    it('denies a caller without kiosk.manage', async () => {
-      await asTrainer(
-        request(app.getHttpServer())
-          .post('/kiosk/devices')
-          .send({ branchId, name: 'x' }),
-      ).expect(403);
     });
   });
 

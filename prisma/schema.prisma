@@ -193,7 +193,6 @@ model Organization {
   accountingEntries        AccountingEntry[]
   portalInvites            PortalInvite[]
   kioskDevices             KioskDevice[]
-  kioskEvents              KioskEvent[]
   notificationDevices      NotificationDevice[]
   aiCommandLogs            AiCommandLog[]
 
@@ -268,7 +267,6 @@ model Branch {
   marketingCampaigns MarketingCampaign[]
   accountingEntries  AccountingEntry[]
   kioskDevices       KioskDevice[]
-  kioskEvents        KioskEvent[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -762,7 +760,6 @@ model Member {
   feedbackResponses            FeedbackResponse[]
   marketingCampaignMemberships MarketingCampaignMember[]
   portalInvites                PortalInvite[]
-  kioskEvents                  KioskEvent[]
   notificationDevices          NotificationDevice[]
 
   @@unique([organizationId, memberCode])
@@ -1086,10 +1083,20 @@ model Attendance {
   recordedByUserId String?
   recordedByUser   User?   @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
 
+  /// Which kiosk recorded this, when one did. Replaces the write-only
+  /// `kiosk_events` table: device attribution was the only thing that
+  /// table held which `Attendance` did not, and keeping check-ins in two
+  /// places meant a kiosk entry never reached the live view or reports.
+  /// SetNull rather than Cascade -- retiring a kiosk must not delete the
+  /// attendance history it recorded.
+  deviceId String?
+  device   KioskDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([organizationId, branchId, checkInAt])
   @@index([memberId, checkInAt])
+  @@index([deviceId, checkInAt])
   @@map("attendances")
 }
 
@@ -3819,26 +3826,12 @@ model KioskDevice {
   keyHash        String       @unique @map("key_hash")
   active         Boolean      @default(true)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  events         KioskEvent[]
+
+  /// The check-ins this device recorded. One table of record for
+  /// attendance, whatever recorded it (B-P0-5).
+  attendances Attendance[]
 
   @@map("kiosk_devices")
-}
-
-model KioskEvent {
-  id             String       @id @default(uuid())
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String       @map("branch_id")
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  deviceId       String?      @map("device_id")
-  device         KioskDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  memberId       String?      @map("member_id")
-  member         Member?      @relation(fields: [memberId], references: [id], onDelete: SetNull)
-  eventType      String       @map("event_type")
-  result         String
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@map("kiosk_events")
 }
 
 model NotificationDevice {

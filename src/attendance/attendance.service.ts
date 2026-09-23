@@ -16,6 +16,7 @@ import {
   DomainEvent,
   type AttendanceRecordedEvent,
 } from '../events/domain-events';
+import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
 import type { DeviceCheckInDto } from './dto/device-check-in.dto';
@@ -38,6 +39,7 @@ export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly rateLimit: PublicRateLimitService,
   ) {}
 
   async list(
@@ -339,6 +341,167 @@ export class AttendanceService {
    * user"}` with no Attendance row (no member to attach it to), since
    * devices retry on non-200.
    */
+  /**
+   * The single place a device-originated check-in becomes an attendance
+   * record. Both the biometric turnstile and the kiosk come through here,
+   * so a row written by one is indistinguishable from the other to the
+   * live view, the reports and the domain event -- which is the whole
+   * point of B-P0-5.
+   *
+   * Denied attempts are recorded too: the gate refusing someone is
+   * information the front desk needs, and dropping it was how the old
+   * kiosk path left no trace of a turned-away member.
+   */
+  private async recordDeviceCheckIn(input: {
+    organizationId: string;
+    branchId: string;
+    memberId: string;
+    method: 'KIOSK' | 'BIOMETRIC';
+    at: Date;
+    deviceId?: string | null;
+  }) {
+    const gate = await this.evaluateGate(
+      input.organizationId,
+      input.memberId,
+      input.at,
+    );
+    const record = await this.prisma.attendance.create({
+      data: {
+        organizationId: input.organizationId,
+        branchId: input.branchId,
+        memberId: input.memberId,
+        method: input.method,
+        checkInAt: input.at,
+        deviceId: input.deviceId ?? null,
+        ...(gate.allowed ? {} : { deniedReason: gate.reason }),
+      },
+    });
+    if (gate.allowed) {
+      const payload: AttendanceRecordedEvent = {
+        organizationId: input.organizationId,
+        branchId: input.branchId,
+        attendanceId: record.id,
+        memberId: input.memberId,
+      };
+      this.events.emit(DomainEvent.AttendanceRecorded, payload);
+    }
+    return { gate, record };
+  }
+
+  /**
+   * Registers a kiosk and returns its key once.
+   *
+   * Per-device and stored only as a sha256 hash, so one kiosk can be
+   * revoked without re-keying anything else -- unlike `Branch.deviceKey`,
+   * which is a single plaintext secret shared by every scanner on a
+   * branch (see B-P0-13).
+   */
+  async registerKioskDevice(
+    organizationId: string,
+    input: { branchId: string; name: string },
+  ) {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: input.branchId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!branch) throw new NotFoundException('Branch not found');
+
+    const key = randomBytes(32).toString('hex');
+    const device = await this.prisma.kioskDevice.create({
+      data: {
+        organizationId,
+        branchId: branch.id,
+        name: input.name.trim(),
+        keyHash: sha256Hex(key),
+      },
+      select: { id: true, name: true, branchId: true, active: true },
+    });
+    return {
+      ...device,
+      key,
+      warning: 'Store this key securely; it is shown once.',
+    };
+  }
+
+  /**
+   * Self-service kiosk ingest. The kiosk's own key is the credential --
+   * per-device and stored only as a hash, so a single kiosk can be
+   * revoked (`active = false`) without re-keying the branch.
+   *
+   * Before B-P0-5 this lived in BusinessOsService and wrote only to a
+   * `kiosk_events` table that nothing read, so a member who checked in at
+   * a kiosk never appeared in attendance at all.
+   */
+  async kioskCheckIn(input: {
+    deviceKey: string;
+    memberId: string;
+    clientKey: string;
+    at?: Date;
+  }) {
+    if (!input.deviceKey || !input.memberId) {
+      throw new BadRequestException('deviceKey and memberId are required');
+    }
+    await this.rateLimit.consume('kiosk-checkin', input.clientKey, 60, 60);
+
+    const device = await this.prisma.kioskDevice.findFirst({
+      where: { keyHash: sha256Hex(input.deviceKey), active: true },
+      select: { id: true, organizationId: true, branchId: true },
+    });
+    if (!device) throw new UnauthorizedException('Invalid kiosk key');
+
+    const member = await this.prisma.member.findFirst({
+      where: {
+        id: input.memberId,
+        organizationId: device.organizationId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        primaryBranchId: true,
+      },
+    });
+    // No attendance row for an unknown member: there is no member to
+    // attach it to, and the old code's attempt to log one anyway violated
+    // a foreign key and turned a clean denial into a 500.
+    if (!member) {
+      return { allowed: false as const, reason: 'member not found' };
+    }
+    if (member.primaryBranchId !== device.branchId) {
+      return {
+        allowed: false as const,
+        reason: 'member is assigned to a different branch',
+      };
+    }
+
+    const { gate, record } = await this.recordDeviceCheckIn({
+      organizationId: device.organizationId,
+      branchId: device.branchId,
+      memberId: member.id,
+      method: 'KIOSK',
+      at: input.at ?? new Date(),
+      deviceId: device.id,
+    });
+
+    if (!gate.allowed) {
+      return {
+        allowed: false as const,
+        reason: gate.reason as string,
+        attendanceId: record.id,
+      };
+    }
+    return {
+      allowed: true as const,
+      attendanceId: record.id,
+      member: {
+        id: member.id,
+        firstName: member.firstName,
+        lastName: member.lastName,
+      },
+    };
+  }
+
   async deviceCheckIn(dto: DeviceCheckInDto) {
     const branch = await this.resolveBranchFromDeviceKey(dto.deviceKey);
     const mapping = await this.prisma.deviceMap.findFirst({
@@ -367,27 +530,14 @@ export class AttendanceService {
     if (Number.isNaN(at.getTime())) {
       throw new BadRequestException('Invalid at timestamp');
     }
-    const gate = await this.evaluateGate(branch.organizationId, member.id, at);
-    const record = await this.prisma.attendance.create({
-      data: {
-        organizationId: branch.organizationId,
-        branchId: branch.id,
-        memberId: member.id,
-        method: 'BIOMETRIC',
-        checkInAt: at,
-        ...(gate.allowed ? {} : { deniedReason: gate.reason }),
-      },
+    const { gate, record } = await this.recordDeviceCheckIn({
+      organizationId: branch.organizationId,
+      branchId: branch.id,
+      memberId: member.id,
+      method: 'BIOMETRIC',
+      at,
     });
-    if (gate.allowed) {
-      const payload: AttendanceRecordedEvent = {
-        organizationId: branch.organizationId,
-        branchId: branch.id,
-        attendanceId: record.id,
-        memberId: member.id,
-      };
-      this.events.emit(DomainEvent.AttendanceRecorded, payload);
-      return { allowed: true as const, ...record };
-    }
+    if (gate.allowed) return { allowed: true as const, ...record };
     return {
       allowed: false as const,
       reason: gate.reason as string,

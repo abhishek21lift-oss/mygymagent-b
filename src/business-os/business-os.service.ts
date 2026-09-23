@@ -3,14 +3,13 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-  HttpException,
-  HttpStatus,
 } from '@nestjs/common';
 import { Prisma, type CommunicationChannel } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { CommunicationsService } from '../communications/communications.service';
+import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { AuditService } from '../audit/audit.service';
 
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
@@ -35,6 +34,7 @@ export class BusinessOsService {
     private readonly attendance: AttendanceService,
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
+    private readonly rateLimit: PublicRateLimitService,
   ) {}
 
   async loyaltyAccount(org: string, memberId: string) {
@@ -62,51 +62,6 @@ export class BusinessOsService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
     return branch;
-  }
-
-  /**
-   * Fixed-window counter for the two `@Public()` Business OS endpoints.
-   * Row-locked (same `FOR UPDATE` pattern as AI-4 in
-   * `payments.service.ts#refund()`) so two concurrent requests from the
-   * same key can't both read the pre-increment hit count and both commit,
-   * undercounting the window.
-   */
-  private async rateLimit(
-    scope: string,
-    key: string,
-    limit: number,
-    windowSeconds: number,
-  ) {
-    const hashedKey = hash(key);
-    const hits = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<
-        Array<{ hits: number; windowStartedAt: Date }>
-      >`SELECT hits, "window_started_at" AS "windowStartedAt" FROM public_endpoint_rate_limits WHERE scope = ${scope} AND key = ${hashedKey} FOR UPDATE`;
-      const now = new Date();
-      if (!rows[0]) {
-        await tx.publicEndpointRateLimit.create({
-          data: { scope, key: hashedKey, hits: 1, windowStartedAt: now },
-        });
-        return 1;
-      }
-      const expired =
-        now.getTime() - rows[0].windowStartedAt.getTime() >=
-        windowSeconds * 1000;
-      const nextHits = expired ? 1 : rows[0].hits + 1;
-      await tx.publicEndpointRateLimit.update({
-        where: { scope_key: { scope, key: hashedKey } },
-        data: {
-          hits: nextHits,
-          windowStartedAt: expired ? now : rows[0].windowStartedAt,
-        },
-      });
-      return nextHits;
-    });
-    if (hits > limit)
-      throw new HttpException(
-        'Too many requests. Please try again later.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
   }
 
   /**
@@ -628,7 +583,7 @@ export class BusinessOsService {
 
   async portalBootstrap(token: string, clientKey: string) {
     if (!token || token.length < 32) throw new BadRequestException('Invalid portal token');
-    await this.rateLimit('portal-bootstrap', clientKey || 'unknown', 20, 60);
+    await this.rateLimit.consume('portal-bootstrap', clientKey, 20, 60);
     const invite = await this.prisma.portalInvite.findFirst({
       where: { tokenHash: hash(token), usedAt: null, expiresAt: { gt: new Date() } },
     });
@@ -647,36 +602,5 @@ export class BusinessOsService {
     const memberships = await this.prisma.membership.findMany({ where: { organizationId: invite.organizationId, memberId: invite.memberId }, orderBy: { endDate: 'desc' }, take: 10 });
     const attendance = await this.prisma.attendance.findMany({ where: { organizationId: invite.organizationId, memberId: invite.memberId }, orderBy: { checkInAt: 'desc' }, take: 20 });
     return { member, memberships, attendance };
-  }
-  async registerKiosk(org: string, userId: string, b: any) {
-    if (!b.branchId || !s(b.name)) throw new BadRequestException('branchId and name are required');
-    await this.ensureBranch(org, String(b.branchId));
-    const key = randomBytes(32).toString('hex');
-    await this.prisma.kioskDevice.create({
-      data: { organizationId: org, branchId: b.branchId, name: s(b.name), keyHash: hash(key) },
-    });
-    await this.audit.record({ organizationId: org, actorUserId: userId, action: 'KIOSK_DEVICE_CREATE', resource: 'kiosk_device', afterState: { branchId: b.branchId, name: s(b.name) } });
-    return { key, warning: 'Store this key securely; it is shown once.' };
-  }
-
-  async kioskCheckin(deviceKey: string, memberId: string, clientKey: string) {
-    if (!deviceKey || !memberId) throw new BadRequestException('deviceKey and memberId are required');
-    await this.rateLimit('kiosk-checkin', clientKey || 'unknown', 60, 60);
-    const device = await this.prisma.kioskDevice.findFirst({ where: { keyHash: hash(deviceKey), active: true } });
-    if (!device) throw new BadRequestException('Invalid kiosk key');
-    const member = await this.prisma.member.findFirst({
-      where: { id: memberId, organizationId: device.organizationId, deletedAt: null },
-      select: { id: true, firstName: true, lastName: true, primaryBranchId: true },
-    });
-    const logEvent = (result: string) =>
-      this.prisma.kioskEvent.create({
-        data: { organizationId: device.organizationId, branchId: device.branchId, deviceId: device.id, memberId, eventType: 'CHECK_IN', result },
-      });
-    if (!member) { await logEvent('DENIED'); return { allowed: false, reason: 'member not found' }; }
-    if (member.primaryBranchId !== device.branchId) { await logEvent('DENIED'); return { allowed: false, reason: 'member is assigned to a different branch' }; }
-    const decision = await this.attendance.evaluateGate(device.organizationId, memberId);
-    await logEvent(decision.allowed ? 'ALLOWED' : 'DENIED');
-    if (!decision.allowed) return { allowed: false, reason: decision.reason };
-    return { allowed: true, member: { id: member.id, firstName: member.firstName, lastName: member.lastName } };
   }
 }

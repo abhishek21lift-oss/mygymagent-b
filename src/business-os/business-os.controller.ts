@@ -203,25 +203,4 @@ export class BusinessOsController {
       'unknown';
     return this.s.portalBootstrap(token, clientKey);
   }
-  @Post('kiosk/devices') @RequirePermissions('kiosk.manage') kiosk(
-    @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
-  ) {
-    return this.s.registerKiosk(u.organizationId!, u.id, b);
-  }
-  @Public() @Post('kiosk/check-in') kioskCheckin(
-    @Body() b: any,
-    @Req() req: Request,
-  ) {
-    const forwarded = req.headers['x-forwarded-for'];
-    const clientKey =
-      (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) ||
-      req.ip ||
-      'unknown';
-    return this.s.kioskCheckin(
-      String(b.deviceKey ?? ''),
-      String(b.memberId ?? ''),
-      clientKey,
-    );
-  }
 }
