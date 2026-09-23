@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
@@ -18,6 +19,10 @@ import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AttendanceService } from './attendance.service';
 import { CheckInDto } from './dto/check-in.dto';
+import {
+  CreateDeviceEnrolmentDto,
+  ListDeviceEnrolmentsQueryDto,
+} from './dto/device-enrolment.dto';
 import { ListAttendanceQueryDto } from './dto/list-attendance-query.dto';
 
 @Controller('attendance')
@@ -87,6 +92,72 @@ export class AttendanceController {
     return this.attendanceService.getOrRotateQrToken(
       user.organizationId!,
       memberId,
+      assignmentScope,
+    );
+  }
+
+  /**
+   * Turnstile enrolment: which member a scanner's own user id belongs to
+   * (B-P1-8). Until this existed, `DeviceMap` had no writer and every
+   * biometric check-in answered "unenrolled device user".
+   *
+   * Gated on `attendance.create*`, not `kiosk.manage`, and the split is
+   * deliberate: `kiosk.manage` administers the *hardware* (register and
+   * revoke a device, B-P0-13), which is branch-manager work, while this
+   * decides who may walk through the door -- the same privilege as
+   * minting a QR credential, which B-P0-9 settled at `attendance.create*`
+   * so the front desk and trainers can do their job. Assignment scope
+   * applies for the same reason it does there.
+   *
+   * Declared before `:id/check-out` so `enrolments` is never read as an
+   * attendance id.
+   */
+  @Post('enrolments')
+  @RequireAnyPermission('attendance.create', 'attendance.create_assigned')
+  @Audited({ resource: 'device_enrolment', action: 'create' })
+  createEnrolment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateDeviceEnrolmentDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.attendanceService.createEnrolment(
+      user.organizationId!,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Get('enrolments')
+  @RequireAnyPermission('attendance.read', 'attendance.read_assigned')
+  listEnrolments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListDeviceEnrolmentsQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.attendanceService.listEnrolments(
+      user.organizationId!,
+      query,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  @Delete('enrolments/:id')
+  @RequireAnyPermission('attendance.create', 'attendance.create_assigned')
+  @Audited({ resource: 'device_enrolment', action: 'delete' })
+  deleteEnrolment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.attendanceService.deleteEnrolment(
+      user.organizationId!,
+      id,
+      branchScope,
       assignmentScope,
     );
   }

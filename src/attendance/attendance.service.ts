@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   GoneException,
   Injectable,
   NotFoundException,
@@ -21,8 +22,25 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
 import type { DeviceKind } from '@prisma/client';
 import type { DeviceCheckInDto } from './dto/device-check-in.dto';
+import type {
+  CreateDeviceEnrolmentDto,
+  ListDeviceEnrolmentsQueryDto,
+} from './dto/device-enrolment.dto';
 
 const QR_VALIDITY_DAYS = 30;
+
+/** What an enrolment looks like to an operator. The member is included
+ * because an `externalUserId` on its own says nothing a human can act on. */
+const ENROLMENT_SELECT = {
+  id: true,
+  branchId: true,
+  externalUserId: true,
+  memberId: true,
+  createdAt: true,
+  member: {
+    select: { id: true, firstName: true, lastName: true, memberCode: true },
+  },
+} as const;
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -575,6 +593,136 @@ export class AttendanceService {
         lastName: member.lastName,
       },
     };
+  }
+
+  /**
+   * Enrols a member on a branch's turnstiles (B-P1-8).
+   *
+   * `DeviceMap` had no write path at all -- no endpoint, no import, no
+   * seed -- so `deviceCheckIn` below found no mapping for anybody and
+   * every biometric check-in answered `{allowed:false, reason:
+   * "unenrolled device user"}` forever. B-P0-5 registered the controller
+   * so the route existed; B-P0-13 gave the turnstile a credential it
+   * could actually present; this is the last missing piece, the surface
+   * that says which person a scanner's id belongs to.
+   */
+  async createEnrolment(
+    organizationId: string,
+    dto: CreateDeviceEnrolmentDto,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    if (branchScope && branchScope !== dto.branchId) {
+      throw new NotFoundException('Branch not found');
+    }
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: dto.branchId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!branch) throw new NotFoundException('Branch not found');
+
+    // Same rule as `getOrRotateQrToken`: this grants entry to the
+    // building, so an assignment-scoped caller naming a member who is not
+    // theirs gets the same "not found" as if the member were in another
+    // organization.
+    const member = await this.prisma.member.findFirst({
+      where: {
+        id: dto.memberId,
+        organizationId,
+        deletedAt: null,
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      },
+      select: { id: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    const externalUserId = dto.externalUserId.trim();
+    if (!externalUserId) {
+      throw new BadRequestException('externalUserId is required');
+    }
+
+    const existing = await this.prisma.deviceMap.findFirst({
+      where: { organizationId, branchId: branch.id, externalUserId },
+      select: { id: true, memberId: true },
+    });
+    if (existing) {
+      // Re-enrolling the same person on the same id is a no-op, because
+      // the operator doing it is making sure. Re-pointing an id at a
+      // *different* member is refused rather than upserted: scanners
+      // reuse ids when someone is removed from the hardware, and silently
+      // transferring building access from one member to another is not
+      // something an enrolment call should be able to do by accident.
+      // Remove the old mapping first, deliberately.
+      if (existing.memberId !== member.id) {
+        throw new ConflictException(
+          'That device user id is already enrolled to a different member at this branch',
+        );
+      }
+      return this.prisma.deviceMap.findUniqueOrThrow({
+        where: { id: existing.id },
+        select: ENROLMENT_SELECT,
+      });
+    }
+
+    return this.prisma.deviceMap.create({
+      data: {
+        organizationId,
+        branchId: branch.id,
+        memberId: member.id,
+        externalUserId,
+      },
+      select: ENROLMENT_SELECT,
+    });
+  }
+
+  listEnrolments(
+    organizationId: string,
+    query: ListDeviceEnrolmentsQueryDto = {},
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    return this.prisma.deviceMap.findMany({
+      where: {
+        organizationId,
+        ...((branchScope ?? query.branchId)
+          ? { branchId: branchScope ?? query.branchId }
+          : {}),
+        ...(query.memberId ? { memberId: query.memberId } : {}),
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
+      },
+      select: ENROLMENT_SELECT,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Removes an enrolment, which is how a member loses door access. A hard
+   * delete, unlike a revoked device: the row is the mapping itself, it
+   * carries no history worth keeping, and the attendance it produced
+   * references the member directly.
+   */
+  async deleteEnrolment(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
+  ) {
+    const existing = await this.prisma.deviceMap.findFirst({
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
+      },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Enrolment not found');
+    await this.prisma.deviceMap.delete({ where: { id: existing.id } });
+    return { deleted: true };
   }
 
   async deviceCheckIn(dto: DeviceCheckInDto) {

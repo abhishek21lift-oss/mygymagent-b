@@ -924,3 +924,38 @@ different problems with two different remedies, and never conflate them.
   That pattern now has a name in this file: it is the same finding as AI-22 (a passing suite is
   evidence about the tests, not the code) and the same as B-P0-5/B-P0-6, where every module that
   turned out to be broken also turned out to have no caller and no test.
+
+## AI-26 -- Enrolling a member on a turnstile is an attendance privilege, not a device one (B-P1-8)
+
+**Context:** `DeviceMap` maps a scanner's own identifier for a person to a member, and nothing in
+the codebase ever wrote one — no endpoint, no import, no seed. Every biometric check-in therefore
+answered `{allowed:false, reason:"unenrolled device user"}`, in every deployment, forever.
+
+This was the third and last missing piece of the same feature. The route did not exist until B-P0-5
+registered a controller that had been declared in no module; the device had no credential it could
+present until B-P0-13 found that `Branch.deviceKey` had no write path either; and the person could
+not be enrolled until now. Three separate audits, three missing writers, one feature that had never
+worked end to end.
+
+**Decision:** put enrolment under `/attendance/enrolments`, gated on `attendance.create*`.
+
+**Consequences:**
+
+- The permission split is the substance of this ADR. `kiosk.manage` administers the **hardware** —
+  register a device, revoke a device (AI-23) — which is branch-manager work. `attendance.create*`
+  decides **who may walk through the door**, which is front-desk and trainer work. An enrolment is
+  the second, not the first: it is the same act as minting a QR entry credential, which AI-19/B-P0-9
+  settled at `attendance.create*` after finding it had been wrongly reachable with `members.read`.
+  Gating enrolment on `kiosk.manage` would have put a routine front-desk task behind a hardware
+  permission, and gating device revocation on `attendance.create*` would have let every trainer
+  decommission a turnstile.
+- Assignment scope applies exactly as it does to the QR route: a trainer enrolling a member who is
+  not theirs gets the same 404 as if the member were in another organization.
+- Re-pointing an `externalUserId` at a different member is a **409, not an upsert**. Scanners reuse
+  ids when someone is removed from the hardware, so an upsert here would silently transfer building
+  access from one member to another on a repeated call. Removing the old enrolment first is one
+  extra step and makes the handover deliberate; a test covers both halves.
+- Enrolments are hard-deleted, unlike revoked devices, which are deactivated. The distinction is
+  whether the row carries history: `Attendance.deviceId` points at a device, so a deleted device
+  would orphan attribution, while an enrolment is only a mapping and the attendance it produced
+  references the member directly.

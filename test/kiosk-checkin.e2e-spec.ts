@@ -373,15 +373,16 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
         });
         expect(stored.keyHash).not.toBe(turnstileKey);
 
+        // Enrolled through the API rather than inserted directly: since
+        // B-P1-8 there is a real enrolment surface, and a check-in test
+        // that seeds `device_maps` by hand would keep passing if that
+        // surface broke.
         externalUserId = `ext-${Date.now()}`;
-        await prisma.deviceMap.create({
-          data: {
-            organizationId,
-            branchId,
-            externalUserId,
-            memberId: eligibleMemberId,
-          },
-        });
+        await asOwner(
+          request(app.getHttpServer())
+            .post('/attendance/enrolments')
+            .send({ branchId, memberId: eligibleMemberId, externalUserId }),
+        ).expect(201);
       });
 
       it('admits a member through a registered turnstile', async () => {
