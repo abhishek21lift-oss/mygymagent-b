@@ -43,6 +43,20 @@ enum OrganizationStatus {
   CANCELLED
 }
 
+/// How hard this organization pushes its privileged staff onto a second
+/// factor. Deliberately only two values: the staged rollout the security
+/// backlog calls for is expressed by REQUIRED_FOR_PRIVILEGED *plus* a
+/// future `mfaGraceUntil`, not by a third "warn" state that an admin could
+/// leave switched on forever believing it protected them.
+enum MfaPolicy {
+  /// Status quo. Two-factor protects only the users who opt in.
+  OPTIONAL
+  /// ORG_OWNER / ORG_ADMIN / ACCOUNTANT must enrol. Until `mfaGraceUntil`
+  /// passes they are only nudged; after it, they get an enrolment-scoped
+  /// session that can do nothing but set up their second factor.
+  REQUIRED_FOR_PRIVILEGED
+}
+
 /// The top-level tenant. Every tenant-owned row is reachable from an
 /// Organization, directly or via Branch. Row access is always scoped by
 /// organizationId server-side (see TenantContext / PrismaService) -- never
@@ -62,6 +76,18 @@ model Organization {
   childOrganizations   Organization[] @relation("OrganizationHierarchy")
 
   settings Json @default("{}")
+
+  /// Second-factor policy for this tenant's privileged staff. Typed columns
+  /// rather than keys inside `settings` because login reads them on every
+  /// password check and JwtStrategy on every request -- this has to be
+  /// queryable and migratable, not an unmanaged JSON blob.
+  mfaPolicy MfaPolicy @default(OPTIONAL)
+
+  /// While this is in the future, an unenrolled privileged user still gets
+  /// a full session and is merely told to enrol by this date. Null means
+  /// the policy bites immediately. Only meaningful when `mfaPolicy` is
+  /// REQUIRED_FOR_PRIVILEGED.
+  mfaGraceUntil DateTime?
 
   /// Tenant email branding, used by the communications layer
   /// (src/communications/) when rendering a template for this org -- falls

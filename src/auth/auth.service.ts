@@ -17,6 +17,7 @@ import {
   TokensService,
 } from './tokens.service';
 import type { LoginDto } from './dto/login.dto';
+import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
 import type { RegisterDto } from './dto/register.dto';
 
@@ -73,6 +74,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly permissions: PermissionsService,
     private readonly mfa: MfaService,
+    private readonly mfaPolicy: MfaPolicyService,
   ) {}
 
   async register(dto: RegisterDto, meta: RequestMeta) {
@@ -254,12 +256,24 @@ export class AuthService {
     const { accessToken, refreshToken, refreshExpiresAt } =
       await this.issueSession(user.id, meta);
 
+    // A privileged user who has not enrolled still gets a session here.
+    // During grace it is a full one and this is only a warning; once the
+    // deadline passes JwtStrategy marks every request from it as
+    // enrolment-scoped, so the session exists purely to reach the setup
+    // screen. Refusing the login instead would lock them out of the one
+    // page that fixes it.
+    const mfaEnrolment = await this.mfaPolicy.evaluateForUser(user.id);
+
     return {
       mfaRequired: false as const,
       user: publicUser(user),
       accessToken,
       refreshToken,
       refreshExpiresAt,
+      mfaEnrolment: {
+        state: mfaEnrolment.state,
+        deadline: mfaEnrolment.deadline,
+      },
     };
   }
 
@@ -293,6 +307,10 @@ export class AuthService {
       accessToken,
       refreshToken,
       refreshExpiresAt,
+      // Someone who just proved a second factor is enrolled by definition.
+      // Stated rather than recomputed, and kept in the payload so both
+      // halves of a login answer the same shape.
+      mfaEnrolment: { state: 'NOT_REQUIRED' as const, deadline: null },
     };
   }
 
@@ -359,7 +377,18 @@ export class AuthService {
       user.id,
       user.organizationId,
     );
-    return { user: publicUser(user), permissions };
+    // Carried on /auth/me, not just on the login response, so the nudge
+    // survives a page reload and a session restored from the refresh
+    // cookie -- a deadline the user only ever sees once is no warning.
+    const mfaEnrolment = await this.mfaPolicy.evaluateForUser(user.id);
+    return {
+      user: publicUser(user),
+      permissions,
+      mfaEnrolment: {
+        state: mfaEnrolment.state,
+        deadline: mfaEnrolment.deadline,
+      },
+    };
   }
 
   async forgotPassword(email: string): Promise<void> {

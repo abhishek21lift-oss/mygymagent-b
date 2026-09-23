@@ -5,6 +5,7 @@ import { TokensService } from './tokens.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { AuditService } from '../audit/audit.service';
 import { PermissionsService } from '../rbac/permissions.service';
+import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
 
 describe('AuthService (basic)', () => {
@@ -20,6 +21,7 @@ describe('AuthService (basic)', () => {
         { provide: AuditService, useValue: {} },
         { provide: PermissionsService, useValue: {} },
         { provide: MfaService, useValue: {} },
+        { provide: MfaPolicyService, useValue: {} },
       ],
     }).compile();
 

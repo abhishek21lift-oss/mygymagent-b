@@ -13,6 +13,7 @@ import { AuditModule } from './audit/audit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { MfaEnrolmentGuard } from './common/guards/mfa-enrolment.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { PlatformRoleGuard } from './common/guards/platform-role.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
@@ -132,6 +133,10 @@ import { BusinessOsModule } from './business-os/business-os.module';
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Immediately after authentication and before any permission check:
+    // a session that owes its organization a second factor is confined
+    // to the enrolment screens whatever its role would otherwise allow.
+    { provide: APP_GUARD, useClass: MfaEnrolmentGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: PlatformRoleGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },

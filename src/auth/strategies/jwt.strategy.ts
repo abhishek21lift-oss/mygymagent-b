@@ -5,12 +5,14 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import type { AccessTokenPayload } from '../tokens.service';
+import { MfaPolicyService } from '../mfa/mfa-policy.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly mfaPolicy: MfaPolicyService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -41,12 +43,23 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         primaryBranchId: true,
         status: true,
         deletedAt: true,
+        // Joined rather than fetched separately: the policy is read on
+        // every authenticated request, and an organization that never
+        // switched enforcement on must not pay for a second round trip.
+        organization: { select: { mfaPolicy: true, mfaGraceUntil: true } },
       },
     });
 
     if (!user || user.deletedAt || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Account is not active');
     }
+
+    // Only organizations that opted in get past `isEngaged`, so this is a
+    // field comparison for everyone else.
+    const requirement = await this.mfaPolicy.evaluate(
+      user.id,
+      user.organization,
+    );
 
     return {
       id: user.id,
@@ -56,6 +69,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       firstName: user.firstName,
       lastName: user.lastName,
       primaryBranchId: user.primaryBranchId,
+      mfaEnrolmentRequired: requirement.state === 'ENFORCED',
     };
   }
 }

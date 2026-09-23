@@ -609,3 +609,64 @@ makes every enrolled secret undecryptable -- users must re-enrol; hashed recover
 unaffected and keep working, which is the intended escape hatch. Any future second factor (WebAuthn,
 SMS) should reuse the same `login` -> challenge -> `/auth/mfa/verify` shape rather than adding a
 second login branch.
+
+---
+
+## AI-20 -- Enforcing the second factor on privileged roles (B-P0-10)
+
+**Context:** AI-19 shipped TOTP as an opt-in capability and explicitly deferred the policy,
+naming what the policy would need first: a frontend enrolment flow, an admin-visible enrolment
+report, a grace period, and only then a hard requirement for `ORG_OWNER` / `ORG_ADMIN` /
+`ACCOUNTANT`. The frontend flow landed as F-P0-4. This is the rest.
+
+**Decision 1 -- enforcement issues a confined session; it never refuses the login.** This is the
+whole design. Enrolling requires an authenticated session, and login is the only way to get one,
+so refusing an unenrolled privileged user's login locks them out of the single screen that would
+fix it -- permanently, with no self-service path back. Instead the login succeeds, and
+`MfaEnrolmentGuard` (global, registered immediately after `JwtAuthGuard` and *before*
+`PermissionsGuard`) rejects every route the session touches except the ones wearing
+`@AllowPendingMfaEnrolment()`: `GET /auth/me`, `POST /auth/logout-all`, and the three enrolment
+routes. Deny-by-default matters here -- forgetting to decorate a new route makes it *less*
+reachable from an under-protected account, never more.
+
+**Decision 2 -- the restriction is recomputed per request, not carried in the token.**
+`JwtStrategy` already re-reads the user on every request so suspensions and role changes take
+effect immediately rather than waiting out a 15-minute access token; the policy check rides along
+on that same lookup, with the organization's two policy columns joined into the existing `select`.
+The payoff is that finishing enrolment lifts the restriction on the very next call, with no token
+rotation and no re-login. The cost is one extra query per request -- but only for organizations
+that actually switched enforcement on, because `MfaPolicyService.isEngaged()` short-circuits on a
+field comparison for everyone else.
+
+**Decision 3 -- two policy values plus a date, not three policy values.** A separate `WARN` state
+would be a setting an admin could leave switched on for a year believing it protected them. So
+`MfaPolicy` is `OPTIONAL | REQUIRED_FOR_PRIVILEGED`, and the staged rollout is expressed by
+`REQUIRED_FOR_PRIVILEGED` *plus* a future `mfaGraceUntil`: the same setting that warns today
+enforces by itself later, with no second action required to finish the job. Switching enforcement
+on without naming a date grants 14 days rather than restricting everyone the same second;
+enforcing immediately stays possible (an incident is a real reason to) but must be asked for with
+an explicit `graceUntil: null`. Re-saving an already-enforcing policy keeps the existing deadline,
+so a policy cannot be kept perpetually toothless by touching the settings page. Turning the policy
+off clears the date, because a stale past deadline would make the next enable bite with no warning
+at all.
+
+**Decision 4 -- these are typed columns, not keys in `Organization.settings`.** Login reads them
+on every password check and `JwtStrategy` on every authenticated request. That is not a place for
+an unmanaged JSON blob, and it matches the reasoning already recorded on `emailFromName`.
+
+**Decision 5 -- the enrolment report is gated on `organizations.update`, not `users.read`.** It is
+a list of exactly which privileged accounts are unprotected. In the wrong hands that is target
+selection; its only legitimate use is deciding this organization's policy, which is the same
+audience. `BRANCH_MANAGER` holds `users.read` and is deliberately excluded.
+
+**Decision 6 -- `BRANCH_MANAGER` is not a covered role.** It cannot change organization settings
+or reach accounting, and sweeping it in would multiply the rollout's lockout surface for little
+gain against the payment/accounting exposure that motivated the work.
+
+**Consequences:** an organization that never opts in is byte-for-byte unaffected -- the migration
+defaults every existing tenant to `OPTIONAL`. `mfaEnrolment: { state, deadline }` now rides on the
+login response *and* `/auth/me`; the latter matters because a deadline a user sees exactly once is
+not a warning. A covered user who loses their authenticator after enforcement begins still has
+recovery codes (AI-19); if those are gone too, the escape hatch is an admin moving the policy back
+to `OPTIONAL`, which is itself audited -- there is deliberately no per-user exemption, because a
+per-user exemption list is a policy that erodes silently.

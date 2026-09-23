@@ -13,6 +13,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { AllowPendingMfaEnrolment } from '../common/decorators/allow-pending-mfa-enrolment.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -142,7 +143,11 @@ export class AuthController {
       };
     }
     this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
-    return { user: result.user, accessToken: result.accessToken };
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      mfaEnrolment: result.mfaEnrolment,
+    };
   }
 
   /** Second half of an MFA login. `@Public()` because the caller has no
@@ -162,7 +167,11 @@ export class AuthController {
       this.requestMeta(req),
     );
     this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
-    return { user: result.user, accessToken: result.accessToken };
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      mfaEnrolment: result.mfaEnrolment,
+    };
   }
 
   @Public()
@@ -191,6 +200,7 @@ export class AuthController {
   }
 
   @HttpCode(HttpStatus.NO_CONTENT)
+  @AllowPendingMfaEnrolment()
   @Post('logout-all')
   async logoutAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -203,6 +213,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @AllowPendingMfaEnrolment()
   async me(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.me(user.id);
   }

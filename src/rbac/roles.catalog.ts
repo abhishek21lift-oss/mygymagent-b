@@ -10,6 +10,25 @@ export interface RoleDefinition {
 const ALL_PERMISSIONS = PERMISSION_KEYS;
 const perms = (...keys: string[]) => keys;
 
+/**
+ * The roles an organization's second-factor policy covers
+ * (`MfaPolicy.REQUIRED_FOR_PRIVILEGED`).
+ *
+ * These three hold `ALL_PERMISSIONS` or the money-handling subset: taking
+ * one over means taking over billing, payroll and the accounting ledger,
+ * which is the exposure that motivated shipping TOTP in the first place.
+ * BRANCH_MANAGER is deliberately out -- it cannot change organization
+ * settings or touch accounting, and sweeping it in would multiply the
+ * rollout's lockout surface for little gain.
+ */
+export const MFA_PRIVILEGED_ROLE_KEYS = [
+  'ORG_OWNER',
+  'ORG_ADMIN',
+  'ACCOUNTANT',
+] as const;
+
+export type MfaPrivilegedRoleKey = (typeof MFA_PRIVILEGED_ROLE_KEYS)[number];
+
 export const ROLES_CATALOG: RoleDefinition[] = [
   {
     key: 'PLATFORM_OWNER',
