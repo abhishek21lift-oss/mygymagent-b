@@ -3521,20 +3521,6 @@ model TrainerCommission {
   @@map("trainer_commissions")
 }
 
-model PayrollPeriod {
-  id             String   @id @default(uuid())
-  organizationId String
-  startDate      DateTime
-  endDate        DateTime
-  status         String   @default("OPEN")
-  notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@index([organizationId, startDate])
-  @@map("payroll_periods")
-}
-
 model SubscriptionPlan {
   id                String   @id @default(uuid())
   key               String   @unique

@@ -11,7 +11,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
-  CreatePayrollPeriodDto,
   GenerateCommissionsDto,
   UpsertCommissionRuleDto,
 } from './dto/payroll.dto';
@@ -64,27 +63,6 @@ export class PayrollController {
     @Body() dto: GenerateCommissionsDto,
   ) {
     return this.payroll.generateCommissions(u.organizationId!, dto);
-  }
-
-  @Get('periods')
-  @RequirePermissions('payroll.read')
-  periods(@CurrentUser() u: AuthenticatedUser) {
-    return this.payroll.periods(u.organizationId!);
-  }
-
-  @Post('periods')
-  @RequirePermissions('payroll.manage')
-  createPeriod(
-    @CurrentUser() u: AuthenticatedUser,
-    @Body() dto: CreatePayrollPeriodDto,
-  ) {
-    return this.payroll.createPeriod(u.organizationId!, dto);
-  }
-
-  @Post('periods/:id/finalize')
-  @RequirePermissions('payroll.manage')
-  finalize(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {
-    return this.payroll.finalize(u.organizationId!, id);
   }
 
   @Get('summary')

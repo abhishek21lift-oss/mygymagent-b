@@ -33,15 +33,3 @@ export class GenerateCommissionsDto {
   @IsDateString()
   to!: string;
 }
-
-export class CreatePayrollPeriodDto {
-  @IsDateString()
-  startDate!: string;
-
-  @IsDateString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}

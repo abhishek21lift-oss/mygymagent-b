@@ -544,7 +544,12 @@ export class HrPayrollService {
       async (tx) => {
         const run = await tx.payrollRun.findFirst({
           where: { id: runId, organizationId, status: 'APPROVED' },
-          select: { id: true },
+          select: {
+            id: true,
+            branchId: true,
+            periodStart: true,
+            periodEnd: true,
+          },
         });
 
         if (!run) {
@@ -564,6 +569,40 @@ export class HrPayrollService {
           throw new BadRequestException(
             'Payroll run has no finalizable payroll items',
           );
+        }
+
+        // Trainer commissions earned inside this window are approved here
+        // too (B-P0-6). They used to hang off a second pay-cycle object,
+        // `PayrollPeriod`, which modelled the same thing -- a window with
+        // a status -- but knew nothing about branches, approvers or items.
+        // Paying staff and approving the commissions they earned in the
+        // same window are one act, and now happen in one transaction.
+        //
+        // A branch-scoped run must only approve its own branch's
+        // commissions. `TrainerCommission` carries no branch, so the
+        // trainer's staff profile supplies it; an organization-wide run
+        // (branchId null) approves them all.
+        const branchTrainerIds = run.branchId
+          ? (
+              await tx.staffProfile.findMany({
+                where: { branchId: run.branchId },
+                select: { id: true },
+              })
+            ).map((p) => p.id)
+          : null;
+
+        if (branchTrainerIds === null || branchTrainerIds.length > 0) {
+          await tx.trainerCommission.updateMany({
+            where: {
+              organizationId,
+              status: 'PENDING',
+              sessionAt: { gte: run.periodStart, lt: run.periodEnd },
+              ...(branchTrainerIds
+                ? { trainerId: { in: branchTrainerIds } }
+                : {}),
+            },
+            data: { status: 'APPROVED' },
+          });
         }
 
         return tx.payrollRun.update({
