@@ -801,3 +801,48 @@ fields validate the real JSON type and nothing else; query fields convert explic
 `@Type(() => Number)`, `@Type(() => Date)` or `@ToBoolean()`. `test/utils/test-app.ts` must keep
 mirroring `main.ts`'s pipe exactly, or the suite would validate a configuration production does
 not run.
+
+## AI-23 -- One device registry, keys stored only as digests (B-P0-13)
+
+**Context:** the biometric turnstile (`POST /devices/check-in`) authenticated against
+`Branch.deviceKey`: a single nullable, unique, **plaintext** column on the branch. One secret was
+therefore shared by every scanner on a branch — a compromised device could only be dealt with by
+re-keying all of them, and the key sat readable in the row. Meanwhile the kiosk, reconciled in
+AI-21, already had the right shape: `KioskDevice`, one row per device, key stored only as a sha256
+digest.
+
+Auditing it turned up more than the backlog claimed. Nothing in the API ever *wrote*
+`Branch.deviceKey` — the frontend's branches page called `POST /branches/:id/rotate-device-key`,
+which has never existed server-side. So the column is NULL in every deployment, the turnstile route
+could not authenticate at all, and the "Rotate" button on the branches page always failed. The
+security defect and a dead feature were the same defect.
+
+**Decision:** `Branch.deviceKey` is dropped. `KioskDevice` becomes the registry for every device
+that records attendance without a staff login, carrying a `DeviceKind` (`KIOSK` | `BIOMETRIC`) and
+a `revokedAt`. Both ingest routes resolve a presented key through one private `resolveDevice(key,
+kind)`: a lookup by digest on the unique index, filtered by kind and `active`.
+
+**Consequences:**
+
+- `kind` is part of the *lookup*, not a check afterwards. A kiosk key presented at the turnstile
+  finds no row — the same 401 as a key that was never issued — so neither route can be used to
+  probe the other's registry. This matters because the two judge a check-in differently: the kiosk
+  requires the member's primary branch to match, the turnstile resolves an external id through
+  `DeviceMap`. A key that worked on both would silently change the rules a member is admitted under.
+- Registration, listing and revocation moved from `POST /kiosk/devices` to `/devices`, so there is
+  one registry with one management surface. `/kiosk/check-in` keeps its path: deployed kiosks call
+  it, and nothing about the credential changed for them.
+- Revocation deactivates, it does not delete. `Attendance.deviceId` is `SetNull`, so deleting a
+  device would erase the attribution of every check-in it recorded.
+- The listing never selects `keyHash`. A digest has no reason to leave the database, and a listing
+  endpoint is exactly where one leaks by accident; a test asserts it.
+- Turnstile check-ins now carry `deviceId`. With one key per branch there was no device to name, so
+  every biometric row was written with a null `deviceId` even though the column existed.
+- The migration backfills one `BIOMETRIC` device per branch that carries a key, hashing it with
+  `encode(sha256(...), 'hex')` — byte-identical to the application's `sha256Hex` — so a scanner
+  already configured with a branch key keeps authenticating. Verified against a scratch database
+  seeded with a keyed branch, a keyless branch and a soft-deleted keyed branch: one row, the right
+  digest, the soft-deleted branch skipped.
+- **Still open:** `DeviceMap` has no write path (B-P1-8), so a turnstile cannot be *enrolled*
+  through the API even now that it can authenticate. This ADR fixes the credential, not the
+  enrolment.

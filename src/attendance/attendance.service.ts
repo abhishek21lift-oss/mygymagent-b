@@ -19,6 +19,7 @@ import {
 import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
+import type { DeviceKind } from '@prisma/client';
 import type { DeviceCheckInDto } from './dto/device-check-in.dto';
 
 const QR_VALIDITY_DAYS = 30;
@@ -389,16 +390,19 @@ export class AttendanceService {
   }
 
   /**
-   * Registers a kiosk and returns its key once.
+   * Registers a device -- kiosk or biometric turnstile -- and returns its
+   * key exactly once.
    *
-   * Per-device and stored only as a sha256 hash, so one kiosk can be
-   * revoked without re-keying anything else -- unlike `Branch.deviceKey`,
-   * which is a single plaintext secret shared by every scanner on a
-   * branch (see B-P0-13).
+   * The key is per-device and stored only as a sha256 hash, so one device
+   * can be revoked without re-keying anything else. Before B-P0-13 the
+   * turnstile instead used `Branch.deviceKey`: one plaintext secret shared
+   * by every scanner on the branch, with no rotation and no per-device
+   * revocation -- and, as it turned out, no write path either, so the
+   * route it guarded could never authenticate.
    */
-  async registerKioskDevice(
+  async registerDevice(
     organizationId: string,
-    input: { branchId: string; name: string },
+    input: { branchId: string; name: string; kind?: DeviceKind },
   ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: input.branchId, organizationId, deletedAt: null },
@@ -412,15 +416,90 @@ export class AttendanceService {
         organizationId,
         branchId: branch.id,
         name: input.name.trim(),
+        kind: input.kind ?? 'KIOSK',
         keyHash: sha256Hex(key),
       },
-      select: { id: true, name: true, branchId: true, active: true },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        branchId: true,
+        active: true,
+        createdAt: true,
+      },
     });
     return {
       ...device,
       key,
       warning: 'Store this key securely; it is shown once.',
     };
+  }
+
+  /**
+   * The registry as an operator sees it. Never selects `keyHash`: there is
+   * no legitimate reason for a key digest to leave the database, and a
+   * listing endpoint is precisely where one would leak by accident.
+   */
+  async listDevices(
+    organizationId: string,
+    query: { branchId?: string } = {},
+    branchScope: string | null = null,
+  ) {
+    const branchId = branchScope ?? query.branchId;
+    const items = await this.prisma.kioskDevice.findMany({
+      where: { organizationId, ...(branchId ? { branchId } : {}) },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        branchId: true,
+        active: true,
+        revokedAt: true,
+        createdAt: true,
+      },
+      orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
+    });
+    return { items };
+  }
+
+  /**
+   * Revokes one device's key. Deactivation rather than deletion: the
+   * attendance rows the device recorded stay attributable to it, which is
+   * the point of keeping `Attendance.deviceId`. Idempotent -- revoking an
+   * already-revoked device is a no-op, not an error, because the operator
+   * doing it is trying to be sure.
+   */
+  async revokeDevice(organizationId: string, deviceId: string) {
+    const device = await this.prisma.kioskDevice.findFirst({
+      where: { id: deviceId, organizationId },
+      select: { id: true, active: true },
+    });
+    if (!device) throw new NotFoundException('Device not found');
+    if (!device.active) {
+      return this.prisma.kioskDevice.findUniqueOrThrow({
+        where: { id: device.id },
+        select: {
+          id: true,
+          name: true,
+          kind: true,
+          branchId: true,
+          active: true,
+          revokedAt: true,
+        },
+      });
+    }
+    return this.prisma.kioskDevice.update({
+      where: { id: device.id },
+      data: { active: false, revokedAt: new Date() },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        branchId: true,
+        active: true,
+        revokedAt: true,
+      },
+    });
   }
 
   /**
@@ -443,11 +522,7 @@ export class AttendanceService {
     }
     await this.rateLimit.consume('kiosk-checkin', input.clientKey, 60, 60);
 
-    const device = await this.prisma.kioskDevice.findFirst({
-      where: { keyHash: sha256Hex(input.deviceKey), active: true },
-      select: { id: true, organizationId: true, branchId: true },
-    });
-    if (!device) throw new UnauthorizedException('Invalid kiosk key');
+    const device = await this.resolveDevice(input.deviceKey, 'KIOSK');
 
     const member = await this.prisma.member.findFirst({
       where: {
@@ -503,11 +578,11 @@ export class AttendanceService {
   }
 
   async deviceCheckIn(dto: DeviceCheckInDto) {
-    const branch = await this.resolveBranchFromDeviceKey(dto.deviceKey);
+    const device = await this.resolveDevice(dto.deviceKey, 'BIOMETRIC');
     const mapping = await this.prisma.deviceMap.findFirst({
       where: {
-        organizationId: branch.organizationId,
-        branchId: branch.id,
+        organizationId: device.organizationId,
+        branchId: device.branchId,
         externalUserId: dto.externalUserId,
       },
       select: { memberId: true },
@@ -518,7 +593,7 @@ export class AttendanceService {
     const member = await this.prisma.member.findFirst({
       where: {
         id: mapping.memberId,
-        organizationId: branch.organizationId,
+        organizationId: device.organizationId,
         deletedAt: null,
       },
       select: { id: true },
@@ -531,11 +606,15 @@ export class AttendanceService {
       throw new BadRequestException('Invalid at timestamp');
     }
     const { gate, record } = await this.recordDeviceCheckIn({
-      organizationId: branch.organizationId,
-      branchId: branch.id,
+      organizationId: device.organizationId,
+      branchId: device.branchId,
       memberId: member.id,
       method: 'BIOMETRIC',
       at,
+      // Attribution the branch-key path could not provide: with one key
+      // per branch there was no device to name, so every turnstile row
+      // was written with a null deviceId.
+      deviceId: device.id,
     });
     if (gate.allowed) return { allowed: true as const, ...record };
     return {
@@ -545,20 +624,25 @@ export class AttendanceService {
     };
   }
 
-  private async resolveBranchFromDeviceKey(deviceKey: string) {
+  /**
+   * The one place a presented device key becomes a device (B-P0-13).
+   *
+   * Looked up by digest on a unique index, so the plaintext key is never
+   * stored and never compared: a wrong key finds no row at all, which is
+   * both cheaper and less leaky than the old scan-and-compare over branch
+   * keys. `kind` is part of the match rather than a check afterwards -- a
+   * kiosk key presented at the turnstile is simply not a device, the same
+   * 401 as a key that was never issued, and the two routes cannot be used
+   * to probe each other's registry.
+   */
+  private async resolveDevice(deviceKey: string, kind: DeviceKind) {
     if (!deviceKey) throw new UnauthorizedException('Invalid device key');
-    // Direct unique-index lookup: the previous implementation loaded every
-    // branch key and looped with an early exit, which is O(branches) per
-    // check-in and leaks which row matched via timing. The constant-time
-    // compare stays as defense-in-depth.
-    const branch = await this.prisma.branch.findFirst({
-      where: { deviceKey, deletedAt: null },
-      select: { id: true, organizationId: true, deviceKey: true },
+    const device = await this.prisma.kioskDevice.findFirst({
+      where: { keyHash: sha256Hex(deviceKey), kind, active: true },
+      select: { id: true, organizationId: true, branchId: true },
     });
-    if (branch?.deviceKey && safeEqual(branch.deviceKey, deviceKey)) {
-      return branch;
-    }
-    throw new UnauthorizedException('Invalid device key');
+    if (!device) throw new UnauthorizedException('Invalid device key');
+    return device;
   }
 
   /**

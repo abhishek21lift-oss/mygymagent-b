@@ -137,7 +137,7 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
     it('returns the key exactly once and stores only its hash', async () => {
       const res = await asOwner(
         request(app.getHttpServer())
-          .post('/kiosk/devices')
+          .post('/devices')
           .send({ branchId, name: 'Front Desk Tablet' }),
       ).expect(201);
 
@@ -156,7 +156,7 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
 
     it('refuses a branch outside the caller organization', async () => {
       await asOwner(
-        request(app.getHttpServer()).post('/kiosk/devices').send({
+        request(app.getHttpServer()).post('/devices').send({
           branchId: '00000000-0000-0000-0000-000000000000',
           name: 'X',
         }),
@@ -166,7 +166,7 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
     it('denies a caller without kiosk.manage', async () => {
       await authed(trainerToken)(
         request(app.getHttpServer())
-          .post('/kiosk/devices')
+          .post('/devices')
           .send({ branchId, name: 'Nope' }),
       ).expect(403);
     });
@@ -301,7 +301,7 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
     it('rejects a deactivated device', async () => {
       const retired = await asOwner(
         request(app.getHttpServer())
-          .post('/kiosk/devices')
+          .post('/devices')
           .send({ branchId, name: 'Retired Tablet' }),
       ).expect(201);
       await prisma.kioskDevice.update({
@@ -341,6 +341,150 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
         .post('/devices/check-in')
         .send({ deviceKey: 'nope', externalUserId: 'x' })
         .expect(401);
+    });
+
+    /**
+     * B-P0-13. The turnstile used to authenticate against
+     * `Branch.deviceKey`: one plaintext secret shared by every scanner on
+     * the branch, unhashed in the row, with no way to rotate or revoke a
+     * single device -- and, as it turned out, no write path anywhere in
+     * the API, so the column was always NULL and this route could never
+     * authenticate at all. It now resolves the same hashed, per-device
+     * registry the kiosk uses.
+     */
+    describe('authenticates against the device registry (B-P0-13)', () => {
+      let turnstileKey: string;
+      let turnstileId: string;
+      let externalUserId: string;
+
+      beforeAll(async () => {
+        const registered = await asOwner(
+          request(app.getHttpServer())
+            .post('/devices')
+            .send({ branchId, name: 'Main Turnstile', kind: 'BIOMETRIC' }),
+        ).expect(201);
+        turnstileKey = registered.body.data.key;
+        turnstileId = registered.body.data.id;
+        expect(registered.body.data.kind).toBe('BIOMETRIC');
+
+        const stored = await prisma.kioskDevice.findUniqueOrThrow({
+          where: { id: turnstileId },
+          select: { keyHash: true },
+        });
+        expect(stored.keyHash).not.toBe(turnstileKey);
+
+        externalUserId = `ext-${Date.now()}`;
+        await prisma.deviceMap.create({
+          data: {
+            organizationId,
+            branchId,
+            externalUserId,
+            memberId: eligibleMemberId,
+          },
+        });
+      });
+
+      it('admits a member through a registered turnstile', async () => {
+        const res = await request(app.getHttpServer())
+          .post('/devices/check-in')
+          .send({ deviceKey: turnstileKey, externalUserId })
+          .expect(200);
+        expect(res.body.data.allowed).toBe(true);
+        expect(res.body.data.method).toBe('BIOMETRIC');
+        // Attribution the shared branch key could not provide: with one
+        // key per branch there was no device to name, so every turnstile
+        // row was written with a null deviceId.
+        expect(res.body.data.deviceId).toBe(turnstileId);
+      });
+
+      it('will not accept a kiosk key at the turnstile, or the reverse', async () => {
+        // The two routes judge a check-in differently -- the kiosk
+        // requires the member's primary branch to match, the turnstile
+        // resolves an external id through DeviceMap -- so a key that
+        // worked on both would silently change the rules a member is let
+        // in under. `kind` is part of the lookup, so the mismatch is the
+        // same 401 as a key that was never issued.
+        await request(app.getHttpServer())
+          .post('/devices/check-in')
+          .send({ deviceKey, externalUserId })
+          .expect(401);
+
+        await checkIn({
+          deviceKey: turnstileKey,
+          memberId: eligibleMemberId,
+        }).expect(401);
+      });
+
+      it('revokes one device without touching any other', async () => {
+        const second = await asOwner(
+          request(app.getHttpServer())
+            .post('/devices')
+            .send({ branchId, name: 'Side Turnstile', kind: 'BIOMETRIC' }),
+        ).expect(201);
+
+        const revoked = await asOwner(
+          request(app.getHttpServer()).post(`/devices/${turnstileId}/revoke`),
+        ).expect(200);
+        expect(revoked.body.data.active).toBe(false);
+        expect(revoked.body.data.revokedAt).toBeTruthy();
+
+        await request(app.getHttpServer())
+          .post('/devices/check-in')
+          .send({ deviceKey: turnstileKey, externalUserId })
+          .expect(401);
+
+        // The whole point of per-device keys: the branch keeps working.
+        await request(app.getHttpServer())
+          .post('/devices/check-in')
+          .send({ deviceKey: second.body.data.key, externalUserId })
+          .expect(200);
+      });
+
+      it('is idempotent about revoking, and keeps the device listed', async () => {
+        await asOwner(
+          request(app.getHttpServer()).post(`/devices/${turnstileId}/revoke`),
+        ).expect(200);
+
+        const list = await asOwner(
+          request(app.getHttpServer()).get('/devices').query({ branchId }),
+        ).expect(200);
+        const row = list.body.data.items.find(
+          (d: { id: string }) => d.id === turnstileId,
+        );
+        expect(row.active).toBe(false);
+        // A revoked device stays in the registry because the check-ins it
+        // recorded stay attributable to it.
+        expect(row.name).toBe('Main Turnstile');
+      });
+
+      it('never returns a key or its digest from the listing', async () => {
+        const list = await asOwner(
+          request(app.getHttpServer()).get('/devices'),
+        ).expect(200);
+        expect(list.body.data.items.length).toBeGreaterThan(0);
+        for (const device of list.body.data.items) {
+          expect(device.keyHash).toBeUndefined();
+          expect(device.key).toBeUndefined();
+        }
+      });
+
+      it('refuses to revoke a device in another organization', async () => {
+        await asOwner(
+          request(app.getHttpServer()).post(
+            '/devices/00000000-0000-0000-0000-000000000000/revoke',
+          ),
+        ).expect(404);
+      });
+
+      it('denies a caller without kiosk.manage', async () => {
+        await authed(trainerToken)(
+          request(app.getHttpServer()).get('/devices'),
+        ).expect(403);
+
+        await authed(trainerToken)(
+          request(app.getHttpServer()).post(`/devices/${turnstileId}/revoke`),
+        ).expect(403);
+      });
     });
   });
 });

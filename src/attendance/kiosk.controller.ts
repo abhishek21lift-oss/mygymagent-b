@@ -1,13 +1,9 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { Audited } from '../common/decorators/audited.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AttendanceService } from './attendance.service';
-import { KioskCheckInDto, RegisterKioskDto } from './dto/kiosk.dto';
+import { KioskCheckInDto } from './dto/kiosk.dto';
 
 /**
  * Self-service kiosk check-in.
@@ -16,26 +12,21 @@ import { KioskCheckInDto, RegisterKioskDto } from './dto/kiosk.dto';
  * check-in is an attendance record, and while these endpoints sat
  * elsewhere they wrote to a parallel `kiosk_events` table that nothing
  * read, so kiosk entries never reached the live view, the reports or the
- * AttendanceRecorded event. The routes keep their original paths so
- * deployed kiosks and the `/kiosk` frontend page do not have to change.
+ * AttendanceRecorded event. The route keeps its original path so deployed
+ * kiosks and the `/kiosk` frontend page do not have to change.
+ *
+ * Registration moved to `POST /devices` in B-P0-13: kiosks and biometric
+ * turnstiles are one registry now, and issuing a turnstile key from a
+ * route called `/kiosk/devices` would have been the last place the two
+ * were still pretending to be different things.
  */
 @Controller('kiosk')
 export class KioskController {
   constructor(private readonly attendance: AttendanceService) {}
 
-  @Post('devices')
-  @RequirePermissions('kiosk.manage')
-  @Audited({ resource: 'kiosk_device', action: 'created' })
-  register(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: RegisterKioskDto,
-  ) {
-    return this.attendance.registerKioskDevice(user.organizationId!, dto);
-  }
-
   /**
    * No JWT: the kiosk's device key IS the credential, the same way
-   * `/devices/check-in` treats a branch key. Always answers 200 with a
+   * `/devices/check-in` treats a turnstile key. Always answers 200 with a
    * gate decision so an unattended screen can render it; only an invalid
    * key is a 401.
    */

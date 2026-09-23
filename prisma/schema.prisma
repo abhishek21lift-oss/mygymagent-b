@@ -224,11 +224,6 @@ model Branch {
   postalCode   String?
   country      String?
 
-  /// Branch device credential for the biometric turnstile (`POST
-  /// /devices/check-in`). Nullable until a key is rotated in; unique so a
-  /// key identifies exactly one branch. Compared timing-safe, never logged.
-  deviceKey String? @unique
-
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -1114,10 +1109,10 @@ model MemberQrToken {
 }
 
 /// WS-3 access gate: maps a biometric device's external user id (per
-/// branch) to a member. The device authenticates with the branch
-/// `deviceKey`, not a JWT; unknown external ids resolve to a 200
-/// `{allowed:false}` decision without an Attendance row (no member to
-/// attach it to).
+/// branch) to a member. The device authenticates with its own registered
+/// key (`KioskDevice`, kind `BIOMETRIC`), not a JWT; unknown external ids
+/// resolve to a 200 `{allowed:false}` decision without an Attendance row
+/// (no member to attach it to).
 model DeviceMap {
   id             String       @id @default(uuid())
   organizationId String
@@ -3802,6 +3797,25 @@ model PortalInvite {
   @@map("portal_invites")
 }
 
+/// What a registered device is, and therefore which ingest route its key
+/// authenticates on. A kiosk key is not accepted by the turnstile route
+/// and vice versa: the two have different denial rules (a kiosk requires
+/// the member's primary branch to match, a turnstile resolves an external
+/// id through `DeviceMap`), so a key that works on both would silently
+/// change how a check-in is judged.
+enum DeviceKind {
+  KIOSK
+  BIOMETRIC
+}
+
+/// Every device that can record attendance without a staff login: the
+/// self-service kiosk and the biometric turnstile alike.
+///
+/// B-P0-13: the turnstile used to authenticate against `Branch.deviceKey`
+/// -- one plaintext secret, shared by every scanner on the branch, stored
+/// unhashed, with no way to rotate or revoke a single device. It now
+/// authenticates here, where the key exists only as a sha256 hash and one
+/// device can be revoked on its own.
 model KioskDevice {
   id             String       @id @default(uuid())
   organizationId String       @map("organization_id")
@@ -3809,14 +3823,17 @@ model KioskDevice {
   branchId       String       @map("branch_id")
   branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
   name           String
+  kind           DeviceKind   @default(KIOSK)
   keyHash        String       @unique @map("key_hash")
   active         Boolean      @default(true)
+  revokedAt      DateTime?    @map("revoked_at") @db.Timestamptz(6)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
   /// The check-ins this device recorded. One table of record for
   /// attendance, whatever recorded it (B-P0-5).
   attendances Attendance[]
 
+  @@index([organizationId, branchId])
   @@map("kiosk_devices")
 }
 
