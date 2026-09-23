@@ -5,6 +5,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TestableThrottlerGuard } from './common/guards/testable-throttler.guard';
+import { throttlerConfig } from './common/rate-limit/throttler.config';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicRateLimitModule } from './common/rate-limit/public-rate-limit.module';
@@ -62,28 +63,9 @@ import { BusinessOsModule } from './business-os/business-os.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60_000,
-        limit: 120, // Default limit for general endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 20, // Strict limit for auth endpoints (already set in controllers)
-      },
-      {
-        ttl: 60_000,
-        limit: 30, // Limit for analytics endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 40, // Limit for member endpoints
-      },
-      {
-        ttl: 60_000,
-        limit: 50, // Limit for billing endpoints
-      },
-    ]),
+    // One unnamed entry, deliberately -- see throttler.config.ts for why
+    // a list of them silently divides every limit in the app.
+    ThrottlerModule.forRoot(throttlerConfig),
     PrismaModule,
     PublicRateLimitModule,
     QueueModule,
