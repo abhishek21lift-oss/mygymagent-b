@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsDate,
   IsEnum,
@@ -19,9 +20,11 @@ export class BookPtSessionDto {
   @IsString()
   branchId: string;
 
+  @Type(() => Date)
   @IsDate()
   startTime: Date;
 
+  @Type(() => Date)
   @IsDate()
   endTime: Date;
 

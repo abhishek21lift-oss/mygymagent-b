@@ -45,25 +45,39 @@ function readAll(captureFile: string): CapturedEmail[] {
     .map((line) => JSON.parse(line) as CapturedEmail);
 }
 
-/** Polls the capture file (written by smtp-capture-server.ts, a real
- * local SMTP server the app's SmtpEmailProvider actually sends to) for
- * the most recent message to `recipient`, up to `timeoutMs`. Throws on
- * timeout rather than returning undefined -- a missing email is a test
- * failure, not a value for the caller to null-check. */
+/**
+ * Polls the capture file (written by smtp-capture-server.ts, a real local
+ * SMTP server the app's SmtpEmailProvider actually sends to) for the most
+ * recent message to `recipient`, up to `timeoutMs`. Throws on timeout
+ * rather than returning undefined -- a missing email is a test failure,
+ * not a value for the caller to null-check.
+ *
+ * Pass `match` when the recipient can receive more than one message and
+ * the test means a *particular* one. Several flows send a welcome email
+ * from an event listener, asynchronously, so "the most recent email to
+ * this address" is a race: without a matcher a test can assert against
+ * the welcome mail that happened to land second and fail intermittently.
+ */
 export async function waitForEmailTo(
   recipient: string,
   timeoutMs = 5000,
+  match?: (email: { subject: string; body: string }) => boolean,
 ): Promise<{ subject: string; body: string; raw: string }> {
   const captureFile = process.env.SMTP_TEST_CAPTURE_FILE;
   if (!captureFile) throw new Error('SMTP_TEST_CAPTURE_FILE must be set');
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const match = readAll(captureFile)
+    const found = readAll(captureFile)
       .reverse()
-      .find((email) => email.to.includes(recipient));
-    if (match) return { ...parseRaw(match.raw), raw: match.raw };
+      .filter((email) => email.to.includes(recipient))
+      .map((email) => ({ ...parseRaw(email.raw), raw: email.raw }))
+      .find((email) => !match || match(email));
+    if (found) return found;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Timed out waiting for an email to ${recipient}`);
+  throw new Error(
+    `Timed out waiting for an email to ${recipient}` +
+      (match ? ' matching the given predicate' : ''),
+  );
 }

@@ -737,3 +737,67 @@ change that matters.
 fan-out exactly as a front-desk check-in does -- gyms running kiosks will start seeing attendance
 notifications they never got before. Reports and the live view gain whatever kiosk history the
 backfill recovered.
+
+---
+
+## AI-22 -- No implicit type coercion at the API boundary (B-P0-7)
+
+**Context:** `main.ts` set `transformOptions: { enableImplicitConversion: true }` on the global
+`ValidationPipe`. class-transformer's implicit boolean conversion is `Boolean(value)`, under which
+every non-empty string is `true` -- including the strings `"false"` and `"0"`. A client sending
+`{"inApp": "false"}` to opt *out* of a notification category was silently opted *in*, and
+`@IsBoolean()` never saw a value it could reject, so nothing 400'd. This is the same bug class
+AI-7 already fixed once for `SMTP_SECURE`. B-P0-2 patched the five notification fields with a
+local `RawBoolean()` transform; 18 `@IsBoolean()` fields elsewhere still had the hole.
+
+**Decision 1 -- remove the option globally rather than patch field by field.** A per-field fix
+leaves the trap armed for every DTO written afterwards: the default stays wrong and each new
+boolean field is one forgotten decorator away from inverting its own meaning. Removing the option
+makes the safe thing the default and the unsafe thing impossible to reach by accident. The cost is
+real -- it is the one change in this codebase that can break any endpoint at once -- and is paid
+once, under test, rather than owed indefinitely.
+
+**Decision 2 -- `@ToBoolean()` is for query DTOs only, and refuses to guess.** A query string is
+text by construction, so `?overdue=true` genuinely needs converting. A JSON body carries real
+types, so a string there is a client bug that plain `@IsBoolean()` should reject -- adding the
+transform to a body field would quietly accept `{"isTrainer": "false"}`, which is leniency of the
+same family as the original bug, just pointing the other way. (This distinction was not obvious
+in advance: the first draft put `@ToBoolean()` on `isTrainer`, and the regression suite caught it.)
+Within query DTOs the helper converts only `true`/`false` and their case-insensitive string forms
+and passes everything else through to `@IsBoolean()`, so `"1"`, `"yes"` and `"nope"` each earn an
+explicit 400. The alternative spelling `value === 'true'`, which `ListInvoicesQueryDto` used, maps
+anything unrecognised to `false` and so turns a typo into a silent wrong answer.
+
+**Decision 3 -- `@Type(() => Boolean)` is banned, not merely discouraged.** It applies the same
+`Boolean(value)` and had exactly the same effect on the two fields carrying it
+(`CreateUserDto.isTrainer`, `ListProductsQueryDto.isActive`) -- removing the global option would
+not have fixed those. `InventoryQueryDto.activeOnly` carried it too, which meant
+`?activeOnly=false` filtered to active rows only: a caller explicitly asking to see everything was
+silently shown a subset and had no way to tell.
+
+**What the removal broke, and how it was found.** Every `@IsDate()` field on a *body* DTO was
+relying on implicit conversion: JSON has no date type, so a client sends an ISO string, and
+without `@Type(() => Date)` every one of them becomes a 400. `PtSessionsController` had **no e2e
+coverage at all**, so the full 333-test suite passed while PT session booking was completely
+broken. It was caught by auditing `@IsDate()` occurrences by hand rather than by trusting a green
+suite, and `test/pt-sessions.e2e-spec.ts` now exists so the next person is not so lucky. The
+lesson worth recording: for a change with this blast radius, a passing suite is evidence about the
+tests, not about the code.
+
+**Decision 4 -- numeric *body* fields were deliberately left without `@Type(() => Number)`.** 67 of
+them have none. Unlike the boolean case this is not dangerous -- `Number("abc")` is `NaN` and
+`@IsNumber()` rejects it, so there is no silent inversion -- but it is a real behaviour change: a
+client that sends `{"price": "500"}` in a JSON body now gets a 400 where it previously succeeded.
+Adding the decorator everywhere would have prevented that at the cost of 67 fields of churn and of
+reinstating "the API guesses at your types", which is the philosophy this change removes. The
+frontend coerces client-side already (`z.coerce.number()` in 25 places in `lib/validation/gym.ts`),
+so it sends real JSON numbers, and the e2e suite exercises these paths. Any *other* API consumer
+sending stringified numbers in a body is the group this affects.
+
+**Consequences:** `test/validation-coercion.e2e-spec.ts` pins the property from both ends -- that
+wrong input is rejected, and that `false` actually means false where it is observable -- and turns
+red if the option or `@Type(() => Boolean)` comes back. New DTO fields now follow one rule: body
+fields validate the real JSON type and nothing else; query fields convert explicitly with
+`@Type(() => Number)`, `@Type(() => Date)` or `@ToBoolean()`. `test/utils/test-app.ts` must keep
+mirroring `main.ts`'s pipe exactly, or the suite would validate a configuration production does
+not run.

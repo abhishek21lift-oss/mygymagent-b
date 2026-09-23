@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ToBoolean } from '../../common/transforms/to-boolean.transform';
 import {
   IsArray,
   IsBoolean,
@@ -105,7 +106,7 @@ export class InventoryQueryDto {
   @IsOptional() @IsString() productId?: string;
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() search?: string;
-  @IsOptional() @Type(() => Boolean) @IsBoolean() activeOnly?: boolean;
+  @IsOptional() @ToBoolean() @IsBoolean() activeOnly?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) limit?: number;
 }

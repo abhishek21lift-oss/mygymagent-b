@@ -53,7 +53,8 @@ export async function createTestApp(): Promise<{
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
-        transformOptions: { enableImplicitConversion: true },
+        // Must mirror main.ts exactly, or the suite validates a pipe
+        // configuration production does not run (B-P0-7).
       }),
     );
     app.useGlobalFilters(new AllExceptionsFilter());

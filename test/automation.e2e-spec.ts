@@ -268,7 +268,12 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    // Creating the member also fires a welcome email from an event
+    // listener, so this address receives two messages with no guaranteed
+    // order. Match on the one this test is actually about.
+    const sentEmail = await waitForEmailTo(email, 5000, (candidate) =>
+      candidate.subject.toLowerCase().includes('miss you'),
+    );
     expect(sentEmail.subject.toLowerCase()).toContain('miss you');
 
     const run = await prisma.automationRun.findFirst({

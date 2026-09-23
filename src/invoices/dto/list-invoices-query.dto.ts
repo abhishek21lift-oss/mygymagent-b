@@ -1,7 +1,7 @@
-import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
 import { InvoiceStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { ToBoolean } from '../../common/transforms/to-boolean.transform';
 
 export class ListInvoicesQueryDto extends PaginationQueryDto {
   @IsOptional()
@@ -15,7 +15,7 @@ export class ListInvoicesQueryDto extends PaginationQueryDto {
   /** Only invoices past their due date that are still collectible
    * (ISSUED/PART_PAID). Accepts `?overdue=true`. */
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
+  @ToBoolean()
   @IsBoolean()
   overdue?: boolean;
 }

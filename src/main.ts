@@ -114,7 +114,18 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: { enableImplicitConversion: true },
+      // No `enableImplicitConversion` (B-P0-7). class-transformer's
+      // implicit boolean conversion is `Boolean(value)`, so the string
+      // "false" -- which is what a query param always is, and what a
+      // sloppy client sends in JSON -- became `true`, and `@IsBoolean()`
+      // never saw a value it could reject. A client opting *out* of
+      // something was silently opted *in*.
+      //
+      // Without it, JSON body fields arrive with their real JSON types and
+      // the validators are the actual gate. Query params are always
+      // strings, so a DTO bound to `@Query()` must convert explicitly:
+      // `@Type(() => Number)` for numerics, `@ToBoolean()` from
+      // `common/transforms/` for booleans.
     }),
   );
   app.useGlobalInterceptors(new LoggingInterceptor());

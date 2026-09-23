@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsDate,
   IsEnum,
@@ -21,10 +22,12 @@ export class UpdatePtSessionDto {
   @IsOptional()
   branchId?: string;
 
+  @Type(() => Date)
   @IsDate()
   @IsOptional()
   startTime?: Date;
 
+  @Type(() => Date)
   @IsDate()
   @IsOptional()
   endTime?: Date;
@@ -47,6 +50,7 @@ export class UpdatePtSessionDto {
   notes?: string;
 
   @IsOptional()
+  @Type(() => Date)
   @IsDate()
   completedAt?: Date;
 

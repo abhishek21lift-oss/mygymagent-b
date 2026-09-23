@@ -1,4 +1,3 @@
-import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -45,7 +44,6 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsBoolean()
-  @Type(() => Boolean)
   isTrainer?: boolean;
 
   @IsOptional()
