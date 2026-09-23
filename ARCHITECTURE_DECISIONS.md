@@ -880,3 +880,47 @@ tables at all, so they were invisible to the drift work in B-P0-12.
 - Concurrency tests are in the suite, and they are honest about being probabilistic: with the lock
   removed the six-way booking race reddened on every run, the cancel-versus-book race on one in
   five. A race that only sometimes reproduces is still a race.
+
+## AI-25 -- Schema drift is resolved on the side that is wrong, and then enforced (B-P0-12)
+
+**Context:** `prisma migrate diff --from-migrations --to-schema-datamodel` printed 475 lines. It had
+been that way on both `main` and this branch, unchanged, for long enough that nobody could say which
+side was correct — which is exactly the state in which drift stops being cosmetic.
+
+**Decision:** treat "the database is wrong" and "the model describes the database badly" as two
+different problems with two different remedies, and never conflate them.
+
+- **The model describes the database badly** — a constraint or index name, a missing `ON UPDATE`, a
+  DB-side `gen_random_uuid()` or `CURRENT_DATE` default, a primary key the model declared only as
+  `@unique`. Here the physical table is the truth: every deployment was built by these migrations.
+  Annotate the model (`map:`, `onUpdate: NoAction`, `@default(dbgenerated(...))`, `@id`). No DDL
+  runs, so nothing can break. This was ~385 of the 475 lines.
+- **The database is genuinely missing something** — resolve with a migration. This was the other
+  ~90 lines, and **every single item in it was a live defect**:
+  - `AutomationKey` had no `PT_EXPIRY_REMINDER`, a value `pt-expiry.scanner.ts` already writes.
+  - `trainer_availability_rules` and `trainer_time_offs` were declared in the schema and created by
+    no migration. `appointments.service.ts` queried them in thirteen places, so seven routes failed
+    at runtime in every deployment.
+  - `member_tag_assignments` had no foreign keys at all, against four declared with cascades.
+  - `payments.branchId` was NOT NULL with `ON DELETE CASCADE` where the model says nullable with
+    `SET NULL` — deleting a branch deleted its payment history.
+  - `payments.stripePaymentIntentId` was `@unique` in the model and had no index in the database,
+    so nothing stopped a replayed Stripe webhook recording the same payment twice.
+
+**Consequences:**
+
+- Drift is 0 and `npm run db:check-drift` keeps it there, in CI, before the tests run. It diffs
+  against a database built *from the migrations* in a throwaway shadow database, which is the only
+  form of the check that catches a schema change committed without its migration; diffing against
+  an already-migrated dev database would not. Verified in both directions.
+- The script's header carries the decision rule above, because the next person to hit a red drift
+  check needs it more than they need the command.
+- The lesson generalises past Prisma: **a schema is a claim about a database, and only a request
+  proves it.** `TrainerAvailabilityRule` looked entirely healthy in `schema.prisma`, type-checked
+  everywhere it was used, and had no table. The new `test/appointment-availability.e2e-spec.ts` is
+  end-to-end rather than a schema assertion for exactly that reason — a test that checks a table
+  exists would pass against a table nothing can use.
+- The appointments module having had no e2e suite at all is what let seven broken routes sit there.
+  That pattern now has a name in this file: it is the same finding as AI-22 (a passing suite is
+  evidence about the tests, not the code) and the same as B-P0-5/B-P0-6, where every module that
+  turned out to be broken also turned out to have no caller and no test.

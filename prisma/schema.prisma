@@ -1109,7 +1109,11 @@ model Attendance {
 /// never again. `rotatesAt` is the expiry; a weekly scheduler regenerates
 /// passed tokens, and check-in rejects unknown/rotated hashes with 410.
 model MemberQrToken {
-  memberId  String   @unique
+  // `@id` as well as `@unique`: the physical table has a primary key on
+  // this column *and* a unique index, which is what one row per member
+  // means here. The model declared only the unique, so `migrate diff`
+  // wanted to drop the primary key (B-P0-12).
+  memberId  String   @id @unique
   member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
   tokenHash String   @unique
   rotatesAt DateTime
@@ -1506,7 +1510,7 @@ model PtSessionConsumption {
 
   createdAt DateTime @default(now())
 
-  @@unique([packageId, ptSessionId])
+  @@unique([packageId, ptSessionId], map: "pt_session_consumptions_package_session_unique")
   @@index([organizationId])
   @@index([ptSessionId])
   @@map("pt_session_consumptions")
@@ -2812,7 +2816,7 @@ model Expense {
 // ----------------------------------------------------------------------------
 
 model Notification {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
@@ -2848,7 +2852,7 @@ model Notification {
 }
 
 model NotificationPreference {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
@@ -3341,6 +3345,7 @@ model ProductStock {
   @@unique([organizationId, branchId, productId])
   @@index([organizationId, branchId])
   @@index([productId])
+  @@index([organizationId, branchId, updatedAt], map: "product_stocks_org_branch_updated_idx")
   @@map("product_stocks")
 }
 
@@ -3384,6 +3389,7 @@ model InventoryPurchaseOrder {
   @@unique([organizationId, number])
   @@index([organizationId, status])
   @@index([supplierId])
+  @@index([organizationId, branchId, createdAt], map: "inventory_purchase_orders_org_branch_created_idx")
   @@map("inventory_purchase_orders")
 }
 
@@ -3425,6 +3431,7 @@ model InventoryTransfer {
   @@index([organizationId, status])
   @@index([fromBranchId])
   @@index([toBranchId])
+  @@index([organizationId, createdAt], map: "inventory_transfers_org_created_idx")
   @@map("inventory_transfers")
 }
 
@@ -3467,6 +3474,7 @@ model InventorySale {
   @@index([organizationId, branchId, createdAt])
   @@index([memberId])
   @@index([invoiceId])
+  @@index([organizationId, branchId, createdAt, status], map: "inventory_sales_org_branch_created_status_idx")
   @@map("inventory_sales")
 }
 
@@ -3493,21 +3501,21 @@ model InventorySaleItem {
 // -----------------------------------------------------------------------------
 
 model TrainerCommissionRule {
-  id             String   @id @default(uuid())
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String
   trainerId      String
-  percentage     Decimal  @db.Decimal(5, 2)
+  percentage     Decimal  @default(0) @db.Decimal(5, 2)
   fixedAmount    Decimal  @default(0) @db.Decimal(10, 2)
   sessionType    String?
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 
   @@index([organizationId, trainerId])
   @@map("trainer_commission_rules")
 }
 
 model TrainerCommission {
-  id               String   @id @default(uuid())
+  id               String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId   String
   trainerId        String
   ptSessionId      String
@@ -3517,16 +3525,16 @@ model TrainerCommission {
   commissionAmount Decimal  @db.Decimal(10, 2)
   status           String   @default("PENDING")
   createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime @default(now()) @updatedAt
 
-  @@unique([organizationId, ptSessionId])
+  @@unique([organizationId, ptSessionId], map: "trainer_commissions_org_session_key")
   @@index([organizationId, sessionAt])
   @@index([organizationId, trainerId])
   @@map("trainer_commissions")
 }
 
 model SubscriptionPlan {
-  id                String   @id @default(uuid())
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   key               String   @unique
   name              String
   maxMembers        Int?
@@ -3547,7 +3555,7 @@ model SubscriptionPlan {
 }
 
 model OrganizationSubscription {
-  id                 String   @id @default(uuid())
+  id                 String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId     String   @unique
   planId             String
   status             String   @default("ACTIVE")
@@ -3561,7 +3569,7 @@ model OrganizationSubscription {
 }
 
 model PlatformInvoice {
-  id             String    @id @default(uuid())
+  id             String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String
   planId         String?
   amountMinor    Int
@@ -3602,45 +3610,45 @@ model PlatformInvoice {
 // ----------------------------------------------------------------------------
 
 model LoyaltyAccount {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String       @map("member_id")
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   points         Int          @default(0)
   tier           String       @default("STANDARD")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([organizationId, memberId])
-  @@index([organizationId])
+  @@index([organizationId], map: "loyalty_accounts_org_idx")
   @@map("loyalty_accounts")
 }
 
 model LoyaltyLedgerEntry {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String       @map("member_id")
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   points         Int
   reason         String
   referenceType  String?      @map("reference_type")
   referenceId    String?      @map("reference_id")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@index([organizationId, memberId, createdAt(sort: Desc)])
+  @@index([organizationId, memberId, createdAt(sort: Desc)], map: "loyalty_ledger_org_member_idx")
   @@map("loyalty_ledger")
 }
 
 model Referral {
-  id               String       @id @default(uuid())
+  id               String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId   String       @map("organization_id")
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   referrerMemberId String       @map("referrer_member_id")
-  referrerMember   Member       @relation("ReferralReferrer", fields: [referrerMemberId], references: [id], onDelete: Cascade)
+  referrerMember   Member       @relation("ReferralReferrer", fields: [referrerMemberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   referredMemberId String?      @map("referred_member_id")
-  referredMember   Member?      @relation("ReferralReferred", fields: [referredMemberId], references: [id], onDelete: SetNull)
+  referredMember   Member?      @relation("ReferralReferred", fields: [referredMemberId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   code             String
   status           String       @default("PENDING")
   rewardPoints     Int          @default(0) @map("reward_points")
@@ -3652,17 +3660,17 @@ model Referral {
 }
 
 model SupportTicket {
-  id               String                 @id @default(uuid())
+  id               String                 @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId   String                 @map("organization_id")
-  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   branchId         String?                @map("branch_id")
-  branch           Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  branch           Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   memberId         String?                @map("member_id")
-  member           Member?                @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  member           Member?                @relation(fields: [memberId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   createdByUserId  String?                @map("created_by_user_id")
-  createdByUser    User?                  @relation("SupportTicketCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser    User?                  @relation("SupportTicketCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   assignedToUserId String?                @map("assigned_to_user_id")
-  assignedToUser   User?                  @relation("SupportTicketAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignedToUser   User?                  @relation("SupportTicketAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   subject          String
   description      String
   category         String                 @default("GENERAL")
@@ -3674,18 +3682,18 @@ model SupportTicket {
   updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   messages         SupportTicketMessage[]
 
-  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, status, createdAt(sort: Desc)], map: "support_tickets_org_status_idx")
   @@map("support_tickets")
 }
 
 model SupportTicketMessage {
-  id             String        @id @default(uuid())
+  id             String        @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String        @map("organization_id")
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   ticketId       String        @map("ticket_id")
-  ticket         SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket         SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   authorUserId   String?       @map("author_user_id")
-  authorUser     User?         @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorUser     User?         @relation(fields: [authorUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   body           String
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -3693,9 +3701,9 @@ model SupportTicketMessage {
 }
 
 model FeedbackSurvey {
-  id             String             @id @default(uuid())
+  id             String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String             @map("organization_id")
-  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   name           String
   kind           String             @default("CSAT")
   active         Boolean            @default(true)
@@ -3706,27 +3714,27 @@ model FeedbackSurvey {
 }
 
 model FeedbackResponse {
-  id             String         @id @default(uuid())
+  id             String         @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String         @map("organization_id")
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   surveyId       String         @map("survey_id")
-  survey         FeedbackSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey         FeedbackSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String?        @map("member_id")
-  member         Member?        @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  member         Member?        @relation(fields: [memberId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   score          Int
   comment        String?
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, createdAt(sort: Desc)], map: "feedback_responses_org_idx")
   @@map("feedback_responses")
 }
 
 model MarketingCampaign {
-  id             String                    @id @default(uuid())
+  id             String                    @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String                    @map("organization_id")
-  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   branchId       String?                   @map("branch_id")
-  branch         Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  branch         Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   name           String
   channel        String                    @default("EMAIL")
   templateKey    String?                   @map("template_key")
@@ -3737,18 +3745,18 @@ model MarketingCampaign {
   updatedAt      DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   members        MarketingCampaignMember[]
 
-  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, status, createdAt(sort: Desc)], map: "marketing_campaigns_org_idx")
   @@map("marketing_campaigns")
 }
 
 model MarketingCampaignMember {
-  id             String            @id @default(uuid())
+  id             String            @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String            @map("organization_id")
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   campaignId     String            @map("campaign_id")
-  campaign       MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign       MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String            @map("member_id")
-  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member            @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   status         String            @default("QUEUED")
   sentAt         DateTime?         @map("sent_at") @db.Timestamptz(6)
   error          String?
@@ -3758,9 +3766,9 @@ model MarketingCampaignMember {
 }
 
 model AccountingAccount {
-  id             String            @id @default(uuid())
+  id             String            @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String            @map("organization_id")
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   code           String
   name           String
   type           String
@@ -3773,31 +3781,31 @@ model AccountingAccount {
 }
 
 model AccountingEntry {
-  id             String            @id @default(uuid())
+  id             String            @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String            @map("organization_id")
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   accountId      String            @map("account_id")
-  account        AccountingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account        AccountingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   branchId       String?           @map("branch_id")
-  branch         Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  branch         Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   referenceType  String?           @map("reference_type")
   referenceId    String?           @map("reference_id")
   debit          Decimal           @default(0) @db.Decimal(14, 2)
   credit         Decimal           @default(0) @db.Decimal(14, 2)
   description    String
-  entryDate      DateTime          @default(now()) @map("entry_date") @db.Date
+  entryDate      DateTime          @default(dbgenerated("CURRENT_DATE")) @map("entry_date") @db.Date
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@index([organizationId, entryDate(sort: Desc)])
+  @@index([organizationId, entryDate(sort: Desc)], map: "accounting_entries_org_date_idx")
   @@map("accounting_entries")
 }
 
 model PortalInvite {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String       @map("member_id")
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tokenHash      String       @unique @map("token_hash")
   expiresAt      DateTime     @map("expires_at") @db.Timestamptz(6)
   usedAt         DateTime?    @map("used_at") @db.Timestamptz(6)
@@ -3826,11 +3834,11 @@ enum DeviceKind {
 /// authenticates here, where the key exists only as a sha256 hash and one
 /// device can be revoked on its own.
 model KioskDevice {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   branchId       String       @map("branch_id")
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   name           String
   kind           DeviceKind   @default(KIOSK)
   keyHash        String       @unique @map("key_hash")
@@ -3847,28 +3855,28 @@ model KioskDevice {
 }
 
 model NotificationDevice {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   memberId       String?      @map("member_id")
-  member         Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member         Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userId         String?      @map("user_id")
-  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   channel        String
   address        String
   active         Boolean      @default(true)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@index([organizationId, channel, active])
+  @@index([organizationId, channel, active], map: "notification_devices_org_idx")
   @@map("notification_devices")
 }
 
 model AiCommandLog {
-  id             String       @id @default(uuid())
+  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userId         String?      @map("user_id")
-  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   command        String
   responseType   String       @map("response_type")
   toolName       String?      @map("tool_name")
@@ -3889,7 +3897,7 @@ model PublicEndpointRateLimit {
   windowStartedAt DateTime @default(now()) @map("window_started_at") @db.Timestamptz(6)
 
   @@id([scope, key])
-  @@index([windowStartedAt])
+  @@index([windowStartedAt], map: "public_endpoint_rate_limits_window_idx")
   @@map("public_endpoint_rate_limits")
 }
 

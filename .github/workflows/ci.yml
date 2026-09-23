@@ -55,6 +55,17 @@ jobs:
       - name: Lint
         run: npm run lint:ci
 
+      # Guards against a schema change landing without the migration that
+      # produces it -- the failure mode that accumulated 475 lines of drift
+      # before B-P0-12. Runs before the tests because a drifted schema
+      # makes every later failure harder to read.
+      - name: Schema/migration drift
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mygymagent_drift_check
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c 'CREATE DATABASE mygymagent_drift_check'
+          npm run db:check-drift
+
       - name: Unit tests
         run: npm test
 

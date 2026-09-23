@@ -27,6 +27,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "db:check-drift": "node scripts/check-schema-drift.cjs",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:dev": "tsx prisma/seed-dev.ts",
     "platform:create-admin": "tsx prisma/create-platform-admin.ts",
