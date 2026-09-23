@@ -62,14 +62,22 @@ export class AttendanceController {
   /**
    * QR credential mint. Always (re)generates -- the plaintext `token` is
    * returned once here and never stored (only its hash persists).
+   *
+   * Gated on `attendance.create*` only, deliberately matching `check-in`
+   * below (B-P0-9). It used to also accept `members.read*`, which made
+   * minting a durable entry credential a *lower* bar than recording a
+   * single check-in with it -- exactly backwards. Reading a member's
+   * profile and issuing physical access to the building are different
+   * privileges and no longer share one.
+   *
+   * Narrowing this removes the route from NUTRITIONIST, SALES_EXECUTIVE
+   * and ACCOUNTANT, none of whom work the door; every front-desk and
+   * training role (RECEPTIONIST, TRAINER, HEAD_TRAINER, BRANCH_MANAGER,
+   * STAFF, and the org/platform roles) holds `attendance.create*` and is
+   * unaffected.
    */
   @Get('qr-token/:memberId')
-  @RequireAnyPermission(
-    'attendance.create',
-    'attendance.create_assigned',
-    'members.read',
-    'members.read_assigned',
-  )
+  @RequireAnyPermission('attendance.create', 'attendance.create_assigned')
   @Audited({ resource: 'member_qr_token', action: 'generate' })
   qrToken(
     @CurrentUser() user: AuthenticatedUser,
