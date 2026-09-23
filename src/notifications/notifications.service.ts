@@ -7,6 +7,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import {
+  isNotificationCategory,
+  NOTIFICATION_CATEGORY_KEYS,
+  type NotificationCategory,
+} from './notification-categories';
 
 type NotificationCursor = { createdAt: string; id: string };
 
@@ -19,7 +24,14 @@ export interface NotificationInput {
   branchId?: string | null;
   actorUserId?: string | null;
   recipientUserIds?: string[];
-  category?: string;
+  /**
+   * Required, and one of the catalog's ten. It used to be optional, with
+   * `category ?? type` as the fallback -- which meant a handler that
+   * forgot it published under its *type* (`PAYMENT_RECORDED`), a category
+   * the preferences screen never shows and no user can ever mute. The
+   * type is the event; the category is the thing a person opts out of.
+   */
+  category: NotificationCategory;
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
   entityType?: string;
   entityId?: string;
@@ -240,8 +252,14 @@ export class NotificationsService {
     dto: UpdateNotificationPreferencesDto,
   ) {
     const normalizedCategory = category.trim().toUpperCase();
-    if (!normalizedCategory)
-      throw new NotFoundException('Notification category is required');
+    // B-P0-11: an unrecognised category used to be stored happily and then
+    // matched nothing -- the user saw their opt-out save and kept getting
+    // notified. Reject it instead, and name the ten that exist so the
+    // caller can see what they meant.
+    if (!isNotificationCategory(normalizedCategory))
+      throw new BadRequestException(
+        `Unknown notification category '${category}'. Expected one of: ${NOTIFICATION_CATEGORY_KEYS.join(', ')}.`,
+      );
     return this.prisma.notificationPreference.upsert({
       where: {
         organizationId_userId_category: {
@@ -283,7 +301,7 @@ export class NotificationsService {
 
     if (!recipientIds.length) return { created: 0 };
 
-    const category = (input.category ?? input.type).trim().toUpperCase();
+    const { category } = input;
     const preferences = await this.prisma.notificationPreference.findMany({
       where: { organizationId, userId: { in: recipientIds }, category },
       select: { userId: true, inApp: true },
@@ -336,7 +354,7 @@ export class NotificationsService {
         organizationId_userId_category: {
           organizationId: input.organizationId,
           userId: input.userId,
-          category: (input.category ?? input.type).toUpperCase(),
+          category: input.category,
         },
       },
       select: { inApp: true },
@@ -349,7 +367,7 @@ export class NotificationsService {
         branchId: input.branchId ?? null,
         actorUserId: input.actorUserId ?? null,
         type: input.type,
-        category: (input.category ?? input.type).toUpperCase(),
+        category: input.category,
         priority: input.priority ?? 'NORMAL',
         title: input.title,
         body: input.body,

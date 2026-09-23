@@ -27,6 +27,7 @@ describe('NotificationsService', () => {
     await expect(
       service.notifyOrganization('org-1', {
         type: 'PAYMENT_RECORDED',
+        category: 'PAYMENTS',
         title: 'Payment recorded',
         body: 'A payment was recorded.',
         metadata: { paymentId: 'payment-1' },
@@ -45,7 +46,7 @@ describe('NotificationsService', () => {
       where: {
         organizationId: 'org-1',
         userId: { in: ['user-1', 'user-2', 'user-3'] },
-        category: 'PAYMENT_RECORDED',
+        category: 'PAYMENTS',
       },
       select: { userId: true, inApp: true },
     });
@@ -57,7 +58,7 @@ describe('NotificationsService', () => {
           branchId: null,
           actorUserId: null,
           type: 'PAYMENT_RECORDED',
-          category: 'PAYMENT_RECORDED',
+          category: 'PAYMENTS',
           priority: 'NORMAL',
           title: 'Payment recorded',
           body: 'A payment was recorded.',
@@ -75,7 +76,7 @@ describe('NotificationsService', () => {
           branchId: null,
           actorUserId: null,
           type: 'PAYMENT_RECORDED',
-          category: 'PAYMENT_RECORDED',
+          category: 'PAYMENTS',
           priority: 'NORMAL',
           title: 'Payment recorded',
           body: 'A payment was recorded.',
@@ -104,6 +105,7 @@ describe('NotificationsService', () => {
     await expect(
       service.notifyOrganization('org-1', {
         type: 'LEAD_CREATED',
+        category: 'CRM',
         title: 'New lead',
         body: 'A new lead was created.',
       }),

@@ -246,6 +246,90 @@ describe('Notification centre (e2e)', () => {
       expect(pref.inApp).toBe(false);
     });
 
+    it('refuses a category nothing ever notifies on (B-P0-11)', async () => {
+      // The route used to upsert whatever string arrived in the path. A
+      // preference stored under BILLING is not wrong-looking -- it is
+      // inert: `notifyOrganization` looks preferences up by the exact
+      // category it publishes under, and nothing publishes under BILLING,
+      // so the user watches their opt-out save and keeps being notified.
+      for (const bogus of [
+        'BILLING',
+        'member',
+        'MEMBERS_2',
+        'PAYMENT_RECORDED',
+      ]) {
+        const res = await asOwner(
+          request(app.getHttpServer())
+            .patch(`/notifications/preferences/${bogus}`)
+            .send({ inApp: false }),
+        ).expect(400);
+        expect(res.body.error.message).toContain(
+          'Unknown notification category',
+        );
+      }
+
+      // PAYMENT_RECORDED above is the sharp one: it is a real notification
+      // *type*, and the old `category ?? type` fallback made types and
+      // categories look interchangeable when they are not.
+      const stored = await prisma.notificationPreference.findMany({
+        where: { userId: ownerUserId },
+        select: { category: true },
+      });
+      expect(stored.map((p) => p.category)).not.toContain('BILLING');
+      expect(stored.map((p) => p.category)).not.toContain('PAYMENT_RECORDED');
+    });
+
+    it('serves the catalog the settings screen renders from', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).get('/notifications/categories'),
+      ).expect(200);
+      const keys = res.body.data.map((c: { key: string }) => c.key);
+      expect(keys).toEqual([
+        'MEMBERS',
+        'MEMBERSHIPS',
+        'ATTENDANCE',
+        'PAYMENTS',
+        'CRM',
+        'WORKOUT',
+        'DIET',
+        'INVENTORY',
+        'PT',
+        'WHATSAPP',
+      ]);
+      for (const category of res.body.data) {
+        expect(typeof category.label).toBe('string');
+        expect(category.label.length).toBeGreaterThan(0);
+        expect(typeof category.description).toBe('string');
+      }
+    });
+
+    it('accepts every category the catalog advertises', async () => {
+      // The catalog and the validator must agree in both directions: the
+      // test above proves the unknown ones are refused, this one proves
+      // the advertised ones are not.
+      const catalog = await asOwner(
+        request(app.getHttpServer()).get('/notifications/categories'),
+      ).expect(200);
+
+      for (const { key } of catalog.body.data as { key: string }[]) {
+        await asOwner(
+          request(app.getHttpServer())
+            .patch(`/notifications/preferences/${key}`)
+            .send({ email: true }),
+        ).expect(200);
+      }
+
+      // Restore the MEMBERS opt-out the earlier cases set up and the two
+      // fan-out cases below depend on -- the loop only touched `email`.
+      const list = await asOwner(
+        request(app.getHttpServer()).get('/notifications/preferences'),
+      ).expect(200);
+      const members = list.body.data.find(
+        (p: { category: string }) => p.category === 'MEMBERS',
+      );
+      expect(members.inApp).toBe(false);
+    });
+
     it('stops in-app fan-out for the opted-out user only', async () => {
       const ownerBefore = await countFor(ownerUserId, 'MEMBER_CREATED');
       const staffBefore = await countFor(staffUserId, 'MEMBER_CREATED');

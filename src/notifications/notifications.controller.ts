@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import { NOTIFICATION_CATEGORIES } from './notification-categories';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { NotificationsService } from './notifications.service';
 
@@ -90,6 +91,20 @@ export class NotificationsController {
   @Patch('read-all')
   markAllRead(@CurrentUser() user: AuthenticatedUser) {
     return this.notifications.markAllRead(user.id, user.organizationId!);
+  }
+
+  /**
+   * The category catalog, with display copy. Serving it keeps the
+   * settings screen's list from being a hand-maintained fourth copy of
+   * the ten categories -- add one in `notification-categories.ts` and it
+   * appears in the UI without a frontend change.
+   *
+   * Declared above `@Get('preferences')` purely for reading order; both
+   * are static segments and neither shadows the other.
+   */
+  @Get('categories')
+  categories() {
+    return NOTIFICATION_CATEGORIES;
   }
 
   @Get('preferences')
