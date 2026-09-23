@@ -195,6 +195,9 @@ model Organization {
   kioskDevices             KioskDevice[]
   notificationDevices      NotificationDevice[]
   aiCommandLogs            AiCommandLog[]
+  classPrograms            ClassProgram[]
+  classSessions            ClassSession[]
+  classBookings            ClassBooking[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -262,6 +265,9 @@ model Branch {
   marketingCampaigns MarketingCampaign[]
   accountingEntries  AccountingEntry[]
   kioskDevices       KioskDevice[]
+  classPrograms      ClassProgram[]
+  classSessions      ClassSession[]
+  classBookings      ClassBooking[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -377,6 +383,8 @@ model User {
   supportTicketMessages  SupportTicketMessage[]
   notificationDevices    NotificationDevice[]
   aiCommandLogs          AiCommandLog[]
+  classProgramsLed       ClassProgram[]
+  classSessionsLed       ClassSession[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -756,6 +764,7 @@ model Member {
   marketingCampaignMemberships MarketingCampaignMember[]
   portalInvites                PortalInvite[]
   notificationDevices          NotificationDevice[]
+  classBookings                ClassBooking[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -3882,4 +3891,111 @@ model PublicEndpointRateLimit {
   @@id([scope, key])
   @@index([windowStartedAt])
   @@map("public_endpoint_rate_limits")
+}
+
+// ----------------------------------------------------------------------------
+// Group training (B-P0-8). These three tables were created by raw DDL and
+// driven entirely through `$queryRawUnsafe`, with no model block at all --
+// so nothing type-checked the columns, and `prisma migrate diff` could not
+// see them to report drift. The blocks below describe the physical tables
+// exactly: constraint and index names are pinned with `map:`, and foreign
+// keys keep `onUpdate: NoAction` because the hand-written DDL omitted the
+// ON UPDATE clause that Prisma otherwise defaults to CASCADE.
+
+enum ClassProgramStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ClassBookingStatus {
+  WAITLISTED
+  BOOKED
+  CANCELLED
+  ATTENDED
+  NO_SHOW
+}
+
+/// A recurring class offering: "Spin, 20 places, 45 minutes". Capacity here
+/// is the default a session inherits unless it overrides it.
+model ClassProgram {
+  id             String       @id @default(dbgenerated("gen_random_uuid()"))
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_programs_org_fkey")
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_programs_branch_fkey")
+
+  name            String
+  description     String?
+  capacity        Int
+  durationMinutes Int
+  instructorId    String?
+  instructor      User?              @relation(fields: [instructorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "class_programs_instructor_fkey")
+  status          ClassProgramStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  sessions ClassSession[]
+
+  @@index([organizationId, branchId, status], map: "class_programs_org_branch_idx")
+  @@map("class_programs")
+}
+
+/// One scheduled occurrence of a program. `capacity` is nullable: null means
+/// "inherit the program's", which is why every capacity read in the service
+/// goes through COALESCE rather than reading this column directly.
+model ClassSession {
+  id             String       @id @default(dbgenerated("gen_random_uuid()"))
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_sessions_org_fkey")
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_sessions_branch_fkey")
+  classProgramId String
+  classProgram   ClassProgram @relation(fields: [classProgramId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_sessions_program_fkey")
+
+  instructorId String?
+  instructor   User?              @relation(fields: [instructorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "class_sessions_instructor_fkey")
+  startTime    DateTime
+  endTime      DateTime
+  capacity     Int?
+  status       ClassProgramStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  bookings ClassBooking[]
+
+  @@index([organizationId, startTime], map: "class_sessions_org_start_idx")
+  @@index([organizationId, branchId, startTime], map: "class_sessions_org_branch_start_idx")
+  @@map("class_sessions")
+}
+
+/// A member's place in a session, booked or waitlisted. The unique
+/// `(sessionId, memberId)` is what makes re-booking an UPDATE rather than a
+/// second row, so a cancelled booking can be revived in place and the
+/// waitlist keeps one entry per member.
+model ClassBooking {
+  id             String       @id @default(dbgenerated("gen_random_uuid()"))
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_bookings_org_fkey")
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_bookings_branch_fkey")
+  sessionId      String
+  session        ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_bookings_session_fkey")
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "class_bookings_member_fkey")
+
+  status           ClassBookingStatus @default(BOOKED)
+  waitlistPosition Int?
+  bookedAt         DateTime           @default(now())
+  cancelledAt      DateTime?
+  attendanceAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([sessionId, memberId], map: "class_bookings_unique_member_session")
+  @@index([organizationId, sessionId, status], map: "class_bookings_org_session_status_idx")
+  @@index([organizationId, memberId], map: "class_bookings_org_member_idx")
+  @@map("class_bookings")
 }

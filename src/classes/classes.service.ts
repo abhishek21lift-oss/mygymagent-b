@@ -3,252 +3,488 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type {
+  CreateClassProgramDto,
+  CreateClassSessionDto,
+  ListClassSessionsDto,
+  ListClassesDto,
+} from './dto/classes.dto';
 
+const DEFAULT_WINDOW_DAYS = 14;
+const DEFAULT_ANALYTICS_DAYS = 30;
+const DAY_MS = 86_400_000;
+
+/** The statuses that occupy a place or a queue position. Re-booking one of
+ * these is a conflict; re-booking anything else revives the row. */
+const LIVE_STATUSES = ['BOOKED', 'WAITLISTED'] as const;
+
+/** The client handed to a `$transaction` callback: the same model API
+ * minus the lifecycle methods. Named so the two helpers below read the
+ * same whether they are called inside a transaction or not. */
+type PrismaTx = Prisma.TransactionClient;
+
+/**
+ * Tenant-scoped group training orchestration.
+ *
+ * B-P0-8: this module used to reach `class_programs`, `class_sessions` and
+ * `class_bookings` exclusively through `$queryRawUnsafe`, with no Prisma
+ * model behind any of them. The SQL was correct -- unlike the Business OS
+ * case in B-P0-1 it quoted its camelCase columns -- so this port is about
+ * type safety and drift visibility, not a live bug: nothing checked that a
+ * selected column existed, and `prisma migrate diff` could not see three
+ * tables at all.
+ *
+ * Two things did change behaviourally, both deliberate, both noted where
+ * they happen: `cancel()` now takes the same advisory lock `book()` does,
+ * and `updatedAt` is maintained by Prisma rather than written by hand.
+ */
 @Injectable()
-/** Tenant-scoped group training orchestration. */
 export class ClassesService {
   constructor(private readonly prisma: PrismaService) {}
-  private async branch(org: string, id: string) {
-    const r = await this.prisma.branch.findFirst({
-      where: { id, organizationId: org, status: 'ACTIVE', deletedAt: null },
+
+  private async assertBranch(organizationId: string, id: string) {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id, organizationId, status: 'ACTIVE', deletedAt: null },
       select: { id: true },
     });
-    if (!r)
+    if (!branch) {
       throw new BadRequestException(
         'Branch does not belong to this organization',
       );
+    }
   }
-  private async user(org: string, id?: string) {
+
+  private async assertInstructor(organizationId: string, id?: string | null) {
     if (!id) return;
-    const r = await this.prisma.user.findFirst({
-      where: { id, organizationId: org, deletedAt: null },
+    const user = await this.prisma.user.findFirst({
+      where: { id, organizationId, deletedAt: null },
       select: { id: true },
     });
-    if (!r)
+    if (!user) {
       throw new BadRequestException(
         'Instructor does not belong to this organization',
       );
+    }
   }
-  private async member(org: string, id: string) {
-    const r = await this.prisma.member.findFirst({
-      where: { id, organizationId: org, deletedAt: null },
+
+  private async assertMember(organizationId: string, id: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id, organizationId, deletedAt: null },
       select: { id: true },
     });
-    if (!r)
+    if (!member) {
       throw new BadRequestException(
         'Member does not belong to this organization',
       );
+    }
   }
-  programs(org: string, q: any) {
-    return this.prisma.$queryRawUnsafe(
-      'SELECT p.*,b.name AS "branchName",u."firstName" AS "instructorFirstName",u."lastName" AS "instructorLastName" FROM class_programs p JOIN branches b ON b.id=p."branchId" LEFT JOIN users u ON u.id=p."instructorId" WHERE p."organizationId"=$1 AND ($2::text IS NULL OR p."branchId"=$2) AND ($3::text IS NULL OR p.status::text=$3) ORDER BY p.name ASC',
-      org,
-      q.branchId ?? null,
-      q.status ?? null,
-    );
+
+  async programs(organizationId: string, query: ListClassesDto) {
+    const rows = await this.prisma.classProgram.findMany({
+      where: {
+        organizationId,
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
+      include: {
+        branch: { select: { name: true } },
+        instructor: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    // The raw version flattened the joins into `branchName` /
+    // `instructorFirstName` / `instructorLastName`; keep that shape so the
+    // response contract is unchanged by the port.
+    return rows.map(({ branch, instructor, ...program }) => ({
+      ...program,
+      branchName: branch.name,
+      instructorFirstName: instructor?.firstName ?? null,
+      instructorLastName: instructor?.lastName ?? null,
+    }));
   }
-  async createProgram(org: string, dto: any) {
-    await this.branch(org, dto.branchId);
-    await this.user(org, dto.instructorId);
-    const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      'INSERT INTO class_programs ("organizationId","branchId","name","description","capacity","durationMinutes","instructorId") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      org,
-      dto.branchId,
-      dto.name.trim(),
-      dto.description ?? null,
-      dto.capacity,
-      dto.durationMinutes,
-      dto.instructorId ?? null,
-    );
-    return rows[0];
+
+  async createProgram(organizationId: string, dto: CreateClassProgramDto) {
+    await this.assertBranch(organizationId, dto.branchId);
+    await this.assertInstructor(organizationId, dto.instructorId);
+    return this.prisma.classProgram.create({
+      data: {
+        organizationId,
+        branchId: dto.branchId,
+        name: dto.name.trim(),
+        description: dto.description ?? null,
+        capacity: dto.capacity,
+        durationMinutes: dto.durationMinutes,
+        instructorId: dto.instructorId ?? null,
+      },
+    });
   }
-  async sessions(org: string, q: any) {
-    const from = q.from ? new Date(q.from) : new Date(),
-      to = q.to ? new Date(q.to) : new Date(from.getTime() + 14 * 86400000);
+
+  async sessions(organizationId: string, query: ListClassSessionsDto) {
+    const from = query.from ? new Date(query.from) : new Date();
+    const to = query.to
+      ? new Date(query.to)
+      : new Date(from.getTime() + DEFAULT_WINDOW_DAYS * DAY_MS);
     if (!(from < to)) throw new BadRequestException('to must be after from');
-    return this.prisma.$queryRawUnsafe(
-      'SELECT s.*,p.name AS "className",b.name AS "branchName",COALESCE(s.capacity,p.capacity) AS "effectiveCapacity",u."firstName" AS "instructorFirstName",u."lastName" AS "instructorLastName",COUNT(cb.id) FILTER (WHERE cb.status=\'BOOKED\')::int AS "bookedCount",COUNT(cb.id) FILTER (WHERE cb.status=\'WAITLISTED\')::int AS "waitlistCount" FROM class_sessions s JOIN class_programs p ON p.id=s."classProgramId" JOIN branches b ON b.id=s."branchId" LEFT JOIN users u ON u.id=COALESCE(s."instructorId",p."instructorId") LEFT JOIN class_bookings cb ON cb."sessionId"=s.id WHERE s."organizationId"=$1 AND s."startTime">=$2 AND s."startTime"<=$3 AND ($4::text IS NULL OR s."branchId"=$4) AND ($5::text IS NULL OR COALESCE(s."instructorId",p."instructorId")=$5) GROUP BY s.id,p.id,b.id,u.id ORDER BY s."startTime" ASC',
-      org,
-      from,
-      to,
-      q.branchId ?? null,
-      q.instructorId ?? null,
-    );
+
+    const sessions = await this.prisma.classSession.findMany({
+      where: {
+        organizationId,
+        startTime: { gte: from, lte: to },
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+      },
+      include: {
+        classProgram: {
+          select: {
+            name: true,
+            capacity: true,
+            instructorId: true,
+            instructor: { select: { firstName: true, lastName: true } },
+          },
+        },
+        branch: { select: { name: true } },
+        instructor: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { startTime: 'asc' },
+    });
+
+    // The instructor filter is COALESCE(session, program) -- a session
+    // without its own instructor is led by the program's -- which is not
+    // expressible as a `where` on either column alone.
+    const filtered = query.instructorId
+      ? sessions.filter(
+          (s) =>
+            (s.instructorId ?? s.classProgram.instructorId) ===
+            query.instructorId,
+        )
+      : sessions;
+    if (!filtered.length) return [];
+
+    const counts = await this.countsBySession(filtered.map((s) => s.id));
+
+    return filtered.map(({ classProgram, branch, instructor, ...session }) => {
+      const lead = instructor ?? classProgram.instructor;
+      const tally = counts.get(session.id);
+      return {
+        ...session,
+        className: classProgram.name,
+        branchName: branch.name,
+        effectiveCapacity: session.capacity ?? classProgram.capacity,
+        instructorFirstName: lead?.firstName ?? null,
+        instructorLastName: lead?.lastName ?? null,
+        bookedCount: tally?.BOOKED ?? 0,
+        waitlistCount: tally?.WAITLISTED ?? 0,
+      };
+    });
   }
-  async createSession(org: string, dto: any) {
-    await this.branch(org, dto.branchId);
-    await this.user(org, dto.instructorId);
-    const p = await this.prisma.$queryRawUnsafe<any[]>(
-      'SELECT * FROM class_programs WHERE id=$1 AND "organizationId"=$2 AND "branchId"=$3 AND status=\'ACTIVE\'',
-      dto.classProgramId,
-      org,
-      dto.branchId,
-    );
-    if (!p.length)
+
+  /**
+   * Booking counts per session, per status. One `groupBy` rather than the
+   * raw version's `COUNT(...) FILTER (WHERE ...)` in the main query: the
+   * aggregate cannot be expressed in a Prisma `include`, and doing it as a
+   * second round trip keeps the session read typed.
+   */
+  private async countsBySession(sessionIds: string[]) {
+    const grouped = await this.prisma.classBooking.groupBy({
+      by: ['sessionId', 'status'],
+      where: { sessionId: { in: sessionIds } },
+      _count: { _all: true },
+    });
+    const counts = new Map<string, Partial<Record<string, number>>>();
+    for (const row of grouped) {
+      const bucket = counts.get(row.sessionId) ?? {};
+      bucket[row.status] = row._count._all;
+      counts.set(row.sessionId, bucket);
+    }
+    return counts;
+  }
+
+  async createSession(organizationId: string, dto: CreateClassSessionDto) {
+    await this.assertBranch(organizationId, dto.branchId);
+    await this.assertInstructor(organizationId, dto.instructorId);
+
+    const program = await this.prisma.classProgram.findFirst({
+      where: {
+        id: dto.classProgramId,
+        organizationId,
+        branchId: dto.branchId,
+        status: 'ACTIVE',
+      },
+      select: { id: true, instructorId: true },
+    });
+    if (!program) {
       throw new BadRequestException(
         'Active class program not found for this branch',
       );
-    const start = new Date(dto.startTime),
-      end = new Date(dto.endTime);
-    if (!(start < end))
+    }
+
+    const startTime = new Date(dto.startTime);
+    const endTime = new Date(dto.endTime);
+    if (!(startTime < endTime)) {
       throw new BadRequestException('endTime must be after startTime');
-    const instructor = dto.instructorId ?? p[0].instructorId ?? null;
-    await this.user(org, instructor ?? undefined);
-    const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      'INSERT INTO class_sessions ("organizationId","branchId","classProgramId","instructorId","startTime","endTime","capacity") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      org,
-      dto.branchId,
-      dto.classProgramId,
-      instructor,
-      start,
-      end,
-      dto.capacity ?? null,
-    );
-    return rows[0];
-  }
-  async book(org: string, sessionId: string, memberId: string) {
-    await this.member(org, memberId);
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        'SELECT pg_advisory_xact_lock(hashtext($1))',
-        sessionId,
-      );
-      const s = await tx.$queryRawUnsafe<any[]>(
-        'SELECT s.*,COALESCE(s.capacity,p.capacity) AS "effectiveCapacity" FROM class_sessions s JOIN class_programs p ON p.id=s."classProgramId" WHERE s.id=$1 AND s."organizationId"=$2 AND s.status=\'ACTIVE\'',
-        sessionId,
-        org,
-      );
-      if (!s.length) throw new NotFoundException('Class session not found');
-      const existing = await tx.$queryRawUnsafe<any[]>(
-        'SELECT * FROM class_bookings WHERE "sessionId"=$1 AND "memberId"=$2',
-        sessionId,
-        memberId,
-      );
-      if (
-        existing.length &&
-        ['BOOKED', 'WAITLISTED'].includes(existing[0].status)
-      )
-        throw new BadRequestException('Member is already booked or waitlisted');
-      const count = Number(
-        (
-          await tx.$queryRawUnsafe<any[]>(
-            'SELECT COUNT(*)::int AS count FROM class_bookings WHERE "sessionId"=$1 AND status=\'BOOKED\'',
-            sessionId,
-          )
-        )[0]?.count ?? 0,
-      );
-      const cap = Number(s[0].effectiveCapacity);
-      if (existing.length) {
-        if (count < cap)
-          return (
-            await tx.$queryRawUnsafe<any[]>(
-              'UPDATE class_bookings SET status=\'BOOKED\',"waitlistPosition"=NULL,"cancelledAt"=NULL,"attendanceAt"=NULL,"bookedAt"=CURRENT_TIMESTAMP,"updatedAt"=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *',
-              existing[0].id,
-            )
-          )[0];
-        const pos = Number(
-          (
-            await tx.$queryRawUnsafe<any[]>(
-              'SELECT COALESCE(MAX("waitlistPosition"),0)::int+1 AS position FROM class_bookings WHERE "sessionId"=$1 AND status=\'WAITLISTED\'',
-              sessionId,
-            )
-          )[0].position,
-        );
-        return (
-          await tx.$queryRawUnsafe<any[]>(
-            'UPDATE class_bookings SET status=\'WAITLISTED\',"waitlistPosition"=$1,"cancelledAt"=NULL,"attendanceAt"=NULL,"bookedAt"=CURRENT_TIMESTAMP,"updatedAt"=CURRENT_TIMESTAMP WHERE id=$2 RETURNING *',
-            pos,
-            existing[0].id,
-          )
-        )[0];
-      }
-      if (count < cap)
-        return (
-          await tx.$queryRawUnsafe<any[]>(
-            'INSERT INTO class_bookings ("organizationId","branchId","sessionId","memberId","status") VALUES ($1,$2,$3,$4,\'BOOKED\') RETURNING *',
-            org,
-            s[0].branchId,
-            sessionId,
-            memberId,
-          )
-        )[0];
-      const pos = Number(
-        (
-          await tx.$queryRawUnsafe<any[]>(
-            'SELECT COALESCE(MAX("waitlistPosition"),0)::int+1 AS position FROM class_bookings WHERE "sessionId"=$1 AND status=\'WAITLISTED\'',
-            sessionId,
-          )
-        )[0].position,
-      );
-      return (
-        await tx.$queryRawUnsafe<any[]>(
-          'INSERT INTO class_bookings ("organizationId","branchId","sessionId","memberId","status","waitlistPosition") VALUES ($1,$2,$3,$4,\'WAITLISTED\',$5) RETURNING *',
-          org,
-          s[0].branchId,
-          sessionId,
-          memberId,
-          pos,
-        )
-      )[0];
+    }
+
+    const instructorId = dto.instructorId ?? program.instructorId ?? null;
+    await this.assertInstructor(organizationId, instructorId);
+
+    return this.prisma.classSession.create({
+      data: {
+        organizationId,
+        branchId: dto.branchId,
+        classProgramId: program.id,
+        instructorId,
+        startTime,
+        endTime,
+        capacity: dto.capacity ?? null,
+      },
     });
   }
-  async cancel(org: string, bookingId: string) {
+
+  /**
+   * Books a member, or waitlists them when the session is full.
+   *
+   * The advisory lock is the whole concurrency story: two simultaneous
+   * bookings for the last place must not both see `count < capacity`. It is
+   * taken on the session id, so it also serialises against `cancel()`,
+   * which promotes from the same waitlist.
+   */
+  async book(organizationId: string, sessionId: string, memberId: string) {
+    await this.assertMember(organizationId, memberId);
     return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRawUnsafe<any[]>(
-        "SELECT * FROM class_bookings WHERE id=$1 AND \"organizationId\"=$2 AND status IN ('BOOKED','WAITLISTED') FOR UPDATE",
-        bookingId,
-        org,
-      );
-      if (!rows.length) throw new NotFoundException('Active booking not found');
-      await tx.$executeRawUnsafe(
-        'UPDATE class_bookings SET status=\'CANCELLED\',"cancelledAt"=CURRENT_TIMESTAMP,"waitlistPosition"=NULL,"updatedAt"=CURRENT_TIMESTAMP WHERE id=$1',
-        bookingId,
-      );
-      if (rows[0].status === 'BOOKED') {
-        const next = await tx.$queryRawUnsafe<any[]>(
-          'SELECT id FROM class_bookings WHERE "organizationId"=$1 AND "sessionId"=$2 AND status=\'WAITLISTED\' ORDER BY "waitlistPosition" ASC,"createdAt" ASC LIMIT 1 FOR UPDATE',
-          org,
-          rows[0].sessionId,
-        );
-        if (next.length)
-          await tx.$executeRawUnsafe(
-            'UPDATE class_bookings SET status=\'BOOKED\',"waitlistPosition"=NULL,"updatedAt"=CURRENT_TIMESTAMP WHERE id=$1',
-            next[0].id,
-          );
+      await this.lockSession(tx, sessionId);
+
+      const session = await tx.classSession.findFirst({
+        where: { id: sessionId, organizationId, status: 'ACTIVE' },
+        select: {
+          id: true,
+          branchId: true,
+          capacity: true,
+          classProgram: { select: { capacity: true } },
+        },
+      });
+      if (!session) throw new NotFoundException('Class session not found');
+      const capacity = session.capacity ?? session.classProgram.capacity;
+
+      const existing = await tx.classBooking.findUnique({
+        where: { sessionId_memberId: { sessionId, memberId } },
+        select: { id: true, status: true },
+      });
+      if (
+        existing &&
+        (LIVE_STATUSES as readonly string[]).includes(existing.status)
+      ) {
+        throw new BadRequestException('Member is already booked or waitlisted');
+      }
+
+      const booked = await tx.classBooking.count({
+        where: { sessionId, status: 'BOOKED' },
+      });
+
+      // A place is free: book, whether this is a new row or the revival of
+      // a cancelled one. Reviving clears the previous outcome -- a member
+      // who was marked NO_SHOW and re-books is not still a no-show.
+      if (booked < capacity) {
+        const data = {
+          status: 'BOOKED' as const,
+          waitlistPosition: null,
+          cancelledAt: null,
+          attendanceAt: null,
+          bookedAt: new Date(),
+        };
+        return existing
+          ? tx.classBooking.update({ where: { id: existing.id }, data })
+          : tx.classBooking.create({
+              data: {
+                organizationId,
+                branchId: session.branchId,
+                sessionId,
+                memberId,
+                ...data,
+              },
+            });
+      }
+
+      const waitlistPosition = await this.nextWaitlistPosition(tx, sessionId);
+      const data = {
+        status: 'WAITLISTED' as const,
+        waitlistPosition,
+        cancelledAt: null,
+        attendanceAt: null,
+        bookedAt: new Date(),
+      };
+      return existing
+        ? tx.classBooking.update({ where: { id: existing.id }, data })
+        : tx.classBooking.create({
+            data: {
+              organizationId,
+              branchId: session.branchId,
+              sessionId,
+              memberId,
+              ...data,
+            },
+          });
+    });
+  }
+
+  /**
+   * Cancels a booking and promotes the head of the waitlist.
+   *
+   * Takes the same advisory lock `book()` does. The raw version used
+   * `SELECT ... FOR UPDATE` on the booking rows instead, which locks
+   * different objects than `book()` does and so did not exclude it: a
+   * cancellation promoting a waitlisted member while a booking was
+   * counting places could put the session one over capacity. Row locks
+   * also have no typed Prisma equivalent, so the fix and the port are the
+   * same edit.
+   */
+  async cancel(organizationId: string, bookingId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const booking = await tx.classBooking.findFirst({
+        where: {
+          id: bookingId,
+          organizationId,
+          status: { in: [...LIVE_STATUSES] },
+        },
+        select: { id: true, status: true, sessionId: true },
+      });
+      if (!booking) throw new NotFoundException('Active booking not found');
+
+      await this.lockSession(tx, booking.sessionId);
+
+      await tx.classBooking.update({
+        where: { id: booking.id },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          waitlistPosition: null,
+        },
+      });
+
+      // Only a booked place frees a place. Cancelling from the waitlist
+      // promotes nobody.
+      if (booking.status === 'BOOKED') {
+        const next = await tx.classBooking.findFirst({
+          where: {
+            organizationId,
+            sessionId: booking.sessionId,
+            status: 'WAITLISTED',
+          },
+          orderBy: [{ waitlistPosition: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true },
+        });
+        if (next) {
+          await tx.classBooking.update({
+            where: { id: next.id },
+            data: { status: 'BOOKED', waitlistPosition: null },
+          });
+        }
       }
       return { ok: true };
     });
   }
+
   async attendance(
-    org: string,
+    organizationId: string,
     bookingId: string,
     status: 'ATTENDED' | 'NO_SHOW',
   ) {
-    const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      "SELECT * FROM class_bookings WHERE id=$1 AND \"organizationId\"=$2 AND status IN ('BOOKED','ATTENDED','NO_SHOW')",
-      bookingId,
-      org,
-    );
-    if (!rows.length) throw new NotFoundException('Booking not found');
-    return (
-      await this.prisma.$queryRawUnsafe<any[]>(
-        'UPDATE class_bookings SET status=$1::"ClassBookingStatus","attendanceAt"=CURRENT_TIMESTAMP,"updatedAt"=CURRENT_TIMESTAMP WHERE id=$2 RETURNING *',
-        status,
-        bookingId,
-      )
-    )[0];
+    const booking = await this.prisma.classBooking.findFirst({
+      where: {
+        id: bookingId,
+        organizationId,
+        status: { in: ['BOOKED', 'ATTENDED', 'NO_SHOW'] },
+      },
+      select: { id: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    return this.prisma.classBooking.update({
+      where: { id: booking.id },
+      data: { status, attendanceAt: new Date() },
+    });
   }
-  async analytics(org: string, from?: string, to?: string, branchId?: string) {
-    const start = from ? new Date(from) : new Date(Date.now() - 30 * 86400000),
-      end = to ? new Date(to) : new Date();
+
+  async analytics(
+    organizationId: string,
+    from?: string,
+    to?: string,
+    branchId?: string,
+  ) {
+    const start = from
+      ? new Date(from)
+      : new Date(Date.now() - DEFAULT_ANALYTICS_DAYS * DAY_MS);
+    const end = to ? new Date(to) : new Date();
     if (!(start < end)) throw new BadRequestException('to must be after from');
-    return this.prisma.$queryRawUnsafe(
-      'SELECT p.id AS "classProgramId",p.name AS "className",COUNT(cb.id)::int AS "totalBookings",COUNT(cb.id) FILTER (WHERE cb.status=\'ATTENDED\')::int AS "attended",COUNT(cb.id) FILTER (WHERE cb.status=\'NO_SHOW\')::int AS "noShows",COUNT(cb.id) FILTER (WHERE cb.status=\'WAITLISTED\')::int AS "waitlisted" FROM class_programs p JOIN class_sessions s ON s."classProgramId"=p.id LEFT JOIN class_bookings cb ON cb."sessionId"=s.id WHERE p."organizationId"=$1 AND s."startTime">=$2 AND s."startTime"<=$3 AND ($4::text IS NULL OR s."branchId"=$4) GROUP BY p.id,p.name ORDER BY "totalBookings" DESC',
-      org,
-      start,
-      end,
-      branchId ?? null,
+
+    const sessions = await this.prisma.classSession.findMany({
+      where: {
+        organizationId,
+        startTime: { gte: start, lte: end },
+        ...(branchId ? { branchId } : {}),
+      },
+      select: {
+        id: true,
+        classProgramId: true,
+        classProgram: { select: { name: true } },
+      },
+    });
+    if (!sessions.length) return [];
+
+    const counts = await this.countsBySession(sessions.map((s) => s.id));
+
+    // Roll the per-session tallies up to the program. Programs with
+    // sessions but no bookings still appear, with zeroes -- the raw
+    // version's LEFT JOIN did the same, and "we ran it and nobody came" is
+    // the row an operator most needs to see.
+    const byProgram = new Map<
+      string,
+      {
+        classProgramId: string;
+        className: string;
+        totalBookings: number;
+        attended: number;
+        noShows: number;
+        waitlisted: number;
+      }
+    >();
+    for (const session of sessions) {
+      const row = byProgram.get(session.classProgramId) ?? {
+        classProgramId: session.classProgramId,
+        className: session.classProgram.name,
+        totalBookings: 0,
+        attended: 0,
+        noShows: 0,
+        waitlisted: 0,
+      };
+      const tally = counts.get(session.id) ?? {};
+      for (const [status, count] of Object.entries(tally)) {
+        row.totalBookings += count ?? 0;
+        if (status === 'ATTENDED') row.attended += count ?? 0;
+        if (status === 'NO_SHOW') row.noShows += count ?? 0;
+        if (status === 'WAITLISTED') row.waitlisted += count ?? 0;
+      }
+      byProgram.set(session.classProgramId, row);
+    }
+    return [...byProgram.values()].sort(
+      (a, b) => b.totalBookings - a.totalBookings,
     );
+  }
+
+  /**
+   * Serialises everything that reads capacity and writes a place for one
+   * session. Raw because there is no Prisma API for an advisory lock; it is
+   * a parameterised tagged template, not the `$queryRawUnsafe` this module
+   * used to be built from.
+   */
+  private lockSession(tx: PrismaTx, sessionId: string) {
+    return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
+  }
+
+  private async nextWaitlistPosition(tx: PrismaTx, sessionId: string) {
+    const highest = await tx.classBooking.aggregate({
+      where: { sessionId, status: 'WAITLISTED' },
+      _max: { waitlistPosition: true },
+    });
+    return (highest._max.waitlistPosition ?? 0) + 1;
   }
 }

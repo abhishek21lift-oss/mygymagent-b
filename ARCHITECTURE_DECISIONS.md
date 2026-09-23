@@ -846,3 +846,37 @@ kind)`: a lookup by digest on the unique index, filtered by kind and `active`.
 - **Still open:** `DeviceMap` has no write path (B-P1-8), so a turnstile cannot be *enrolled*
   through the API even now that it can authenticate. This ADR fixes the credential, not the
   enrolment.
+
+## AI-24 -- Group training on typed Prisma, and one lock per session (B-P0-8)
+
+**Context:** `src/classes/classes.service.ts` reached `class_programs`, `class_sessions` and
+`class_bookings` exclusively through `$queryRawUnsafe`, and none of the three had a `model` block.
+Unlike the Business OS case in AI-1/B-P0-1, the SQL quoted its camelCase columns correctly, so it
+genuinely worked — B-P0-2's suite proves the capacity, waitlist and promotion behaviour is sound.
+The cost was that nothing type-checked a column name, and `prisma migrate diff` could not see three
+tables at all, so they were invisible to the drift work in B-P0-12.
+
+**Decision:** model all three, and port the service to the typed client.
+
+**Consequences:**
+
+- The models describe the *physical* tables rather than what Prisma would have generated. Constraint
+  and index names are pinned with `map:` (`class_programs_org_fkey`,
+  `class_bookings_unique_member_session`, …), and every relation carries `onUpdate: NoAction`
+  because the hand-written DDL omitted the ON UPDATE clause that Prisma defaults to `CASCADE`.
+  Without that, modelling the tables would have *added* drift rather than removing it. Measured:
+  zero `class_*` lines in `migrate diff`, and total drift 475 → 427.
+- Two aggregate reads (`sessions`, `analytics`) become a typed read plus one `groupBy`, because
+  `COUNT(...) FILTER (WHERE ...)` has no `include` equivalent. The response shapes are unchanged.
+- The instructor filter on `sessions` stays in application code: it is
+  `COALESCE(session.instructorId, program.instructorId)`, which is not a `where` on either column.
+- **One real defect surfaced.** `book()` serialised on `pg_advisory_xact_lock(session)`; `cancel()`
+  used `SELECT ... FOR UPDATE` on booking rows. Those lock different objects, so the two did not
+  exclude each other, and a cancellation promoting the head of the waitlist while a booking was
+  counting places could put a session over capacity. `cancel()` now takes the same session lock.
+  Row locks also have no typed Prisma equivalent, so the fix and the port were one edit.
+- `updatedAt` is maintained by Prisma (`@updatedAt`) instead of being written into every UPDATE by
+  hand. The column keeps its `DEFAULT CURRENT_TIMESTAMP`, so the schema still matches the DDL.
+- Concurrency tests are in the suite, and they are honest about being probabilistic: with the lock
+  removed the six-way booking race reddened on every run, the cancel-versus-book race on one in
+  five. A race that only sometimes reproduces is still a race.

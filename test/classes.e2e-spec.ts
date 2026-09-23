@@ -331,6 +331,126 @@ describe('Group training / classes (e2e)', () => {
     });
   });
 
+  /**
+   * B-P0-8. The port to typed Prisma changed one behaviour deliberately:
+   * `cancel()` now takes the same session advisory lock `book()` does. The
+   * raw version used `SELECT ... FOR UPDATE` on booking rows, which locks
+   * different objects than `book()` and therefore did not exclude it --
+   * a cancellation promoting from the waitlist while a booking was
+   * counting places could put a session over capacity.
+   *
+   * These cases drive the races concurrently, so they can pass by luck on
+   * a single run. They earn their place because they fail when the lock is
+   * removed: over five such runs the six-way booking case reddened every
+   * time, the cancel-versus-book case on one of them. A race that only
+   * sometimes reproduces is still a race.
+   */
+  describe('capacity holds under concurrency', () => {
+    let raceProgramId: string;
+    let raceSessionId: string;
+    let racers: string[];
+
+    const seatCount = async (sessionId: string, status: string) =>
+      prisma.classBooking.count({
+        where: { sessionId, status: status as never },
+      });
+
+    beforeAll(async () => {
+      const program = await asOwner(
+        request(app.getHttpServer()).post('/classes/programs').send({
+          branchId,
+          name: 'Race Condition Yoga',
+          capacity: 1,
+          durationMinutes: 45,
+        }),
+      ).expect(201);
+      raceProgramId = program.body.data.id;
+
+      const session = await asOwner(
+        request(app.getHttpServer())
+          .post('/classes/sessions')
+          .send({
+            branchId,
+            classProgramId: raceProgramId,
+            startTime: iso(3 * 86400000),
+            endTime: iso(3 * 86400000 + 45 * 60000),
+          }),
+      ).expect(201);
+      raceSessionId = session.body.data.id;
+
+      racers = [];
+      for (let i = 0; i < 6; i += 1) {
+        const member = await asOwner(
+          request(app.getHttpServer())
+            .post('/members')
+            .send({
+              primaryBranchId: branchId,
+              firstName: `Racer${i}`,
+              lastName: 'Concurrent',
+            }),
+        ).expect(201);
+        racers.push(member.body.data.id);
+      }
+    });
+
+    it('admits exactly one of six simultaneous bookings for one place', async () => {
+      await Promise.all(
+        racers.map((memberId) =>
+          asOwner(
+            request(app.getHttpServer())
+              .post(`/classes/sessions/${raceSessionId}/book`)
+              .send({ memberId }),
+          ),
+        ),
+      );
+
+      expect(await seatCount(raceSessionId, 'BOOKED')).toBe(1);
+      expect(await seatCount(raceSessionId, 'WAITLISTED')).toBe(5);
+
+      // The waitlist is a queue, not a bag: five distinct positions.
+      const waitlisted = await prisma.classBooking.findMany({
+        where: { sessionId: raceSessionId, status: 'WAITLISTED' },
+        select: { waitlistPosition: true },
+      });
+      const positions = waitlisted.map((b) => b.waitlistPosition);
+      expect(new Set(positions).size).toBe(positions.length);
+    });
+
+    it('does not overbook when a cancellation and a booking race', async () => {
+      // The case the old row locks did not cover: cancel() promotes the
+      // head of the waitlist at the same moment book() reads the count.
+      const booked = await prisma.classBooking.findFirstOrThrow({
+        where: { sessionId: raceSessionId, status: 'BOOKED' },
+        select: { id: true },
+      });
+      const outsider = await asOwner(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: branchId,
+          firstName: 'Late',
+          lastName: 'Arrival',
+        }),
+      ).expect(201);
+
+      await Promise.all([
+        asOwner(
+          request(app.getHttpServer()).patch(
+            `/classes/bookings/${booked.id}/cancel`,
+          ),
+        ),
+        asOwner(
+          request(app.getHttpServer())
+            .post(`/classes/sessions/${raceSessionId}/book`)
+            .send({ memberId: outsider.body.data.id }),
+        ),
+      ]);
+
+      // One place, so one booked member -- whether that is the promoted
+      // waitlister or the late arrival depends on which transaction won
+      // the lock, and either is correct. Two would not be.
+      expect(await seatCount(raceSessionId, 'BOOKED')).toBe(1);
+    });
+  });
+
   describe('analytics', () => {
     it('aggregates bookings, attendance and no-shows per program', async () => {
       const res = await asOwner(
