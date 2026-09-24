@@ -959,3 +959,48 @@ worked end to end.
   whether the row carries history: `Attendance.deviceId` points at a device, so a deleted device
   would orphan attribution, while an enrolment is only a mapping and the attendance it produced
   references the member directly.
+
+## AI-27 -- A reconciling migration must be idempotent, because nobody has an accurate model of production (B-P0-12 follow-up)
+
+**Context:** the migration written for AI-25 took production down. `CREATE TABLE
+"trainer_availability_rules"` failed with `42P07 relation already exists`, Prisma marked the
+migration failed, and every subsequent boot stopped at `P3009` — so the service would not start at
+all until a human intervened.
+
+**What I got wrong.** AI-25 verified the migration history against a database *built from the
+migrations*, and reported zero drift. That check was correct and is still the right check — but it
+proves the history is self-consistent, not that any particular database matches it. Production had
+drifted in the opposite direction from the one I measured: the two trainer tables already existed
+there, created out of band (the signature of a `prisma db push`). The whole point of B-P0-12 was
+that the schema and the database disagreed, and I then wrote the fix as though the database were
+exactly what the history predicted. The irony is the finding.
+
+**Decision:** every statement in a reconciling migration converges to the intended state from
+wherever the database actually starts.
+
+- `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `DROP INDEX IF EXISTS`.
+- `ADD CONSTRAINT` has no `IF NOT EXISTS`, so each is written as
+  `DROP CONSTRAINT IF EXISTS x, ADD CONSTRAINT x ...` in one statement. That also *repairs* a
+  constraint that exists with the wrong definition, which a guard alone would skip — and a wrong
+  `ON DELETE` was one of the defects being fixed.
+- The one statement that can legitimately fail on real data — making
+  `payments.stripePaymentIntentId` unique — fails loudly and names the offending intent ids, rather
+  than surfacing as a bare `23505` or, worse, being silently skipped. Merging duplicate payments is
+  a business decision; a migration may not make it.
+
+**Consequences:**
+
+- Verified on four databases, not one: a fresh database; a database reproducing production (history
+  applied *without* this migration, then `db push` to create the tables out of band); that same
+  database twice more to prove repeat runs are clean; and a database seeded with duplicate Stripe
+  intent ids to prove the guard fires with a useful message. Both paths converge on an identical
+  schema (1248 columns) with zero drift.
+- The case-folding bug the test caught is worth recording: `to_regclass('public.payments_stripePaymentIntentId_key')`
+  lower-cases an unquoted identifier and never matches an index whose name carries capitals. The
+  guard has to be `to_regclass('public."payments_stripePaymentIntentId_key"')`. Writing the guard
+  is not the same as knowing it works.
+- **The gap that remains:** CI checks migrations against schema, which would not have caught this.
+  Nothing checks a migration against a database that has drifted from the history in some third
+  direction, and short of running deploys against a restored production snapshot, nothing can. The
+  honest mitigation is the rule above — idempotent by construction — applied to every migration
+  that touches an object it did not itself create.
