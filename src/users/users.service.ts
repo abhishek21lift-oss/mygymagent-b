@@ -168,8 +168,15 @@ export class UsersService {
         expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       },
     });
+    // Staff are always created with an email -- `User.email` is nullable
+    // only for SMS-login members, who are never invited through here.
     await this.communications
-      .sendStaffInvite(organizationId, user.email, user.firstName, inviteToken)
+      .sendStaffInvite(
+        organizationId,
+        user.email ?? '',
+        user.firstName,
+        inviteToken,
+      )
       .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
 
     return this.getOne(organizationId, user.id);

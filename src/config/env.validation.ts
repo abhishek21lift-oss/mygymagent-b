@@ -65,6 +65,19 @@ export const envSchema = z
     // CommunicationsService logs instead of sending (see
     // SmtpEmailProvider), same degraded behavior the old MailerService
     // stub always had, but now visible in MessageLog rather than silent.
+    // MSG91 carries member login codes. Optional together, like SMTP_*
+    // and S3_*: unset means SMS login refuses up front (see
+    // Msg91SmsProvider.isConfigured) rather than issuing codes that
+    // cannot be delivered. MSG91_OTP_TEMPLATE_ID is the DLT-registered
+    // template, MSG91_OTP_VAR the variable inside it the code fills --
+    // that name is fixed when the template is approved, not by us.
+    MSG91_AUTH_KEY: z.string().optional(),
+    MSG91_OTP_TEMPLATE_ID: z.string().optional(),
+    MSG91_SENDER_ID: z.string().optional(),
+    MSG91_OTP_VAR: z.string().optional(),
+    /** MSG91 serves regional endpoints; unset uses the default. */
+    MSG91_FLOW_URL: z.string().url().optional(),
+
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().positive().default(587),
     // Not z.coerce.boolean(): that's `Boolean(value)` under the hood, which

@@ -140,7 +140,13 @@ export class MfaService {
     const issuer = user.organization?.name?.trim() || 'MyGymAgent';
     return {
       secret,
-      otpauthUri: totp.keyuri(user.email, issuer, secret),
+      // The label is what the authenticator app shows. An SMS-login
+      // member has no email to put there, so the account reads by name
+      // rather than as an empty entry.
+      // The label is what the authenticator app shows beside the code.
+      // An SMS-login member has no email to put there; the account id
+      // keeps the entry distinguishable rather than blank.
+      otpauthUri: totp.keyuri(user.email ?? user.id, issuer, secret),
     };
   }
 

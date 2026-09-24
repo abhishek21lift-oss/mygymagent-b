@@ -99,7 +99,14 @@ export class AutomationScanProcessor extends WorkerHost {
       select: { email: true },
     });
 
-    for (const recipient of recipients) {
+    // `User.email` is nullable since SMS login, and an alert has nowhere
+    // to go without one. These are staff, who all have an address, so
+    // this narrows the type without changing who gets told -- and an
+    // empty string here would be a send that silently fails at the SMTP
+    // layer instead.
+    for (const recipient of recipients.filter((r): r is { email: string } =>
+      Boolean(r.email),
+    )) {
       await this.runs.attempt(
         event.organizationId,
         'LOW_STOCK_ALERT',

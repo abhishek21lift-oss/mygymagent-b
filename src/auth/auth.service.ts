@@ -11,6 +11,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { slugifyWithSuffix } from '../common/utils/slugify';
 import { PermissionsService } from '../rbac/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MemberOtpService } from './member-otp.service';
 import {
   generateOpaqueToken,
   hashOpaqueToken,
@@ -46,7 +47,9 @@ export interface RequestMeta {
 function publicUser(user: {
   id: string;
   organizationId: string | null;
-  email: string;
+  /** Null for a member who signs in by SMS: they were imported with a
+   * phone and no address, so there is no email to show them. */
+  email: string | null;
   firstName: string;
   lastName: string;
   status: string;
@@ -87,6 +90,7 @@ export class AuthService {
     private readonly permissions: PermissionsService,
     private readonly mfa: MfaService,
     private readonly mfaPolicy: MfaPolicyService,
+    private readonly memberOtp: MemberOtpService,
   ) {}
 
   async register(dto: RegisterDto, meta: RequestMeta) {
@@ -149,10 +153,13 @@ export class AuthService {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
       },
     });
+    // Registration always collects an email -- this path is never a
+    // member. The check is for the type, and would be a genuine bug if
+    // it ever held.
     await this.communications
       .sendEmailVerification(
         result.organization.id,
-        result.user.email,
+        result.user.email ?? '',
         result.user.firstName,
         verificationToken,
       )
@@ -422,9 +429,15 @@ export class AuthService {
         expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
       },
     });
-    await this.communications
-      .sendPasswordReset(user.organizationId, user.email, token)
-      .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
+    // A member who signs in by SMS has no address to send this to, and
+    // no password to reset either. Silently doing nothing matches the
+    // caller's existing contract, which never reveals whether an account
+    // was found.
+    if (user.email) {
+      await this.communications
+        .sendPasswordReset(user.organizationId, user.email, token)
+        .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
+    }
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -508,6 +521,58 @@ export class AuthService {
         data: { usedAt: new Date() },
       }),
     ]);
+  }
+
+  /**
+   * The session half of an SMS login.
+   *
+   * `MemberOtpService` decides whether the code was right; this turns
+   * that into the same session a password login produces, so the portal
+   * and every guard downstream cannot tell the two apart.
+   *
+   * The MFA check is kept rather than skipped. A member account created
+   * by this flow has no second factor, so it is normally a no-op -- but
+   * if one is ever enrolled on such an account, a login path that
+   * ignored it would be a way around it rather than a feature missing
+   * from it.
+   */
+  async loginWithOtp(dto: { phone: string; code: string }, meta: RequestMeta) {
+    const { userId } = await this.memberOtp.verifyCode(
+      dto.phone,
+      dto.code,
+      meta,
+    );
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      include: { member: { select: { id: true } } },
+    });
+    if (user.status !== 'ACTIVE' || user.deletedAt) {
+      throw new UnauthorizedException('Account is not active');
+    }
+
+    if (await this.mfa.isEnabled(user.id)) {
+      return {
+        mfaRequired: true as const,
+        ...this.mfa.issueChallengeToken(user.id),
+      };
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), failedLoginAttempts: 0 },
+    });
+
+    const { accessToken, refreshToken, refreshExpiresAt } =
+      await this.issueSession(user.id, meta);
+
+    return {
+      mfaRequired: false as const,
+      user: publicUser(user),
+      accessToken,
+      refreshToken,
+      refreshExpiresAt,
+    };
   }
 
   private async issueSession(userId: string, meta: RequestMeta) {

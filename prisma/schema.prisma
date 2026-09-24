@@ -301,7 +301,11 @@ model User {
   /// Set only for platform-level staff (organizationId is null for these).
   platformRole PlatformRole?
 
-  email        String  @unique
+  /// Nullable since SMS OTP login: a member identified by phone has no
+  /// email, and 947 of this deployment's 954 members are exactly that.
+  /// Postgres allows many NULLs under a unique index, so the constraint
+  /// still holds for everyone who does have one.
+  email        String? @unique
   passwordHash String?
   firstName    String
   lastName     String
@@ -582,6 +586,36 @@ model MfaRecoveryCode {
   @@map("mfa_recovery_codes")
 }
 
+/// A one-time code sent to a member's phone to log in.
+///
+/// Only the sha256 of the code is stored, the same way every other
+/// credential in this schema is held -- a readable column here would be
+/// a list of working logins for anyone who reached the database.
+/// `attempts` is on the row rather than counted from a log so the limit
+/// survives a restart, and `consumedAt` makes a code single-use even
+/// inside its window.
+model MemberOtpChallenge {
+  id       String @id @default(uuid())
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// E.164, as stored on Member.phone -- the number the code went to,
+  /// kept so a challenge can be found without trusting the caller's
+  /// member id.
+  phone    String
+  codeHash String
+
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([phone, createdAt])
+  @@index([memberId])
+  @@map("member_otp_challenges")
+}
+
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
@@ -705,6 +739,8 @@ model Member {
   /// Set only if/when this member is granted member-portal login.
   userId String? @unique
   user   User?   @relation("MemberPortalUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  otpChallenges MemberOtpChallenge[]
 
   notes String?
 

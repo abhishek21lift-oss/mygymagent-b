@@ -18,8 +18,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AuthService, type RequestMeta } from './auth.service';
+import { MemberOtpService } from './member-otp.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { RequestOtpDto, VerifyOtpDto } from './dto/member-otp.dto';
 import { VerifyMfaDto } from './mfa/dto/mfa.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -32,6 +34,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
+    private readonly memberOtp: MemberOtpService,
   ) {}
 
   private requestMeta(req: Request): RequestMeta {
@@ -148,6 +151,50 @@ export class AuthController {
       accessToken: result.accessToken,
       mfaEnrolment: result.mfaEnrolment,
     };
+  }
+
+  /**
+   * Ask for a login code by SMS.
+   *
+   * `@Public()` because the caller has no session yet -- proving they
+   * hold the phone is what this is for. The throttle is deliberately
+   * tighter than `login`'s: every call here can cost the gym a message,
+   * and the service adds a per-number cooldown on top so one handset
+   * cannot be flooded from many addresses.
+   *
+   * Answers identically whether or not the number belongs to anyone, so
+   * it cannot be used to read the membership list.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('otp/request')
+  requestOtp(@Body() dto: RequestOtpDto, @Req() req: Request) {
+    return this.memberOtp.requestCode(dto.phone, this.requestMeta(req));
+  }
+
+  /** Spend a code and start a session -- the same session shape a
+   * password login returns, so nothing downstream treats it differently. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('otp/verify')
+  async verifyOtp(
+    @Body() dto: VerifyOtpDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.loginWithOtp(
+      dto,
+      this.requestMeta(req),
+    );
+    if (result.mfaRequired) {
+      return {
+        mfaRequired: true,
+        mfaToken: result.mfaToken,
+        expiresIn: result.expiresIn,
+      };
+    }
+    this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
+    return { user: result.user, accessToken: result.accessToken };
   }
 
   /** Second half of an MFA login. `@Public()` because the caller has no

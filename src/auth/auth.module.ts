@@ -5,6 +5,7 @@ import { CommunicationsModule } from '../communications/communications.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MemberOtpService } from './member-otp.service';
 import { MfaController } from './mfa/mfa.controller';
 import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
@@ -20,6 +21,7 @@ import { TokensService } from './tokens.service';
   ],
   controllers: [AuthController, MfaController],
   providers: [
+    MemberOtpService,
     AuthService,
     TokensService,
     JwtStrategy,

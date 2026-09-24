@@ -11,6 +11,7 @@ import {
 } from './communications.service';
 import { MessageTemplateService } from './message-template.service';
 import { MetaWhatsappProvider } from './providers/meta-whatsapp.provider';
+import { Msg91SmsProvider } from './providers/msg91-sms.provider';
 import { HttpChannelProvider } from './providers/http-channel.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
@@ -33,16 +34,19 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     CommunicationsService,
     MessageTemplateService,
     MetaWhatsappProvider,
+    Msg91SmsProvider,
     { provide: EMAIL_PROVIDER, useClass: SmtpEmailProvider },
     {
       provide: WHATSAPP_PROVIDER,
       useClass: MetaWhatsappProvider,
     },
+    // MSG91 rather than the generic HttpChannelProvider: SMS on this
+    // deployment is an Indian, DLT-registered channel, which is a shape
+    // the generic "POST {to, text} to a URL" provider cannot express.
+    // PUSH keeps the generic one until a real provider lands.
     {
       provide: SMS_PROVIDER,
-      useFactory: (config: ConfigService) =>
-        new HttpChannelProvider(config, 'SMS'),
-      inject: [ConfigService],
+      useClass: Msg91SmsProvider,
     },
     {
       provide: PUSH_PROVIDER,
@@ -51,6 +55,6 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
       inject: [ConfigService],
     },
   ],
-  exports: [CommunicationsService],
+  exports: [CommunicationsService, Msg91SmsProvider],
 })
 export class CommunicationsModule {}

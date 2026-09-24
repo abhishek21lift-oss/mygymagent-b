@@ -8,7 +8,9 @@ export interface AuthenticatedUser {
   id: string;
   organizationId: string | null;
   platformRole: PlatformRole | null;
-  email: string;
+  /** Null for a member who signed in by SMS: no email was ever
+   * collected for them. */
+  email: string | null;
   firstName: string;
   lastName: string;
   primaryBranchId: string | null;
