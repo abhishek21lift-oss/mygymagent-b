@@ -4,9 +4,13 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequireAnyPermission } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
+  BulkAssignMembershipDto,
   BulkExportDto,
   BulkStatusChangeDto,
   BulkTagAssignmentDto,
@@ -49,6 +53,29 @@ export class MemberBulkController {
       user.organizationId!,
       dto,
       user.id,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
+  /**
+   * `memberships.create`, not `members.update`: this creates billable
+   * rows with an expiry date, which is a different act from editing a
+   * member, and one a receptionist who may edit members is not
+   * necessarily trusted to do for 291 people at once.
+   */
+  @Post('memberships')
+  @RequirePermissions('memberships.create')
+  @Audited({ resource: 'membership', action: 'bulk_assign' })
+  assignMemberships(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkAssignMembershipDto,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.bulk.assignMemberships(
+      user.organizationId!,
+      dto,
       branchScope,
       assignmentScope,
     );

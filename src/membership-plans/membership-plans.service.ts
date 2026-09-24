@@ -38,9 +38,29 @@ export class MembershipPlansService {
     return plan;
   }
 
-  create(organizationId: string, dto: CreateMembershipPlanDto) {
+  /**
+   * A plan with no `currency` takes the organization's, not the schema's
+   * `@default("USD")`.
+   *
+   * The DTO has always accepted `currency` and the plan form has never
+   * sent one, so every plan created through the UI landed on the column
+   * default. 619 Fitness Studio is an INR organization whose three
+   * plans were therefore all stored as USD -- 2000 rupees recorded as
+   * two thousand dollars -- and `Membership.currency` is copied from the
+   * plan at sale, so each sale propagated it. Payments, which do read
+   * the organization, were being written INR against USD memberships.
+   */
+  async create(organizationId: string, dto: CreateMembershipPlanDto) {
+    const organization = await this.prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { currency: true },
+    });
     return this.prisma.membershipPlan.create({
-      data: { ...dto, organizationId },
+      data: {
+        ...dto,
+        organizationId,
+        currency: dto.currency ?? organization.currency,
+      },
     });
   }
 
