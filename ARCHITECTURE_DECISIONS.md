@@ -1213,3 +1213,58 @@ slow connection does not queue twice. The screen says plainly that nothing is ch
 **Also:** `GET /portal/me` returns every field the account form can edit. It previously returned a
 subset, so the form rendered blanks over stored values and a member could not tell an empty field
 from one the screen had not fetched.
+
+## AI-33 -- The enquiry importer reads dates as written, and reports instead of logging (B-P0-15)
+
+**Context:** a 1342-row "Customer Enquiry" export was to be imported as members and leads. The
+importer that existed for it had been throwing `incorrect header check` on every production boot for
+at least a week — it ran from `onModuleInit` against a gzipped base64 blob in an environment
+variable, as a fire-and-forget promise, so the only symptom was one error line per restart and
+nothing had ever been imported.
+
+Running its mapping against the real file showed that landing it would have been worse than not:
+
+- **Dates.** The export writes `DD-MM-YYYY`; the mapping used `new Date(v)`, which V8 reads as
+  American `MM-DD-YYYY`. `11-05-2026` became 5 November instead of 11 May — silently, no error. Where
+  the day exceeded 12 the parse was invalid and the caller substituted `new Date()`. Of 952 member
+  rows: **22 join dates correct, 272 silently wrong, 655 replaced by the import timestamp.** Dates of
+  birth: 5 correct, 46 wrong, 66 dropped. The true join dates span Sep 2024 – May 2026; after import
+  almost everyone would have looked like they joined that morning, which is also the input
+  `member-inactive.scanner` uses (`attendances[0]?.checkInAt ?? joinedAt`), so win-back automation
+  would have stayed silent for months.
+- **Phones.** `Member.phone` is what the WhatsApp provider hands Meta as `to:`, and Meta needs the
+  country code. The mapping stored the bare 10-digit local number and put the column that *had* the
+  country code into a free-text notes blob. Every WhatsApp message to an imported record would have
+  failed — for a gym whose entire outbound is WhatsApp.
+- **Placeholders.** `"None"` (33 rows), `"UNKNOWN"` (1338) and `"0"` (732) are how this export spells
+  empty. They were being stored as values.
+- **Trainers.** 38 rows name one; the organization has no trainer staff profiles, so all 38 resolved
+  to null behind a single log line.
+- **Everyone lived in Kanpur.** `city`/`state`/`country` were hard-coded onto every member, including
+  the row whose note reads "LIVE IN DELHI".
+
+**Decision:** the mapping is a separate Prisma-free module (`customer-enquiry-mapping.ts`) so it can
+be tested against the real file's shapes without a database, and the import is a route with a dry run
+that returns a report.
+
+**Consequences:**
+
+- `parseDayFirstDate` parses `DD-MM-YYYY` as written and rejects rollover, so `31-02-2025` is an
+  error rather than 3 March. An unreadable date is **reported and left unset**, so the column default
+  applies and "we do not know" is never recorded as "joined today".
+- Phones are stored E.164. The export's country-code column is preferred, the local number plus `+91`
+  is the fallback, and a row where the two disagree is reported rather than resolved by guessing.
+  Deduplication compares the last ten digits, so a record stored as `+916393786886` still matches the
+  same person typed in as `6393786886` — including on a re-run.
+- **No `Membership` row is created.** The export says whether a member is active but not what they
+  bought, for how much, or until when. Fabricating an end date would put renewal reminders in front
+  of real people on a date nobody chose. The report states how many active members this leaves
+  without anything to renew (289 in this file) rather than the gap being discovered later.
+- Unmatched trainers are **named** in the report, and a re-run backfills `assignedTrainerId` on
+  members that already exist once the trainer does — so the assignment is recoverable instead of lost
+  the first time.
+- A row that is "Not assigned" *and* has a conversion date is neither a member nor a lead under the
+  original rule and was dropped without a word. It is now counted as `ambiguous`.
+- The hard-coded `1342`/`952`/`390` assertions are gone. A different export is a different number of
+  rows, not a failure.
+- The boot-time environment-variable path is removed, which also ends the per-restart error line.

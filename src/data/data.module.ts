@@ -8,6 +8,6 @@ import { CustomerEnquiryImportService } from './customer-enquiry-import.service'
   imports: [PlatformBillingModule],
   controllers: [DataController],
   providers: [DataService, CustomerEnquiryImportService],
-  exports: [DataService],
+  exports: [DataService, CustomerEnquiryImportService],
 })
 export class DataModule {}

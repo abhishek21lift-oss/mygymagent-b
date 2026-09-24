@@ -1,362 +1,277 @@
-/* eslint-disable prettier/prettier */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PlatformBillingService } from '../platform-billing/platform-billing.service';
-import { DataService } from './data.service';
-import { gunzipSync } from 'node:zlib';
+import {
+  classifyRow,
+  clean,
+  meaningful,
+  mapGender,
+  normalizeName,
+  parseDayFirstDate,
+  phoneKey,
+  sourceNotes,
+  splitName,
+  toE164,
+  validEmail,
+  type EnquiryRow,
+} from './customer-enquiry-mapping';
 
-type SourceRow = Record<string, string | null>;
+const MAX_ROWS = 5000;
 
-function clean(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const v = String(value).trim();
-  return v ? v : null;
+export interface CustomerEnquiryImportOptions {
+  /** Nothing is written. The report is identical either way, so the run
+   * that decides is the same code as the run that commits. */
+  dryRun?: boolean;
+  /** Defaults to the organization's only branch. */
+  branchId?: string;
 }
 
-function normalizeName(value: string | null): string {
-  return (value ?? '')
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-function splitName(
-  value: string | null,
-): { firstName: string; lastName: string } | null {
-  const name = clean(value);
-  if (!name) return null;
-  const parts = name.split(/\s+/);
-  return {
-    firstName: parts[0],
-    lastName: parts.slice(1).join(' ') || parts[0],
+export interface CustomerEnquiryImportReport {
+  dryRun: boolean;
+  branchId: string;
+  sourceRows: number;
+  classified: { members: number; leads: number; ambiguous: number };
+  members: { toCreate: number; alreadyPresent: number; created: number };
+  leads: { toCreate: number; alreadyPresent: number; created: number };
+  trainers: { matched: number; backfilled: number; unmatched: string[] };
+  warnings: {
+    /** Rows whose join date could not be read and which therefore have
+     * no `joinedAt` from the source. Previously these silently became
+     * the moment of import. */
+    unparseableJoinDate: string[];
+    unparseableDateOfBirth: string[];
+    missingPhone: string[];
+    phoneDisagreement: string[];
+    singleWordName: string[];
+    /** Members the gym calls ACTIVE. The export carries no plan, price
+     * or end date, so no Membership row can honestly be created for
+     * them -- see the note in the service. */
+    activeWithoutMembership: number;
   };
 }
 
-function validPhone(value: string | null): string | null {
-  const v = clean(value);
-  return v && /^\d{10}$/.test(v) ? v : null;
-}
-
-function validEmail(value: string | null): string | null {
-  const v = clean(value)?.toLowerCase() ?? null;
-  return v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : null;
-}
-
-function validDate(
-  value: string | null,
-  minYear = 1900,
-  maxYear = new Date().getFullYear() + 1,
-): Date | null {
-  const v = clean(value);
-  if (!v) return null;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return null;
-  const year = d.getUTCFullYear();
-  if (year < minYear || year > maxYear) return null;
-  return d;
-}
-
-function notesFor(row: SourceRow, code: string | null): string {
-  const lines = [
-    '[Imported from Customer Enquiry export]',
-    code ? `Source Code: ${code}` : null,
-    clean(row['Date of Enquiry'])
-      ? `Date of Enquiry: ${row['Date of Enquiry']}`
-      : null,
-    clean(row['Conversion Date'])
-      ? `Conversion Date: ${row['Conversion Date']}`
-      : null,
-    clean(row['Lead Type']) ? `Lead Type: ${row['Lead Type']}` : null,
-    clean(row['Source of Promo'])
-      ? `Source of Promo: ${row['Source of Promo']}`
-      : null,
-    clean(row['Employment Type'])
-      ? `Employment Type: ${row['Employment Type']}`
-      : null,
-    clean(row['App Installed'])
-      ? `App Installed: ${row['App Installed']}`
-      : null,
-    clean(row['Handled By']) ? `Handled By: ${row['Handled By']}` : null,
-    clean(row['Reference No']) ? `Reference No: ${row['Reference No']}` : null,
-    clean(row['Emergency Contact No'])
-      ? `Emergency Contact No: ${row['Emergency Contact No']}`
-      : null,
-    clean(row['WhatsApp Numbers'])
-      ? `WhatsApp Numbers: ${row['WhatsApp Numbers']}`
-      : null,
-    clean(row['Assigned Trainer'])
-      ? `Source Assigned Trainer: ${row['Assigned Trainer']}`
-      : null,
-    clean(row['Notes']) ? `Source Notes: ${row['Notes']}` : null,
-  ].filter(Boolean);
-  return lines.join('\n');
-}
-
+/**
+ * Imports a "Customer Enquiry" export into members and leads.
+ *
+ * This used to run from `onModuleInit` against a gzipped base64 blob in
+ * an environment variable, with the row counts of one particular file
+ * (1342/952/390) hard-coded as assertions. It had been throwing
+ * `incorrect header check` on every boot for at least a week, so
+ * nothing had ever been imported -- and because it was a fire-and-forget
+ * promise, the only sign was one error line per restart.
+ *
+ * It is a route now, with a dry run, and it reports what it did rather
+ * than logging it. The counts are not asserted: a different export is a
+ * different number of rows, not a failure.
+ *
+ * What it will not do is invent data. The export says whether a member
+ * is active but not what they bought, for how much, or until when, so
+ * no `Membership` row is created. Fabricating an end date would put
+ * renewal reminders in front of real people on a date nobody chose.
+ * The report says how many members this affects.
+ */
 @Injectable()
-export class CustomerEnquiryImportService implements OnModuleInit {
+export class CustomerEnquiryImportService {
   private readonly logger = new Logger(CustomerEnquiryImportService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly billing: PlatformBillingService,
-    private readonly data: DataService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async onModuleInit() {
-    const enabled = process.env.CUSTOMER_ENQUIRY_IMPORT_ENABLED === 'true';
-    const basePayload = process.env.CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64;
-    const chunkPayloads = Object.keys(process.env)
-      .filter((key) =>
-        /^CUSTOMER_ENQUIRY_IMPORT_PAYLOAD_B64_(?:1[0-2]|[1-9])$/.test(key),
-      )
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-      .map((key) => process.env[key])
-      .filter((value): value is string => Boolean(value));
-    const payloadParts = chunkPayloads.length
-      ? chunkPayloads
-      : basePayload
-        ? [basePayload]
-        : [];
-    const payload = payloadParts.join('');
-    if (!enabled || !payload) return;
-
-    // Fire-and-forget after Nest is ready. The operation is idempotent and
-    // fails closed before any write when tenant/branch resolution is ambiguous.
-    void this.run(payload).catch((error) => {
-      this.logger.error(
-        `Customer enquiry import failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
-  }
-
-  private async run(encoded: string) {
-    const parsed = JSON.parse(
-      gunzipSync(Buffer.from(encoded, 'base64')).toString('utf8'),
-    ) as SourceRow[] | string[][];
-    const compactHeaders = [
-      'Code',
-      'Name',
-      'Number',
-      'Email',
-      'Gender',
-      'Date of Enquiry',
-      'Conversion Date',
-      'Handled By',
-      'Notes',
-      'Lead Type',
-      'Source of Promo',
-      'Employment Type',
-      'App Installed',
-      'Assigned Trainer',
-      'Membership Status',
-      'DOB',
-      'Address',
-      'Emergency Contact No',
-      'WhatsApp Numbers',
-      'Reference No',
-    ];
-    const rows =
-      Array.isArray(parsed) && Array.isArray(parsed[0])
-        ? ((parsed as string[][]).map((values) =>
-            Object.fromEntries(
-              compactHeaders.map((header, index) => [
-                header,
-                values[index] ?? null,
-              ]),
-            ),
-          ) as SourceRow[])
-        : (parsed as SourceRow[]);
-
-    if (!Array.isArray(rows) || rows.length !== 1342) {
-      throw new Error(
-        `Expected 1342 source rows, received ${rows?.length ?? 0}`,
+  async import(
+    organizationId: string,
+    rows: EnquiryRow[],
+    options: CustomerEnquiryImportOptions = {},
+  ): Promise<CustomerEnquiryImportReport> {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new BadRequestException('No rows supplied');
+    }
+    if (rows.length > MAX_ROWS) {
+      throw new BadRequestException(
+        `Import is limited to ${MAX_ROWS} rows per request`,
       );
     }
 
-    const orgs = await this.prisma.organization.findMany({
-      where: {
-        name: { equals: '619 FITNESS STUDIO', mode: 'insensitive' },
-        deletedAt: null,
+    const dryRun = options.dryRun ?? false;
+    const branchId = await this.resolveBranch(organizationId, options.branchId);
+    const trainerMap = await this.trainerMap(organizationId);
+
+    const report: CustomerEnquiryImportReport = {
+      dryRun,
+      branchId,
+      sourceRows: rows.length,
+      classified: { members: 0, leads: 0, ambiguous: 0 },
+      members: { toCreate: 0, alreadyPresent: 0, created: 0 },
+      leads: { toCreate: 0, alreadyPresent: 0, created: 0 },
+      trainers: { matched: 0, backfilled: 0, unmatched: [] },
+      warnings: {
+        unparseableJoinDate: [],
+        unparseableDateOfBirth: [],
+        missingPhone: [],
+        phoneDisagreement: [],
+        singleWordName: [],
+        activeWithoutMembership: 0,
       },
-      select: { id: true, name: true },
-    });
-    if (orgs.length !== 1) {
-      throw new Error(
-        `Expected exactly one 619 FITNESS STUDIO organization, found ${orgs.length}`,
-      );
-    }
-    const organizationId = orgs[0].id;
-
-    const branches = await this.prisma.branch.findMany({
-      where: {
-        organizationId,
-        name: { equals: 'Main', mode: 'insensitive' },
-        deletedAt: null,
-      },
-      select: { id: true, name: true },
-    });
-    if (branches.length !== 1) {
-      throw new Error(
-        `Expected exactly one Main branch, found ${branches.length}`,
-      );
-    }
-    const branchId = branches[0].id;
-
-    const trainers = await this.prisma.staffProfile.findMany({
-      where: { organizationId, isTrainer: true, user: { deletedAt: null } },
-      select: {
-        userId: true,
-        branchId: true,
-        user: { select: { firstName: true, lastName: true } },
-      },
-    });
-
-    const trainerMap = new Map<string, string>();
-    const ambiguous = new Set<string>();
-    for (const trainer of trainers) {
-      const key = normalizeName(
-        `${trainer.user.firstName} ${trainer.user.lastName}`,
-      );
-      if (!key) continue;
-      if (trainerMap.has(key)) ambiguous.add(key);
-      else trainerMap.set(key, trainer.userId);
-    }
-    for (const key of ambiguous) trainerMap.delete(key);
-
-    const memberRows = rows.filter(
-      (r) => clean(r['Membership Status']) !== 'Not assigned',
-    );
-    const leadRows = rows.filter(
-      (r) =>
-        clean(r['Membership Status']) === 'Not assigned' &&
-        !clean(r['Conversion Date']),
-    );
-
-    if (memberRows.length !== 952 || leadRows.length !== 390) {
-      throw new Error(
-        `Source classification mismatch: members=${memberRows.length}, leads=${leadRows.length}`,
-      );
-    }
+    };
 
     const existingMembers = await this.prisma.member.findMany({
       where: { organizationId, deletedAt: null },
-      select: { memberCode: true, phone: true, email: true },
+      select: {
+        id: true,
+        memberCode: true,
+        phone: true,
+        email: true,
+        assignedTrainerId: true,
+      },
     });
-    const memberCodes = new Set(
-      existingMembers.map((m) => m.memberCode).filter(Boolean),
+    const memberByCode = new Map(
+      existingMembers.filter((m) => m.memberCode).map((m) => [m.memberCode, m]),
     );
     const memberPhones = new Set(
-      existingMembers.map((m) => m.phone).filter(Boolean),
+      existingMembers.map((m) => phoneKey(m.phone)).filter(Boolean) as string[],
     );
     const memberEmails = new Set(
-      existingMembers.map((m) => m.email?.toLowerCase()).filter(Boolean),
+      existingMembers
+        .map((m) => m.email?.toLowerCase())
+        .filter(Boolean) as string[],
     );
-
-    const memberData: any[] = [];
-    const unmatchedTrainers: string[] = [];
-    const invalidSourceRows: string[] = [];
-
-    for (const row of memberRows) {
-      const code = clean(row['Code']);
-      const name = splitName(row['Name']);
-      if (!code || !name) {
-        invalidSourceRows.push(code ?? '<missing-code>');
-        continue;
-      }
-
-      const phone = validPhone(row['Number']);
-      const email = validEmail(row['Email']);
-      if (
-        memberCodes.has(code) ||
-        (phone && memberPhones.has(phone)) ||
-        (email && memberEmails.has(email))
-      ) {
-        continue;
-      }
-
-      const trainerName = clean(row['Assigned Trainer']);
-      const trainerId = trainerName
-        ? (trainerMap.get(normalizeName(trainerName)) ?? null)
-        : null;
-      if (trainerName && !trainerId)
-        unmatchedTrainers.push(`${code}:${trainerName}`);
-
-      const gender = clean(row['Gender'])?.toUpperCase();
-      const mappedGender =
-        gender === 'MALE' ? 'MALE' : gender === 'FEMALE' ? 'FEMALE' : null;
-
-      memberData.push({
-        organizationId,
-        primaryBranchId: branchId,
-        memberCode: code,
-        firstName: name.firstName,
-        lastName: name.lastName,
-        email,
-        phone,
-        dateOfBirth: validDate(row['DOB']),
-        gender: mappedGender,
-        addressLine1: clean(row['Address']),
-        city: 'Kanpur',
-        state: 'Uttar Pradesh',
-        country: 'India',
-        memberType: 'GYM',
-        leadSource: clean(row['Source of Promo']),
-        status:
-          clean(row['Membership Status']) === 'Active' ? 'ACTIVE' : 'INACTIVE',
-        assignedTrainerId: trainerId,
-        notes: notesFor(row, code),
-        joinedAt: validDate(row['Conversion Date']) ?? new Date(),
-      });
-      memberCodes.add(code);
-      if (phone) memberPhones.add(phone);
-      if (email) memberEmails.add(email);
-    }
 
     const existingLeads = await this.prisma.lead.findMany({
       where: { organizationId },
-      select: {
-        phone: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        notes: true,
-      },
+      select: { phone: true, email: true, notes: true },
     });
     const leadKeys = new Set<string>();
-    for (const l of existingLeads) {
-      const sourceCode = l.notes?.match(/Source Code: ([^\n]+)/)?.[1];
+    for (const lead of existingLeads) {
+      const sourceCode = lead.notes?.match(/Source Code: ([^\n]+)/)?.[1];
       if (sourceCode) leadKeys.add(`code:${sourceCode}`);
-      if (l.phone) leadKeys.add(`phone:${l.phone}`);
-      if (l.email) leadKeys.add(`email:${l.email.toLowerCase()}`);
+      const key = phoneKey(lead.phone);
+      if (key) leadKeys.add(`phone:${key}`);
+      if (lead.email) leadKeys.add(`email:${lead.email.toLowerCase()}`);
     }
 
-    const leadData: any[] = [];
-    for (const row of leadRows) {
+    const memberData: Prisma.MemberCreateManyInput[] = [];
+    const leadData: Prisma.LeadCreateManyInput[] = [];
+    const trainerBackfill: Array<{ id: string; assignedTrainerId: string }> =
+      [];
+    const unmatchedTrainers = new Set<string>();
+
+    for (const row of rows) {
+      const kind = classifyRow(row);
+      if (kind === 'ambiguous') {
+        report.classified.ambiguous += 1;
+        continue;
+      }
       const code = clean(row['Code']);
       const name = splitName(row['Name']);
       if (!code || !name) {
-        invalidSourceRows.push(code ?? '<missing-code>');
-        continue;
+        throw new BadRequestException(
+          `Row ${code ?? '<missing Code>'} has no usable Code or Name`,
+        );
       }
-      const phone = validPhone(row['Number']);
-      const email = validEmail(row['Email']);
-      if (
-        leadKeys.has(`code:${code}`) ||
-        (phone && leadKeys.has(`phone:${phone}`)) ||
-        (email && leadKeys.has(`email:${email}`))
-      )
-        continue;
+      if (name.singleWord) report.warnings.singleWordName.push(code);
 
-      const trainerName = clean(row['Assigned Trainer']);
+      const { phone, disagreement } = toE164(
+        row['Number'],
+        row['WhatsApp Numbers'],
+      );
+      if (!phone) report.warnings.missingPhone.push(code);
+      if (disagreement)
+        report.warnings.phoneDisagreement.push(`${code}: ${disagreement}`);
+
+      const email = validEmail(row['Email']);
+      const trainerName = meaningful(row['Assigned Trainer']);
       const trainerId = trainerName
         ? (trainerMap.get(normalizeName(trainerName)) ?? null)
         : null;
-      if (trainerName && !trainerId)
-        unmatchedTrainers.push(`${code}:${trainerName}`);
+      if (trainerName && !trainerId) {
+        unmatchedTrainers.add(trainerName);
+      } else if (trainerId) {
+        report.trainers.matched += 1;
+      }
 
+      if (kind === 'member') {
+        report.classified.members += 1;
+        const existing = memberByCode.get(code);
+        const key = phoneKey(phone);
+        if (
+          existing ||
+          (key && memberPhones.has(key)) ||
+          (email && memberEmails.has(email))
+        ) {
+          report.members.alreadyPresent += 1;
+          // A re-run after the gym creates the trainers it was missing
+          // should attach them, rather than the assignment being lost
+          // for good because the member row already exists.
+          if (existing && !existing.assignedTrainerId && trainerId) {
+            trainerBackfill.push({
+              id: existing.id,
+              assignedTrainerId: trainerId,
+            });
+          }
+          continue;
+        }
+
+        const joinedAt = parseDayFirstDate(row['Conversion Date']);
+        if (!joinedAt && clean(row['Conversion Date'])) {
+          report.warnings.unparseableJoinDate.push(
+            `${code}: ${clean(row['Conversion Date'])}`,
+          );
+        }
+        const dateOfBirth = parseDayFirstDate(row['DOB']);
+        if (!dateOfBirth && clean(row['DOB'])) {
+          report.warnings.unparseableDateOfBirth.push(
+            `${code}: ${clean(row['DOB'])}`,
+          );
+        }
+
+        const status =
+          clean(row['Membership Status']) === 'Active' ? 'ACTIVE' : 'INACTIVE';
+        if (status === 'ACTIVE') report.warnings.activeWithoutMembership += 1;
+
+        memberData.push({
+          organizationId,
+          primaryBranchId: branchId,
+          memberCode: code,
+          firstName: name.firstName,
+          lastName: name.lastName,
+          email,
+          phone,
+          dateOfBirth,
+          gender: mapGender(row['Gender']),
+          // Only what the row actually says. The previous version
+          // stamped every member as Kanpur / Uttar Pradesh / India,
+          // including the one whose note reads "LIVE IN DELHI".
+          addressLine1: meaningful(row['Address']),
+          memberType: 'GYM',
+          leadSource: meaningful(row['Source of Promo']),
+          status,
+          assignedTrainerId: trainerId,
+          notes: sourceNotes(row, code),
+          // Left to the column default when the source has no readable
+          // date, so "we do not know" is not recorded as "joined today".
+          ...(joinedAt ? { joinedAt } : {}),
+        });
+        memberByCode.set(code, {
+          id: '',
+          memberCode: code,
+          phone,
+          email,
+          assignedTrainerId: trainerId,
+        });
+        if (key) memberPhones.add(key);
+        if (email) memberEmails.add(email);
+        continue;
+      }
+
+      report.classified.leads += 1;
+      const key = phoneKey(phone);
+      if (
+        leadKeys.has(`code:${code}`) ||
+        (key && leadKeys.has(`phone:${key}`)) ||
+        (email && leadKeys.has(`email:${email}`))
+      ) {
+        report.leads.alreadyPresent += 1;
+        continue;
+      }
+      const enquiredAt = parseDayFirstDate(row['Date of Enquiry']);
       leadData.push({
         organizationId,
         branchId,
@@ -364,55 +279,106 @@ export class CustomerEnquiryImportService implements OnModuleInit {
         lastName: name.lastName,
         email,
         phone,
-        source: clean(row['Source of Promo']) ?? clean(row['Lead Type']),
+        source:
+          meaningful(row['Source of Promo']) ?? meaningful(row['Lead Type']),
         status: 'NEW',
-        notes: notesFor(row, code),
-        createdAt: validDate(row['Date of Enquiry']) ?? new Date(),
+        notes: sourceNotes(row, code),
+        ...(enquiredAt ? { createdAt: enquiredAt } : {}),
+        assignedToUserId: trainerId,
       });
       leadKeys.add(`code:${code}`);
-      if (phone) leadKeys.add(`phone:${phone}`);
+      if (key) leadKeys.add(`phone:${key}`);
       if (email) leadKeys.add(`email:${email}`);
     }
 
-    if (invalidSourceRows.length) {
-      throw new Error(
-        `Invalid required source rows: ${invalidSourceRows.join(', ')}`,
-      );
-    }
+    report.members.toCreate = memberData.length;
+    report.leads.toCreate = leadData.length;
+    report.trainers.unmatched = [...unmatchedTrainers].sort();
 
-    // Atomic dual-write: members and leads must land together or not at all.
-    await this.prisma.$transaction([
-      this.prisma.member.createMany({ data: memberData, skipDuplicates: true }),
-      this.prisma.lead.createMany({ data: leadData, skipDuplicates: true }),
-    ]);
+    if (dryRun) return report;
 
-    const finalMembers = await this.prisma.member.count({
-      where: {
-        organizationId,
-        primaryBranchId: branchId,
-        memberCode: { in: memberData.map((m) => m.memberCode) },
-      },
-    });
-    const finalLeads = await this.prisma.lead.count({
-      where: {
-        organizationId,
-        branchId,
-        notes: { contains: '[Imported from Customer Enquiry export]' },
-      },
+    // Members and leads land together or not at all: a half-applied
+    // import is worse than none, because the second attempt would see
+    // the first half as "already present" and skip it.
+    await this.prisma.$transaction(async (tx) => {
+      if (memberData.length) {
+        const created = await tx.member.createMany({
+          data: memberData,
+          skipDuplicates: true,
+        });
+        report.members.created = created.count;
+      }
+      if (leadData.length) {
+        const created = await tx.lead.createMany({
+          data: leadData,
+          skipDuplicates: true,
+        });
+        report.leads.created = created.count;
+      }
+      for (const patch of trainerBackfill) {
+        await tx.member.update({
+          where: { id: patch.id },
+          data: { assignedTrainerId: patch.assignedTrainerId },
+        });
+      }
+      report.trainers.backfilled = trainerBackfill.length;
     });
 
     this.logger.log(
-      `Customer enquiry import complete: source=1342, classifiedMembers=952, classifiedLeads=390, memberRowsWritten=${memberData.length}, leadRowsWritten=${leadData.length}, verifiedMembers=${finalMembers}, verifiedLeads=${finalLeads}, unmatchedTrainers=${unmatchedTrainers.length}`,
+      `Customer enquiry import: rows=${report.sourceRows} membersCreated=${report.members.created} leadsCreated=${report.leads.created} trainersBackfilled=${report.trainers.backfilled} unmatchedTrainers=${report.trainers.unmatched.length}`,
     );
-    if (unmatchedTrainers.length) {
-      this.logger.warn(
-        `Trainer assignments intentionally left null: ${unmatchedTrainers.join(', ')}`,
+    return report;
+  }
+
+  private async resolveBranch(organizationId: string, requested?: string) {
+    if (requested) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { id: requested, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!branch) throw new BadRequestException('Unknown branch');
+      return branch.id;
+    }
+    const branches = await this.prisma.branch.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { id: true },
+      take: 2,
+    });
+    if (branches.length === 0) {
+      throw new BadRequestException(
+        'This organization has no branch to import into',
       );
     }
+    if (branches.length > 1) {
+      throw new BadRequestException(
+        'This organization has more than one branch -- pass branchId to say which one these members belong to',
+      );
+    }
+    return branches[0].id;
+  }
 
-    // Billing is injected so the import module remains compatible with the
-    // existing DataModule dependency graph; no billing charge is performed.
-    void this.billing;
-    void this.data;
+  /** Trainers by normalized name. A name that matches two trainers
+   * matches neither: guessing which one would attach real members to
+   * the wrong person. */
+  private async trainerMap(organizationId: string) {
+    const trainers = await this.prisma.staffProfile.findMany({
+      where: { organizationId, isTrainer: true, user: { deletedAt: null } },
+      select: {
+        userId: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+    const map = new Map<string, string>();
+    const ambiguous = new Set<string>();
+    for (const trainer of trainers) {
+      const key = normalizeName(
+        `${trainer.user.firstName} ${trainer.user.lastName}`,
+      );
+      if (!key) continue;
+      if (map.has(key)) ambiguous.add(key);
+      else map.set(key, trainer.userId);
+    }
+    for (const key of ambiguous) map.delete(key);
+    return map;
   }
 }

@@ -442,7 +442,12 @@ export class PortalService {
         sessionId: { in: sessions.map((session) => session.id) },
         status: { in: ['BOOKED', 'WAITLISTED'] },
       },
-      select: { id: true, sessionId: true, status: true, waitlistPosition: true },
+      select: {
+        id: true,
+        sessionId: true,
+        status: true,
+        waitlistPosition: true,
+      },
     });
     const bySession = new Map(mine.map((row) => [row.sessionId, row]));
 

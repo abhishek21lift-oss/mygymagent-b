@@ -348,7 +348,10 @@ describe('Member portal (e2e, F-P0-1)', () => {
       ).expect(200);
       // A category with no stored row is on. Returning only stored rows
       // would show a member an empty screen they cannot act on.
-      expect(res.body.data.items[0]).toMatchObject({ email: true, inApp: true });
+      expect(res.body.data.items[0]).toMatchObject({
+        email: true,
+        inApp: true,
+      });
 
       // Six of the ten. The other four are staff categories, and a
       // member offered a switch for "low stock and inventory alerts" is
