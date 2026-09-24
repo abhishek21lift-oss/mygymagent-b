@@ -28,6 +28,10 @@ describe('Member portal (e2e, F-P0-1)', () => {
   let otherMemberId: string;
   let memberEmail: string;
   let memberToken: string;
+  let memberLoginBody: {
+    user: { id: string; memberId: string | null };
+    accessToken: string;
+  };
 
   const authed = (token: string) => (req: request.Test) =>
     req.set('Authorization', `Bearer ${token}`);
@@ -194,7 +198,78 @@ describe('Member portal (e2e, F-P0-1)', () => {
       .send({ email: memberEmail, password: PASSWORD })
       .expect(201);
     memberToken = login.body.data.accessToken;
+    memberLoginBody = login.body.data;
   }
+
+  /**
+   * Which app the session opens.
+   *
+   * The portal was reachable only by typing `/portal`: the login page
+   * sent everyone to `/dashboard`, where a member 403s on every request
+   * and has no way out. The client cannot work this out for itself
+   * without probing a route it expects to be refused, so the server
+   * answers it at sign-in and on every session read -- a reload must not
+   * lose the decision.
+   */
+  describe('the session says which app it belongs to', () => {
+    beforeAll(() => asMemberLogin());
+
+    it('carries the member id on login', () => {
+      expect(memberLoginBody.user.memberId).toBe(memberId);
+    });
+
+    it('still carries it on /auth/me, so a reload routes the same way', async () => {
+      const me = await asMember(
+        request(app.getHttpServer()).get('/auth/me'),
+      ).expect(200);
+      expect(me.body.data.user.memberId).toBe(memberId);
+    });
+
+    it('leaves it null for a staff account', async () => {
+      const me = await asOwner(
+        request(app.getHttpServer()).get('/auth/me'),
+      ).expect(200);
+      expect(me.body.data.user.memberId).toBeNull();
+    });
+  });
+
+  /**
+   * `POST /portal/enable` had no caller in the UI, so the staff side
+   * could not grant a login at all. Giving it one needs the member
+   * payload to say whether a login exists and whether it was accepted --
+   * without handing the password hash to every reader of a member.
+   */
+  describe('the staff view of a member portal login', () => {
+    beforeAll(() => asMemberLogin());
+
+    it('reports the login and its acceptance state', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).get(`/members/${memberId}`),
+      ).expect(200);
+      expect(res.body.data.user).toMatchObject({
+        email: memberEmail,
+        status: 'ACTIVE',
+      });
+    });
+
+    it('never exposes the credential columns with it', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).get(`/members/${memberId}`),
+      ).expect(200);
+      expect(Object.keys(res.body.data.user).sort()).toEqual([
+        'email',
+        'id',
+        'status',
+      ]);
+    });
+
+    it('is absent for a member who was never invited', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).get(`/members/${otherMemberId}`),
+      ).expect(200);
+      expect(res.body.data.user).toBeNull();
+    });
+  });
 
   describe('what a member can see', () => {
     beforeAll(() => asMemberLogin());

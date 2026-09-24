@@ -52,6 +52,7 @@ function publicUser(user: {
   status: string;
   primaryBranchId: string | null;
   emailVerifiedAt: Date | null;
+  member?: { id: string } | null;
 }) {
   return {
     id: user.id,
@@ -62,6 +63,17 @@ function publicUser(user: {
     status: user.status,
     primaryBranchId: user.primaryBranchId,
     emailVerified: user.emailVerifiedAt !== null,
+    /**
+     * The gym member this login belongs to, when it is one.
+     *
+     * The client needs this the instant a session starts, to decide
+     * whether to open the staff app or the member portal. Answering it
+     * here rather than making every client probe `/portal/me` first
+     * keeps the decision on the server, where the link actually lives --
+     * and means a member never lands in the staff app, where every
+     * request they make would 403.
+     */
+    memberId: user.member?.id ?? null,
   };
 }
 
@@ -171,6 +183,9 @@ export class AuthService {
   async login(dto: LoginDto, meta: RequestMeta) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
+      // `member` so the response can say which app this session belongs
+      // in -- see publicUser().
+      include: { member: { select: { id: true } } },
     });
 
     // Constant-shaped failure path to avoid leaking whether the email exists.
@@ -287,6 +302,7 @@ export class AuthService {
     const userId = await this.mfa.completeChallenge(mfaToken, code);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { member: { select: { id: true } } },
     });
 
     await this.audit.record({
@@ -339,6 +355,7 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: rotated.userId },
+      include: { member: { select: { id: true } } },
     });
     if (!user || user.status !== 'ACTIVE' || user.deletedAt) {
       throw new UnauthorizedException('Account is not active');
@@ -372,6 +389,7 @@ export class AuthService {
   async me(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { member: { select: { id: true } } },
     });
     const permissions = await this.permissions.getEffectivePermissions(
       user.id,

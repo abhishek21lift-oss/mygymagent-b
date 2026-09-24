@@ -98,6 +98,13 @@ export class MembersService {
         assignedTrainer: {
           select: { id: true, firstName: true, lastName: true },
         },
+        // The member's portal login, when they have one. Selected field
+        // by field rather than with `true`: this row carries the
+        // password hash and the MFA secret, and neither belongs in a
+        // member payload. Staff need both halves -- INVITED means the
+        // invitation was sent but never accepted, which calls for a
+        // resend rather than a fresh grant.
+        user: { select: { id: true, email: true, status: true } },
         memberships: {
           orderBy: { createdAt: 'desc' },
           take: 5,

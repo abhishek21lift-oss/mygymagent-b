@@ -1079,3 +1079,40 @@ role's permission list is now empty.
 - `test/utils/mailbox.ts` decodes quoted-printable declared in a *part* header, not only the
   top-level one. It previously returned an encoded body for multipart mail, where a soft-wrapped
   token (`=\r\n` mid-URL) read as half a token — indistinguishable from a legitimately invalid one.
+
+## AI-30 -- The session says which app it opens, and the grant that opens it has a caller (F-P0-1)
+
+**Context:** AI-29 shipped a working member portal that a member could not actually reach.
+
+Two things were missing, and both are the same shape — a capability with no way to invoke it.
+
+**1. The login page sent everyone to `/dashboard`.** A member landing in the staff app 403s on
+every request and has no way out; the portal was reachable only by typing `/portal` into the address
+bar. The client cannot work out which app a session belongs to without probing a route it expects
+to be refused, so it is the server's answer to give.
+
+**2. `POST /portal/enable/:memberId` had no caller anywhere in the UI.** The route, its permission,
+its invitation email and its tests all existed, and no gym owner could grant a member a login. This
+is the sixth instance of the pattern this audit keeps finding — `Branch.deviceKey`, `DeviceMap`,
+the trainer-availability tables, the `StaffProfile` salary fields, `User.status = 'ACTIVE'` — where
+code reads or offers state that nothing in the product can write.
+
+**Decision:** `/auth` answers `memberId` on the user it returns, and one function decides the route.
+
+**Consequences:**
+
+- `publicUser()` carries `memberId: string | null`, resolved through `Member.userId`. It is
+  included on login, on MFA completion, on refresh and on `/auth/me` — all four, because a reload
+  must not lose the decision. E2e pins the member case, the reload case and the staff-is-null case.
+- `homeRouteFor()` is the single decision, read by the login page and by the staff layout, so the
+  two cannot drift apart. The staff layout redirects a member to `/portal`, mirroring what the
+  portal layout already does to a staff account; neither renders its shell while redirecting, so
+  there is no flash of an app the viewer cannot use.
+- `completeMfaLogin()` returns the session it established rather than `void`. A member with a second
+  factor has to route the same way as one without.
+- `GET /members/:id` includes the member's portal login as `{ id, email, status }` — selected field
+  by field, never `user: true`, because that row carries the password hash and the MFA secret. A
+  test asserts the key set exactly, so widening it fails.
+- Staff see three states, not two: no login, invitation outstanding (`INVITED`), and signed up
+  (`ACTIVE`). They call for different words and a different button, and the distinction is only
+  available because `User.status` now means something (AI-29).
