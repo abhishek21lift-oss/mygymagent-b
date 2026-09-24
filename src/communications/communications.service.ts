@@ -350,6 +350,29 @@ export class CommunicationsService {
     });
   }
 
+  /** The member-portal counterpart of sendStaffInvite. Same token, same
+   * expiry, different words -- see the catalog entry for why. */
+  sendMemberPortalInvite(
+    organizationId: string,
+    to: string,
+    firstName: string,
+    token: string,
+    memberId?: string,
+  ) {
+    return this.send({
+      organizationId,
+      channel: 'EMAIL',
+      category: 'TRANSACTIONAL',
+      templateKey: 'member_portal_invite',
+      recipient: to,
+      memberId,
+      variables: {
+        firstName,
+        resetUrl: `${this.frontendUrl()}/reset-password?token=${token}`,
+      },
+    });
+  }
+
   sendStaffInvite(
     organizationId: string,
     to: string,

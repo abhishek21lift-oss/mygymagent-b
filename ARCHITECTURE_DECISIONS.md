@@ -1116,3 +1116,58 @@ code reads or offers state that nothing in the product can write.
 - Staff see three states, not two: no login, invitation outstanding (`INVITED`), and signed up
   (`ACTIVE`). They call for different words and a different button, and the distinction is only
   available because `User.status` now means something (AI-29).
+
+## AI-31 -- The seeded catalogs converge at boot, because deploy never ran the seed (B-P0-14)
+
+**Context:** three catalogs live in code — `PERMISSIONS_CATALOG` (98 keys), `ROLES_CATALOG` (14 system
+roles and what each grants) and `DEFAULT_TEMPLATES_CATALOG` (24 message templates). `prisma/seed.ts`
+was the only thing that wrote them into a database. Deploy runs `scripts/migrate-deploy.cjs` — which
+applies migrations and hands off to the app — and nothing else. `tsx`, which the seed needs, is a
+devDependency and is not installed in production at all.
+
+So the seed had not run against production since someone last ran it by hand. Production was
+carrying **59 of 98 permissions and 9 of 24 default templates**, and `ORG_OWNER` — defined in the
+catalog as `ALL_PERMISSIONS` — held 59 grants.
+
+Every route behind one of the 39 missing keys answered 403 **to everyone, the organization owner
+included**: appointments, expenses, WhatsApp, classes, loyalty, referrals, support, feedback,
+marketing, accounting, kiosk, search, HR, payroll, platform billing, data import/export — and
+`portal.manage`, which gates the member-invite button shipped the day before. Essentially every
+module built during this audit was inert in production while looking perfectly healthy in the code,
+in CI and in every e2e suite, because all of those seed the catalogs first.
+
+This is the same shape as AI-28's payroll fixture and AI-29's `User.status`: **the tests reach around
+the thing that was broken.** Here they reached around it by seeding.
+
+**Decision:** the catalogs converge as part of coming up, the way the schema converges via
+`migrate deploy`. `syncCatalogs()` in `src/catalog/catalog-sync.ts` is the one implementation;
+`CatalogSyncService` calls it from `onApplicationBootstrap`, and `prisma/seed.ts` now calls the same
+function rather than carrying a second copy that could drift — which is the failure this change is about.
+
+**Consequences:**
+
+- It runs on every boot, so it diffs before it writes: a converged database costs a few reads and
+  zero writes, and the log line only appears when something actually changed.
+- The whole sync takes `pg_advisory_xact_lock` inside one transaction. Two instances of a rolling
+  deploy booting together would otherwise both read "missing" and both insert.
+- **Permissions are additive; system roles are authoritative.** A permission is never deleted — other
+  rows reference it, and a key retired from the catalog is not a reason to drop grants underneath a
+  running tenant. A system role's grant list is mirrored exactly, because the catalog *is* the
+  definition of what `BRANCH_MANAGER` means. Only rows with `organizationId` null are touched, so an
+  organization's own roles are never an input or an output.
+- Boot fails if the sync fails. A half-synced RBAC serving traffic is precisely the failure being
+  fixed, and the app cannot serve without Postgres anyway.
+- A role granting a key that is not in the permission catalog throws rather than quietly producing a
+  smaller role. A test asserts the two catalogs agree, so that never reaches a boot.
+- `test/catalog-sync.e2e-spec.ts` (10) covers converging from a drifted database, withdrawing a
+  stale grant, never deleting a permission, repairing a clobbered template, leaving organization-owned
+  roles alone, idempotence, concurrent runs, and — the case that is actually the fix — that booting
+  the app converges a database that was missing a key. Commenting `CatalogModule` out of `AppModule`
+  turns exactly that one red.
+
+**Also here:** members get their own invitation. `enablePortalLogin` was sending `staff_invite`
+("You've been invited to join {{organizationName}} on THE CULT CLIENT"), which reads as a job offer
+for software the member has never heard of. `member_portal_invite` says their gym set up their
+account and what they will find in it. The send result is now reported honestly too — it was
+`invited: true` regardless of whether the email went out, which is how a gym owner ends up waiting on
+a message that was never going to arrive.

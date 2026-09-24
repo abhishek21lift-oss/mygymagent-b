@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +30,8 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  */
 @Injectable()
 export class PortalService {
+  private readonly logger = new Logger(PortalService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
@@ -144,12 +147,31 @@ export class PortalService {
         expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       },
     });
-    await this.communications
-      .sendStaffInvite(organizationId, email, member.firstName, inviteToken)
-      .catch(() => undefined); // best-effort, as the staff invite is
+    // The account and the token are already committed, so a send that
+    // fails must not fail the grant -- the member can still be given the
+    // link another way. But it must not be reported as sent either:
+    // `invited: true` regardless of what happened is how you get a gym
+    // owner waiting on an email that was never going to arrive.
+    const invited = await this.communications
+      .sendMemberPortalInvite(
+        organizationId,
+        email,
+        member.firstName,
+        inviteToken,
+        member.id,
+      )
+      .then(() => true)
+      .catch((error: unknown) => {
+        this.logger.error(
+          `Portal invite for member ${member.id} could not be sent: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return false;
+      });
 
     void actorUserId;
-    return { memberId: member.id, userId: user, email, invited: true };
+    return { memberId: member.id, userId: user, email, invited };
   }
 
   async me(userId: string) {

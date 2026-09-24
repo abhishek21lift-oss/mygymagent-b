@@ -43,6 +43,16 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     body: "Hi {{firstName}},\n\nYou've been invited to join {{organizationName}} on THE CULT CLIENT. Set your password using the link below. This link expires in 7 days.\n\n{{resetUrl}}",
   },
   {
+    // Distinct from staff_invite on purpose: the words are the whole
+    // point. A gym member receiving "You've been invited to join
+    // {{organizationName}} on THE CULT CLIENT" reads a job offer for
+    // software they have never heard of, not "your gym's app is ready".
+    key: 'member_portal_invite',
+    channel: 'EMAIL',
+    subject: 'Your {{organizationName}} member access is ready',
+    body: 'Hi {{firstName}},\n\n{{organizationName}} has set up your member account. Sign in to see your membership, your workout and diet plans, and your visit history.\n\nSet your password here -- this link expires in 7 days:\n\n{{resetUrl}}\n\nIf you were not expecting this, you can ignore this message.',
+  },
+  {
     key: 'membership_renewal_reminder',
     channel: 'EMAIL',
     subject: 'Your membership at {{organizationName}} is expiring soon',

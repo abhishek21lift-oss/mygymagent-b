@@ -175,9 +175,12 @@ describe('Member portal (e2e, F-P0-1)', () => {
 
     // The member also gets a welcome email from the MemberCreated
     // listener, so this matches the invitation specifically rather than
-    // whichever message happened to land last.
+    // whichever message happened to land last. Members get their own
+    // template now (`member_portal_invite`) -- the staff one told them
+    // they had been "invited to join {org} on THE CULT CLIENT", which
+    // reads as a job offer for software they have never heard of.
     const sent = await waitForEmailTo(memberEmail, 8000, (email) =>
-      /invited/i.test(email.subject),
+      /member access is ready/i.test(email.subject),
     );
     const tokenMatch = /[?&]token=([^\s&"<]+)/.exec(sent.body);
     expect(tokenMatch).not.toBeNull();

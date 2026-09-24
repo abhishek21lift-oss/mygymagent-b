@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -8,6 +7,7 @@ import { TestableThrottlerGuard } from './common/guards/testable-throttler.guard
 import { throttlerConfig } from './common/rate-limit/throttler.config';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { PublicRateLimitModule } from './common/rate-limit/public-rate-limit.module';
 import { QueueModule } from './queue/queue.module';
 import { FilesModule } from './files/files.module';
@@ -68,6 +68,9 @@ import { PortalModule } from './portal/portal.module';
     // a list of them silently divides every limit in the app.
     ThrottlerModule.forRoot(throttlerConfig),
     PrismaModule,
+    // Converges the code-owned catalogs at boot. Must come after
+    // PrismaModule so its bootstrap hook has a live client.
+    CatalogModule,
     PublicRateLimitModule,
     QueueModule,
     FilesModule,
