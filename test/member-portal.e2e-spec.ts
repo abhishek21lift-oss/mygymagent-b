@@ -274,6 +274,310 @@ describe('Member portal (e2e, F-P0-1)', () => {
     });
   });
 
+  /**
+   * The write half (F-P0-1 slice 3). Same rule as the reads: no route
+   * takes a member id, so "their own data" is a property of the query.
+   * The cases that matter most are the refusals.
+   */
+  describe('what a member can change', () => {
+    beforeAll(() => asMemberLogin());
+
+    it('updates their own contact details', async () => {
+      await asMember(
+        request(app.getHttpServer())
+          .patch('/portal/me')
+          .send({ phone: '+91 98200 12345', city: 'Mumbai' }),
+      ).expect(200);
+
+      const me = await asMember(
+        request(app.getHttpServer()).get('/portal/me'),
+      ).expect(200);
+      expect(me.body.data.member.phone).toBe('+91 98200 12345');
+      // `me` has to carry every editable field back, or the account
+      // form renders blanks over stored values and a member cannot tell
+      // an empty field from one the screen did not fetch.
+      expect(me.body.data.member.city).toBe('Mumbai');
+    });
+
+    it('reads back every field the account form can edit', async () => {
+      await asMember(
+        request(app.getHttpServer()).patch('/portal/me').send({
+          emergencyContactName: 'Anita Sharma',
+          emergencyContactPhone: '+91 98200 99999',
+          addressLine1: '12 Linking Road',
+          postalCode: '400050',
+        }),
+      ).expect(200);
+
+      const me = await asMember(
+        request(app.getHttpServer()).get('/portal/me'),
+      ).expect(200);
+      expect(me.body.data.member).toMatchObject({
+        emergencyContactName: 'Anita Sharma',
+        emergencyContactPhone: '+91 98200 99999',
+        addressLine1: '12 Linking Road',
+        postalCode: '400050',
+      });
+    });
+
+    it.each([
+      ['status', { status: 'ACTIVE' }],
+      ['primaryBranchId', { primaryBranchId: 'anything' }],
+      ['assignedTrainerId', { assignedTrainerId: 'anything' }],
+      ['memberType', { memberType: 'PT' }],
+      ['email', { email: 'someone-else@example.com' }],
+      ['firstName', { firstName: 'Renamed' }],
+    ])('refuses to let a member set their own %s', async (_field, body) => {
+      // These are the gym's decisions, not the member's. The DTO cannot
+      // express them, so `forbidNonWhitelisted` refuses the request
+      // rather than a filtering step having to remember to strip it.
+      await asMember(
+        request(app.getHttpServer()).patch('/portal/me').send(body),
+      ).expect(400);
+    });
+
+    it('refuses an empty update rather than reporting success', async () => {
+      await asMember(
+        request(app.getHttpServer()).patch('/portal/me').send({}),
+      ).expect(400);
+    });
+
+    it('lists every notification category with its effective setting', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/notification-preferences'),
+      ).expect(200);
+      // A category with no stored row is on. Returning only stored rows
+      // would show a member an empty screen they cannot act on.
+      expect(res.body.data.items[0]).toMatchObject({ email: true, inApp: true });
+
+      // Six of the ten. The other four are staff categories, and a
+      // member offered a switch for "low stock and inventory alerts" is
+      // being offered to mute a message that was never coming.
+      const keys = res.body.data.items.map((item: { key: string }) => item.key);
+      expect(keys).toEqual([
+        'MEMBERSHIPS',
+        'ATTENDANCE',
+        'PAYMENTS',
+        'WORKOUT',
+        'DIET',
+        'PT',
+      ]);
+    });
+
+    it('describes those categories from the member’s side', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/notification-preferences'),
+      ).expect(200);
+      const attendance = res.body.data.items.find(
+        (item: { key: string }) => item.key === 'ATTENDANCE',
+      );
+      // The staff wording is "Member attendance activity", which to a
+      // member describes other people.
+      expect(attendance.description).toBe('Your check-ins at the gym.');
+    });
+
+    it('refuses a staff-only category even though it is a real one', async () => {
+      // INVENTORY exists and the staff endpoint would store it happily.
+      // A setting that changes nothing is worse than a rejection.
+      await asMember(
+        request(app.getHttpServer())
+          .patch('/portal/notification-preferences/INVENTORY')
+          .send({ email: false }),
+      ).expect(400);
+    });
+
+    it('turns a category off, and it stays off', async () => {
+      const category = 'PAYMENTS';
+      await asMember(
+        request(app.getHttpServer())
+          .patch(`/portal/notification-preferences/${category}`)
+          .send({ email: false, whatsapp: false }),
+      ).expect(200);
+
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/notification-preferences'),
+      ).expect(200);
+      const row = res.body.data.items.find(
+        (item: { key: string }) => item.key === category,
+      );
+      expect(row).toMatchObject({ email: false, whatsapp: false, inApp: true });
+    });
+
+    it('rejects a category that does not exist', async () => {
+      await asMember(
+        request(app.getHttpServer())
+          .patch('/portal/notification-preferences/NOT_A_CATEGORY')
+          .send({ email: false }),
+      ).expect(400);
+    });
+  });
+
+  describe('booking a class from the member app', () => {
+    let sessionId: string;
+    let otherMembersBookingId: string;
+
+    beforeAll(async () => {
+      await asMemberLogin();
+
+      const program = await asOwner(
+        request(app.getHttpServer()).post('/classes/programs').send({
+          branchId,
+          name: 'Portal Yoga',
+          capacity: 5,
+          durationMinutes: 60,
+        }),
+      ).expect(201);
+
+      const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const session = await asOwner(
+        request(app.getHttpServer()).post('/classes/sessions').send({
+          branchId,
+          classProgramId: program.body.data.id,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+        }),
+      ).expect(201);
+      sessionId = session.body.data.id;
+
+      // Somebody else's seat in the same session, for the case below.
+      const booked = await asOwner(
+        request(app.getHttpServer())
+          .post(`/classes/sessions/${sessionId}/book`)
+          .send({ memberId: otherMemberId }),
+      ).expect(201);
+      otherMembersBookingId = booked.body.data.id;
+    });
+
+    it('shows the timetable with the member’s own standing folded in', async () => {
+      const before = await asMember(
+        request(app.getHttpServer()).get('/portal/classes'),
+      ).expect(200);
+      const mine = before.body.data.items.find(
+        (item: { id: string }) => item.id === sessionId,
+      );
+      // A timetable that does not say which classes you are already in
+      // is a timetable you cannot act on.
+      expect(mine).toMatchObject({ myBookingStatus: null, myBookingId: null });
+    });
+
+    it('books a seat and then shows it as booked', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).post(`/portal/classes/${sessionId}/book`),
+      ).expect(201);
+      expect(res.body.data.status).toBe('BOOKED');
+
+      const after = await asMember(
+        request(app.getHttpServer()).get('/portal/classes'),
+      ).expect(200);
+      const mine = after.body.data.items.find(
+        (item: { id: string }) => item.id === sessionId,
+      );
+      expect(mine.myBookingStatus).toBe('BOOKED');
+      expect(mine.myBookingId).toBeTruthy();
+    });
+
+    it('cannot cancel another member’s seat', async () => {
+      // The staff cancel checks only that the booking belongs to the
+      // organization -- correct for a receptionist, and an open door
+      // here. Ownership is established from the JWT first.
+      await asMember(
+        request(app.getHttpServer()).delete(
+          `/portal/classes/bookings/${otherMembersBookingId}`,
+        ),
+      ).expect(404);
+
+      const stillBooked = await prisma.classBooking.findUniqueOrThrow({
+        where: { id: otherMembersBookingId },
+        select: { status: true },
+      });
+      expect(stillBooked.status).toBe('BOOKED');
+    });
+
+    it('cancels its own seat', async () => {
+      const listed = await asMember(
+        request(app.getHttpServer()).get('/portal/classes'),
+      ).expect(200);
+      const mine = listed.body.data.items.find(
+        (item: { id: string }) => item.id === sessionId,
+      );
+
+      await asMember(
+        request(app.getHttpServer()).delete(
+          `/portal/classes/bookings/${mine.myBookingId}`,
+        ),
+      ).expect(200);
+
+      const after = await asMember(
+        request(app.getHttpServer()).get('/portal/classes'),
+      ).expect(200);
+      const gone = after.body.data.items.find(
+        (item: { id: string }) => item.id === sessionId,
+      );
+      expect(gone.myBookingStatus).toBeNull();
+    });
+  });
+
+  describe('asking to renew', () => {
+    beforeAll(() => asMemberLogin());
+
+    it('offers the plans available at their branch', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/renewal-options'),
+      ).expect(200);
+      expect(res.body.data.items.length).toBeGreaterThan(0);
+      expect(res.body.data.items[0]).toHaveProperty('price');
+    });
+
+    it('puts the request in the queue staff already watch', async () => {
+      const options = await asMember(
+        request(app.getHttpServer()).get('/portal/renewal-options'),
+      ).expect(200);
+      const plan = options.body.data.items[0];
+
+      const res = await asMember(
+        request(app.getHttpServer())
+          .post('/portal/renewal-requests')
+          .send({ membershipPlanId: plan.id, note: 'Same plan please' }),
+      ).expect(201);
+      expect(res.body.data.alreadyRequested).toBe(false);
+
+      const followUp = await prisma.memberFollowUp.findUniqueOrThrow({
+        where: { id: res.body.data.requestId },
+        select: { memberId: true, title: true, priority: true },
+      });
+      expect(followUp.memberId).toBe(memberId);
+      expect(followUp.title).toContain(plan.name);
+      expect(followUp.priority).toBe('HIGH');
+    });
+
+    it('does not queue a second request while one is open', async () => {
+      const options = await asMember(
+        request(app.getHttpServer()).get('/portal/renewal-options'),
+      ).expect(200);
+
+      const res = await asMember(
+        request(app.getHttpServer())
+          .post('/portal/renewal-requests')
+          .send({ membershipPlanId: options.body.data.items[0].id }),
+      ).expect(201);
+      expect(res.body.data.alreadyRequested).toBe(true);
+
+      const open = await prisma.memberFollowUp.count({
+        where: { memberId, completedAt: null },
+      });
+      expect(open).toBe(1);
+    });
+
+    it('refuses a plan that is not theirs to buy', async () => {
+      await asMember(
+        request(app.getHttpServer())
+          .post('/portal/renewal-requests')
+          .send({ membershipPlanId: '00000000-0000-4000-8000-000000000000' }),
+      ).expect(404);
+    });
+  });
+
   describe('what a member can see', () => {
     beforeAll(() => asMemberLogin());
 

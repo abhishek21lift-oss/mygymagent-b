@@ -1,10 +1,23 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PortalService } from './portal.service';
+import { UpdatePortalProfileDto } from './dto/update-portal-profile.dto';
+import { ListPortalClassesDto } from './dto/portal-classes.dto';
+import { RequestRenewalDto } from './dto/request-renewal.dto';
+import { UpdateNotificationPreferencesDto } from '../notifications/dto/update-notification-preferences.dto';
 
 /**
  * The member-facing surface (F-P0-1).
@@ -72,5 +85,72 @@ export class PortalController {
   @Get('nutrition')
   nutrition(@CurrentUser() user: AuthenticatedUser) {
     return this.portal.nutrition(user.id);
+  }
+
+  /** Contact details only -- see UpdatePortalProfileDto for what is
+   * deliberately absent and why. */
+  @Patch('me')
+  @Audited({ resource: 'portal_profile', action: 'update' })
+  updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdatePortalProfileDto,
+  ) {
+    return this.portal.updateProfile(user.id, dto);
+  }
+
+  @Get('notification-preferences')
+  notificationPreferences(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.notificationPreferences(user.id);
+  }
+
+  @Patch('notification-preferences/:category')
+  updateNotificationPreference(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('category') category: string,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ) {
+    return this.portal.updateNotificationPreference(user.id, category, dto);
+  }
+
+  @Get('classes')
+  classes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListPortalClassesDto,
+  ) {
+    return this.portal.classes(user.id, query);
+  }
+
+  @Post('classes/:sessionId/book')
+  @Audited({ resource: 'class_booking', action: 'book' })
+  bookClass(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.portal.bookClass(user.id, sessionId);
+  }
+
+  /** Takes a booking id, not a member id: ownership is checked against
+   * the caller's own member before the shared cancel runs. */
+  @Delete('classes/bookings/:bookingId')
+  @Audited({ resource: 'class_booking', action: 'cancel' })
+  cancelClassBooking(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.portal.cancelClassBooking(user.id, bookingId);
+  }
+
+  @Get('renewal-options')
+  renewalOptions(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.renewalOptions(user.id);
+  }
+
+  @Post('renewal-requests')
+  @Audited({ resource: 'renewal_request', action: 'create' })
+  requestRenewal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RequestRenewalDto,
+  ) {
+    return this.portal.requestRenewal(user.id, dto);
   }
 }

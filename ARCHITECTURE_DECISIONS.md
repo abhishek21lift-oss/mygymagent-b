@@ -1171,3 +1171,45 @@ for software the member has never heard of. `member_portal_invite` says their gy
 account and what they will find in it. The send result is now reported honestly too — it was
 `invited: true` regardless of whether the email went out, which is how a gym owner ends up waiting on
 a message that was never going to arrive.
+
+## AI-32 -- The member portal's write half, and what a member is not allowed to decide (F-P0-1)
+
+**Context:** the portal could read. Booking a class, renewing, changing a phone number and muting a
+notification all still meant phoning the gym.
+
+**Decision:** the writes follow the same rule as the reads — no route takes a member id, the member
+is resolved from the caller's own JWT, and every query is scoped to that id. Four things are worth
+recording because they are where the obvious implementation is wrong.
+
+**1. The narrow DTO is the authorization.** `UpdatePortalProfileDto` lists contact fields and nothing
+else, so it cannot *express* a change to `status`, `primaryBranchId`, `assignedTrainerId`,
+`memberType` or `email`, and `forbidNonWhitelisted` rejects the attempt. The alternative — accept the
+member shape and strip the forbidden fields — puts one missed `delete dto.x` between a member and
+their own membership status. A test case per field pins it. `email` is excluded specifically because
+it is the login identity: changing it here would move the account without the verification the staff
+flow does.
+
+**2. Reusing the staff cancel would have been a hole.** `ClassesService.cancel` checks only that the
+booking belongs to the organization, which is correct for a receptionist cancelling on someone's
+behalf and wrong for a member — it would let any member cancel any other member's seat. The portal
+establishes ownership from the JWT first and only then calls the shared cancel, keeping its advisory
+lock and waitlist promotion. A test cancels another member's booking and asserts 404 *and* that the
+seat is still booked.
+
+**3. A member sees six notification categories, not ten.** The first cut showed the whole catalog, so
+a gym member was offered switches for "low stock and inventory alerts" and "new leads" — settings for
+messages that will never be sent to them. `memberFacing` now marks the six that can reach a member,
+and `memberDescription` restates them from the member's side, because the staff wording ("Member
+attendance activity") describes other people. A staff-only key is *refused* rather than stored, which
+is B-P0-11's rule applied to this surface: a setting that changes nothing is worse than a rejection.
+
+**4. Renewal is a request, not a payment.** Taking money needs a gateway that is actually configured
+and a webhook that is actually reachable. A "Pay now" button that silently does neither is worse than
+no button, so the portal prices the plans from the plan row — never from the request body, which is
+the shape that matters whenever the payment half does land — and files the request as a
+`MemberFollowUp`, the queue staff already work from. One open request at a time, so a double tap on a
+slow connection does not queue twice. The screen says plainly that nothing is charged there.
+
+**Also:** `GET /portal/me` returns every field the account form can edit. It previously returned a
+subset, so the form rendered blanks over stored values and a member could not tell an empty field
+from one the screen had not fetched.

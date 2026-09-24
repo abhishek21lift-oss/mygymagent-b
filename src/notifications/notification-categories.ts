@@ -22,6 +22,13 @@
  * needs them and it is the third place this list would otherwise be
  * written out by hand. `GET /notifications/categories` serves them.
  *
+ * `memberFacing` marks the six a gym *member* can actually receive. The
+ * member portal showed all ten, so a member was offered switches for
+ * "low stock and inventory alerts" and "new leads" -- settings for
+ * messages that will never be sent to them. `memberDescription` restates
+ * those six from the member's side: the staff wording ("Member
+ * attendance activity") describes other people.
+ *
  * Not to be confused with the `MARKETING` / `TRANSACTIONAL` categories in
  * `CommunicationsService` -- those classify an outbound WhatsApp or email
  * send for consent purposes and have nothing to do with in-app
@@ -32,51 +39,67 @@ export const NOTIFICATION_CATEGORIES = [
     key: 'MEMBERS',
     label: 'Members',
     description: 'New members and member activity.',
+    memberFacing: false,
   },
   {
     key: 'MEMBERSHIPS',
     label: 'Memberships',
     description: 'Membership starts, cancellations and lifecycle events.',
+    memberDescription: 'Your membership starting, renewing or expiring.',
+    memberFacing: true,
   },
   {
     key: 'ATTENDANCE',
     label: 'Attendance',
     description: 'Member attendance activity.',
+    memberDescription: 'Your check-ins at the gym.',
+    memberFacing: true,
   },
   {
     key: 'PAYMENTS',
     label: 'Payments',
     description: 'Payments and refunds.',
+    memberDescription: 'Your payments, receipts and refunds.',
+    memberFacing: true,
   },
   {
     key: 'CRM',
     label: 'CRM',
     description: 'New leads and lead conversions.',
+    memberFacing: false,
   },
   {
     key: 'WORKOUT',
     label: 'Workout',
     description: 'Workout assignments and sessions.',
+    memberDescription: 'New workout plans and sessions assigned to you.',
+    memberFacing: true,
   },
   {
     key: 'DIET',
     label: 'Diet',
     description: 'Diet plan assignments.',
+    memberDescription: 'New diet plans assigned to you.',
+    memberFacing: true,
   },
   {
     key: 'INVENTORY',
     label: 'Inventory',
     description: 'Low stock and inventory alerts.',
+    memberFacing: false,
   },
   {
     key: 'PT',
     label: 'Personal training',
     description: 'PT bookings, completions and cancellations.',
+    memberDescription: 'Your personal-training bookings and changes.',
+    memberFacing: true,
   },
   {
     key: 'WHATSAPP',
     label: 'WhatsApp',
     description: 'Incoming WhatsApp messages.',
+    memberFacing: false,
   },
 ] as const;
 
@@ -87,6 +110,20 @@ export const NOTIFICATION_CATEGORY_KEYS: readonly NotificationCategory[] =
   NOTIFICATION_CATEGORIES.map((c) => c.key);
 
 const KEY_SET = new Set<string>(NOTIFICATION_CATEGORY_KEYS);
+
+/** The categories a member can hold a meaningful preference for, with
+ * the member-facing wording. The portal reads this; staff screens read
+ * the full list. */
+export const MEMBER_NOTIFICATION_CATEGORIES = NOTIFICATION_CATEGORIES.filter(
+  (category) => category.memberFacing,
+).map((category) => ({
+  key: category.key,
+  label: category.label,
+  description: category.memberDescription,
+}));
+
+export const MEMBER_NOTIFICATION_CATEGORY_KEYS: readonly string[] =
+  MEMBER_NOTIFICATION_CATEGORIES.map((category) => category.key);
 
 export function isNotificationCategory(
   value: string,
