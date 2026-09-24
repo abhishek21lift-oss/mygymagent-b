@@ -418,11 +418,40 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
+    const account = await this.prisma.user.findUniqueOrThrow({
+      where: { id: record.userId },
+      select: { status: true },
+    });
+
+    /**
+     * Accepting an invitation activates the account, and nothing else in
+     * the codebase ever did.
+     *
+     * `POST /users` and the member-portal invite both create a user with
+     * status INVITED and email them this token. `login()` refuses
+     * anything but ACTIVE. So every invited staff member and every
+     * invited member could set a password and then be told their
+     * credentials were wrong, forever. Twenty e2e suites flipped the
+     * status through Prisma to get past it, which is exactly how it
+     * stayed invisible.
+     *
+     * Only INVITED is promoted. A SUSPENDED or DISABLED account
+     * resetting its password stays suspended -- a password reset is not
+     * a reinstatement, and treating it as one would turn this endpoint
+     * into a way around an account being switched off.
+     */
+    const activating = account.status === 'INVITED';
+
     const passwordHash = await argon2.hash(newPassword);
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash },
+        data: {
+          passwordHash,
+          ...(activating
+            ? { status: 'ACTIVE', emailVerifiedAt: new Date() }
+            : {}),
+        },
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },

@@ -31,7 +31,15 @@ function parseRaw(raw: string): { subject: string; body: string } {
   const header = headerEnd >= 0 ? raw.slice(0, headerEnd) : raw;
   let body = headerEnd >= 0 ? raw.slice(headerEnd + 4) : '';
   const subjectMatch = /^Subject: (.*)$/im.exec(header);
-  if (/^Content-Transfer-Encoding: quoted-printable$/im.test(header)) {
+  // The encoding may be declared in the top-level header *or*, when the
+  // message is multipart, in a part header -- which lives inside what we
+  // just sliced off as the body. Checking only the former silently
+  // returned an encoded body, and a soft-wrapped token (`=\r\n` in the
+  // middle of a long URL) then read as half a token, which looks exactly
+  // like a legitimately invalid one. Found writing the member-portal
+  // suite (F-P0-1).
+  const qp = /^Content-Transfer-Encoding:\s*quoted-printable\s*$/im;
+  if (qp.test(header) || qp.test(body)) {
     body = decodeQuotedPrintable(body);
   }
   return { subject: subjectMatch?.[1]?.trim() ?? '', body };

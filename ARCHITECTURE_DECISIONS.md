@@ -1039,3 +1039,43 @@ This is the fourth instance this session of the same shape: code that reads stat
 - **The fixtures are the proof.** Both payroll suites now set salary over HTTP. A feature is only
   reachable if the tests can reach it the way a user would; while they reached past the API into
   Prisma, the suite was green and the product was unusable.
+
+## AI-29 -- Accepting an invitation activates the account, and the portal scopes by query not by grant (F-P0-1)
+
+**Context:** building the member portal turned up two defects, one of them severe.
+
+**1. Nobody invited to this product could ever log in.** `POST /users` creates a staff account with
+status `INVITED` and emails a set-password link; `login()` refuses anything that is not `ACTIVE`;
+and *nothing in the codebase ever promoted an `INVITED` user*. So every staff member and every
+member ever invited could set a password and then be told their credentials were wrong. Twenty e2e
+suites flipped the status through Prisma to get past it — the same "tests reach around the API"
+signature as the payroll fixture in AI-28, and the reason this survived.
+
+`resetPassword` now activates an account that is `INVITED`, and sets `emailVerifiedAt`, because the
+token went to that address and redeeming it proves control of the mailbox. **Only `INVITED` is
+promoted**: a `SUSPENDED` or `DISABLED` account resetting its password stays as it is, or this
+endpoint becomes a way around an account having been switched off. A test pins each half.
+
+**2. The `MEMBER` role was a latent gym-wide read.** It carried `attendance.read`, `workouts.read`
+and `nutrition.read` — the *org-wide* permissions that `GET /attendance` and friends accept. Issuing
+it would have let a member list every check-in in the gym, every workout plan and every diet plan.
+Nothing issued it, which is the only reason it was never a breach.
+
+**Decision:** the portal is a separate surface that uses no RBAC permissions at all. The `MEMBER`
+role's permission list is now empty.
+
+**Consequences:**
+
+- No `/portal` read route takes a `memberId` and none declares a permission. The member is resolved
+  from the caller's own JWT through `Member.userId`, and every query is scoped to that id. "Their
+  own data" is therefore a property of the query, which a later edit to a role cannot widen — the
+  failure mode that made the `MEMBER` role dangerous in the first place.
+- Member login reuses the staff credential lifecycle — a linked `User` with the MEMBER role, the
+  same password-reset token, the same `POST /auth/login`. A parallel member-credential table would
+  have meant a second password hash, a second lockout policy and a second reset flow to keep
+  correct, for no gain.
+- A staff account hitting `/portal/me` gets 403 rather than an empty page: it has no linked member,
+  and that is a mistake worth surfacing.
+- `test/utils/mailbox.ts` decodes quoted-printable declared in a *part* header, not only the
+  top-level one. It previously returned an encoded body for multipart mail, where a soft-wrapped
+  token (`=\r\n` mid-URL) read as half a token — indistinguishable from a legitimately invalid one.

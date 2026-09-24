@@ -270,6 +270,22 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     key: 'MEMBER',
     name: 'Member',
     description: 'Gym member portal access to their own data.',
-    permissions: perms('attendance.read', 'workouts.read', 'nutrition.read'),
+    /**
+     * Deliberately empty, and that is the whole point (F-P0-1).
+     *
+     * This role used to carry `attendance.read`, `workouts.read` and
+     * `nutrition.read` -- which are the *org-wide* read permissions.
+     * `GET /attendance` accepts `attendance.read`, so a member holding
+     * this role could have listed every check-in in the gym; the same
+     * for everyone's workout and diet plans. Nothing ever issued the
+     * role, which is the only reason it was not a live breach.
+     *
+     * The portal does not use RBAC permissions at all. Every `/portal`
+     * route resolves the member from the caller's own JWT
+     * (`Member.userId`) and scopes the query to them, so there is no
+     * permission string a member could hold that widens the result --
+     * "their own data" is enforced by the query, not by a grant.
+     */
+    permissions: perms(),
   },
 ];

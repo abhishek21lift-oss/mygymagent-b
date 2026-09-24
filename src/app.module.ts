@@ -58,6 +58,7 @@ import { PlatformBillingModule } from './platform-billing/platform-billing.modul
 import { DataModule } from './data/data.module';
 import { ClassesModule } from './classes/classes.module';
 import { BusinessOsModule } from './business-os/business-os.module';
+import { PortalModule } from './portal/portal.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { BusinessOsModule } from './business-os/business-os.module';
     DataModule,
     ClassesModule,
     BusinessOsModule,
+    PortalModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
