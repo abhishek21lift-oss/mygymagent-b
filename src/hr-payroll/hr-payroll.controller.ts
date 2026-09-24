@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -16,8 +17,10 @@ import {
   CreateLeaveRequestDto,
   CreateLeaveTypeDto,
   CreatePayrollRunDto,
+  ListStaffPayrollQueryDto,
   PayrollItemAdjustmentDto,
   ReviewLeaveDto,
+  UpdateStaffPayrollDto,
 } from './dto/hr-payroll.dto';
 import { HrPayrollService } from './hr-payroll.service';
 
@@ -25,6 +28,47 @@ import { HrPayrollService } from './hr-payroll.service';
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class HrPayrollController {
   constructor(private readonly hr: HrPayrollService) {}
+
+  /**
+   * Staff payroll terms (B-P1-7). `processPayrollRun` reads
+   * `payrollEnabled`, `salaryType`, `baseSalary` and `hourlyRate`, and
+   * nothing in the API wrote any of them -- so a payroll run on a real
+   * deployment either found no enabled staff or computed from nulls.
+   *
+   * Gated on `hr.*` rather than `users.update`, deliberately. The
+   * permission catalog already describes `hr.read` as covering "payroll
+   * settings", the fields live on `StaffProfile` beside leave and hire
+   * date, and `hr.manage` includes BRANCH_MANAGER -- the role that
+   * actually runs HR for a branch, and which `users.update` excludes.
+   * Putting salaries behind a general staff-record permission would have
+   * been both a worse semantic fit and the wrong set of people.
+   */
+  @Get('staff')
+  @RequirePermissions('hr.read')
+  listStaffPayroll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListStaffPayrollQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.listStaffPayroll(user.organizationId!, query, branchScope);
+  }
+
+  @Patch('staff/:userId')
+  @RequirePermissions('hr.manage')
+  @Audited({ resource: 'staff_payroll', action: 'update' })
+  updateStaffPayroll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateStaffPayrollDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.updateStaffPayroll(
+      user.organizationId!,
+      userId,
+      dto,
+      branchScope,
+    );
+  }
 
   @Get('leave-types')
   @RequirePermissions('hr.read')

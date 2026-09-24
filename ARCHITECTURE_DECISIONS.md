@@ -1004,3 +1004,38 @@ wherever the database actually starts.
   direction, and short of running deploys against a restored production snapshot, nothing can. The
   honest mitigation is the rule above — idempotent by construction — applied to every migration
   that touches an object it did not itself create.
+
+## AI-28 -- Salary is an HR permission, and an incoherent one must be unsavable (B-P1-7)
+
+**Context:** `processPayrollRun` reads `payrollEnabled`, `salaryType`, `baseSalary` and `hourlyRate`
+off `StaffProfile`. Nothing in the API wrote any of them — `CreateUserDto`/`UpdateUserDto` expose
+none, and no other route touched them. A payroll run on a real deployment therefore either found no
+payroll-enabled staff and 400'd, or computed every payslip from nulls. The e2e suite set them
+through Prisma and said so in a comment rather than pretending otherwise.
+
+This is the fourth instance this session of the same shape: code that reads state nothing can write
+(`Branch.deviceKey` in AI-23, `DeviceMap` in AI-26, two tables and an enum value in AI-27).
+
+**Decision:** `GET /hr-payroll/staff` and `PATCH /hr-payroll/staff/:userId`, gated on `hr.read` /
+`hr.manage`.
+
+**Consequences:**
+
+- **Not `users.update`.** The permission catalog already describes `hr.read` as covering "payroll
+  settings", and the columns sit on `StaffProfile` beside leave and hire date. More decisively,
+  `hr.manage` includes BRANCH_MANAGER and `users.update` does not — so bolting these fields onto
+  `PATCH /users/:id`, the one-line option, would have denied the role that actually runs HR for a
+  branch. Checked against `roles.catalog.ts` rather than assumed; a first pass at that check was
+  wrong and the test caught it.
+- **The validation is the point, not the write.** `processPayrollRun` falls back to `Decimal(0)`
+  for a null rate, so an endpoint that merely exposed the columns would have moved the silent
+  failure one step later: payroll enabled with no salary type, or a MONTHLY salary with no amount,
+  yields a run of zero-rupee payslips that nothing flags. Those states are refused.
+- **Validated against the resulting row, not the patch.** Whether a rate is required depends on the
+  salary type, and whether either is required depends on `payrollEnabled` — none of which
+  class-validator can see from a PATCH, because the missing half may already be stored. So the DTO
+  validates shapes and the service validates coherence. Zero is refused as firmly as null, since
+  `baseSalary * days` is the same zero either way.
+- **The fixtures are the proof.** Both payroll suites now set salary over HTTP. A feature is only
+  reachable if the tests can reach it the way a user would; while they reached past the API into
+  Prisma, the suite was green and the product was unusable.

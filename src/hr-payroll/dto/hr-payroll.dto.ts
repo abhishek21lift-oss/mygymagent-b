@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { ToBoolean } from '../../common/transforms/to-boolean.transform';
 import {
   IsBoolean,
   IsDateString,
@@ -143,4 +144,66 @@ export class PayrollItemAdjustmentDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+}
+
+/**
+ * A staff member's payroll settings (B-P1-7).
+ *
+ * `processPayrollRun` reads exactly these four columns, and until now
+ * nothing in the API wrote any of them -- `CreateUserDto`/`UpdateUserDto`
+ * expose none, and no other route touched them. On a real deployment a
+ * payroll run therefore either found no payroll-enabled staff and 400'd,
+ * or computed every payslip from nulls.
+ *
+ * Every field is optional because this is a PATCH, but the *resulting*
+ * state is validated in the service rather than here: whether a rate is
+ * required depends on the salary type, and whether either is required
+ * depends on `payrollEnabled` -- none of which class-validator can see
+ * from the patch alone, since the missing half may already be stored.
+ */
+export class UpdateStaffPayrollDto {
+  @IsOptional()
+  @IsBoolean()
+  payrollEnabled?: boolean;
+
+  @IsOptional()
+  @IsIn(['MONTHLY', 'DAILY', 'HOURLY'])
+  salaryType?: 'MONTHLY' | 'DAILY' | 'HOURLY';
+
+  /** Per month for MONTHLY, per day for DAILY. Ignored for HOURLY. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Type(() => Number)
+  baseSalary?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Type(() => Number)
+  hourlyRate?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  employeeCode?: string;
+
+  @IsOptional()
+  @IsDateString()
+  hireDate?: string;
+}
+
+export class ListStaffPayrollQueryDto {
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  // `@ToBoolean()`, never `@Type(() => Boolean)`: the latter is
+  // `Boolean(value)`, under which the string "false" arrives as `true`
+  // (ADR AI-22 / B-P0-7). This is a query field, so it needs the explicit
+  // transform; a JSON body field would just use `@IsBoolean()`.
+  @IsOptional()
+  @ToBoolean()
+  @IsBoolean()
+  payrollEnabledOnly?: boolean;
 }

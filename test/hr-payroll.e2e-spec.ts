@@ -10,12 +10,11 @@ import { createTestApp } from './utils/test-app';
  * DRAFT -> APPROVED -> PROCESSED lifecycle. Money-adjacent and entirely
  * untested before this file.
  *
- * Salary fields are set through Prisma rather than over HTTP because no
- * endpoint writes them yet: POST /users creates a StaffProfile but its DTO
- * has no salaryType/baseSalary/payrollEnabled, so payroll can only be run
- * for staff whose salary was populated out of band. That gap is real (and
- * worth its own backlog item); this fixture documents it rather than
- * hiding it.
+ * Salary is set over HTTP, through `PATCH /hr-payroll/staff/:userId`.
+ * It used to be written straight into Prisma here, because no endpoint
+ * wrote those columns at all -- payroll could only run for staff whose
+ * salary had been populated out of band (B-P1-7). That this fixture no
+ * longer reaches past the API is the proof the gap is closed.
  */
 describe('HR & payroll (e2e)', () => {
   let app: INestApplication;
@@ -79,19 +78,20 @@ describe('HR & payroll (e2e)', () => {
           jobTitle: 'Floor coach',
         }),
     ).expect(201);
+    await asOwner(
+      request(app.getHttpServer())
+        .patch(`/hr-payroll/staff/${staff.body.data.id}`)
+        .send({
+          payrollEnabled: true,
+          salaryType: 'MONTHLY',
+          baseSalary: 30000,
+        }),
+    ).expect(200);
     const profile = await prisma.staffProfile.findFirstOrThrow({
       where: { userId: staff.body.data.id },
       select: { id: true },
     });
     staffProfileId = profile.id;
-    await prisma.staffProfile.update({
-      where: { id: staffProfileId },
-      data: {
-        payrollEnabled: true,
-        salaryType: 'MONTHLY',
-        baseSalary: 30000,
-      },
-    });
 
     const invited = await asOwner(
       request(app.getHttpServer())

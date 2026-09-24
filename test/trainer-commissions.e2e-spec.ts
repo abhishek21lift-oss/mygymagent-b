@@ -24,6 +24,7 @@ describe('Trainer commissions (e2e)', () => {
   let branchId: string;
   let memberId: string;
   let trainerProfileId: string;
+  let trainerUserId: string;
 
   const authed = (req: request.Test) =>
     req.set('Authorization', `Bearer ${ownerToken}`);
@@ -79,6 +80,9 @@ describe('Trainer commissions (e2e)', () => {
       select: { id: true },
     });
     trainerProfileId = profile.id;
+    // The payroll endpoint is keyed by userId -- a staff-profile id names
+    // nobody outside the HR tables.
+    trainerUserId = trainer.body.data.id;
 
     const member = await authed(
       request(app.getHttpServer()).post('/members').send({
@@ -181,14 +185,15 @@ describe('Trainer commissions (e2e)', () => {
     // than two that could disagree about whether a window is closed.
     // Items are generated when the run is created, so the trainer has to
     // be payroll-enabled first or the run has nothing to finalize.
-    await prisma.staffProfile.update({
-      where: { id: trainerProfileId },
-      data: {
-        payrollEnabled: true,
-        salaryType: 'MONTHLY',
-        baseSalary: 30000,
-      },
-    });
+    await authed(
+      request(app.getHttpServer())
+        .patch(`/hr-payroll/staff/${trainerUserId}`)
+        .send({
+          payrollEnabled: true,
+          salaryType: 'MONTHLY',
+          baseSalary: 30000,
+        }),
+    ).expect(200);
 
     const run = await authed(
       request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({

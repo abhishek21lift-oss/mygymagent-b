@@ -10,9 +10,29 @@ import type {
   CreateLeaveRequestDto,
   CreateLeaveTypeDto,
   CreatePayrollRunDto,
+  ListStaffPayrollQueryDto,
   PayrollItemAdjustmentDto,
   ReviewLeaveDto,
+  UpdateStaffPayrollDto,
 } from './dto/hr-payroll.dto';
+
+/** What a payroll administrator needs to see about a staff member. The
+ * user is included because a staff-profile id names nobody. */
+const STAFF_PAYROLL_SELECT = {
+  id: true,
+  userId: true,
+  branchId: true,
+  employeeCode: true,
+  jobTitle: true,
+  hireDate: true,
+  payrollEnabled: true,
+  salaryType: true,
+  baseSalary: true,
+  hourlyRate: true,
+  user: {
+    select: { id: true, firstName: true, lastName: true, email: true },
+  },
+} as const;
 
 @Injectable()
 export class HrPayrollService {
@@ -614,5 +634,127 @@ export class HrPayrollService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+  }
+
+  /**
+   * Who is on payroll, and on what terms (B-P1-7).
+   *
+   * Keyed by `userId` rather than staff-profile id, because that is what
+   * the staff screen and every other user-facing route already hold; the
+   * profile id is an implementation detail of the HR tables.
+   */
+  async listStaffPayroll(
+    organizationId: string,
+    query: ListStaffPayrollQueryDto = {},
+    branchScope: string | null = null,
+  ) {
+    const branchId = branchScope ?? query.branchId;
+    const items = await this.prisma.staffProfile.findMany({
+      where: {
+        organizationId,
+        ...(branchId ? { branchId } : {}),
+        ...(query.payrollEnabledOnly ? { payrollEnabled: true } : {}),
+        user: { deletedAt: null },
+      },
+      select: STAFF_PAYROLL_SELECT,
+      orderBy: { user: { firstName: 'asc' } },
+    });
+    return { items };
+  }
+
+  /**
+   * Sets a staff member's payroll terms.
+   *
+   * The validation here is the substance of B-P1-7, not the write. The
+   * fields could have been bolted onto `PATCH /users/:id` in a line, but
+   * `processPayrollRun` multiplies `baseSalary` for MONTHLY and DAILY and
+   * falls back to `Decimal(0)` when it is null -- so marking someone
+   * payroll-enabled without a salary type, or a DAILY rate without an
+   * amount, produces a run full of zero-rupee payslips and no complaint
+   * from anywhere. An incoherent combination has to be impossible to
+   * save, or the endpoint just moves the silent failure one step later.
+   *
+   * It validates the *resulting* row, not the patch: sending only
+   * `{payrollEnabled: true}` is fine when a salary type is already
+   * stored, and refused when it is not.
+   */
+  async updateStaffPayroll(
+    organizationId: string,
+    userId: string,
+    dto: UpdateStaffPayrollDto,
+    branchScope: string | null = null,
+  ) {
+    const profile = await this.prisma.staffProfile.findFirst({
+      where: {
+        userId,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+        user: { deletedAt: null },
+      },
+      select: {
+        id: true,
+        payrollEnabled: true,
+        salaryType: true,
+        baseSalary: true,
+        hourlyRate: true,
+      },
+    });
+    if (!profile) throw new NotFoundException('Staff member not found');
+
+    // The row as it would be after this patch.
+    const next = {
+      payrollEnabled: dto.payrollEnabled ?? profile.payrollEnabled,
+      salaryType: dto.salaryType ?? profile.salaryType,
+      baseSalary:
+        dto.baseSalary !== undefined
+          ? new Prisma.Decimal(dto.baseSalary)
+          : profile.baseSalary,
+      hourlyRate:
+        dto.hourlyRate !== undefined
+          ? new Prisma.Decimal(dto.hourlyRate)
+          : profile.hourlyRate,
+    };
+
+    if (next.payrollEnabled) {
+      if (!next.salaryType) {
+        throw new BadRequestException(
+          'Set a salaryType (MONTHLY, DAILY or HOURLY) before enabling payroll for this staff member',
+        );
+      }
+      const needsBase =
+        next.salaryType === 'MONTHLY' || next.salaryType === 'DAILY';
+      if (needsBase && (next.baseSalary === null || next.baseSalary.lte(0))) {
+        throw new BadRequestException(
+          `A ${next.salaryType} salary needs a baseSalary greater than 0, or every payslip in the run is zero`,
+        );
+      }
+      if (
+        next.salaryType === 'HOURLY' &&
+        (next.hourlyRate === null || next.hourlyRate.lte(0))
+      ) {
+        throw new BadRequestException(
+          'An HOURLY salary needs an hourlyRate greater than 0, or every payslip in the run is zero',
+        );
+      }
+    }
+
+    return this.prisma.staffProfile.update({
+      where: { id: profile.id },
+      data: {
+        ...(dto.payrollEnabled !== undefined
+          ? { payrollEnabled: dto.payrollEnabled }
+          : {}),
+        ...(dto.salaryType !== undefined ? { salaryType: dto.salaryType } : {}),
+        ...(dto.baseSalary !== undefined ? { baseSalary: dto.baseSalary } : {}),
+        ...(dto.hourlyRate !== undefined ? { hourlyRate: dto.hourlyRate } : {}),
+        ...(dto.employeeCode !== undefined
+          ? { employeeCode: dto.employeeCode.trim() || null }
+          : {}),
+        ...(dto.hireDate !== undefined
+          ? { hireDate: new Date(dto.hireDate) }
+          : {}),
+      },
+      select: STAFF_PAYROLL_SELECT,
+    });
   }
 }
