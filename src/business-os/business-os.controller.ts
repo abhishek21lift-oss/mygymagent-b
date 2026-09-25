@@ -144,12 +144,6 @@ export class BusinessOsController {
   ) {
     return this.s.createAccount(u.organizationId!, b);
   }
-  @Post('accounting/entries') @RequirePermissions('accounting.manage') entry(
-    @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
-  ) {
-    return this.s.entry(u.organizationId!, u.id, b);
-  }
   @Post('accounting/journal') @RequirePermissions('accounting.manage') journal(
     @CurrentUser() u: AuthenticatedUser,
     @Body() b: any,

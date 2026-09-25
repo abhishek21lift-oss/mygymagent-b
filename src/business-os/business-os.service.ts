@@ -529,11 +529,6 @@ export class BusinessOsService {
       data: { organizationId: org, code, name, type },
     });
   }
-  async entry(org: string, userId: string, b: any) {
-    const debit=n(b.debit), credit=n(b.credit);
-    if ((debit<=0 && credit<=0) || (debit>0 && credit>0)) throw new BadRequestException('exactly one of debit or credit must be positive');
-    throw new BadRequestException('Use /accounting/journal for posting balanced accounting transactions');
-  }
   async trialBalance(org: string, from?: string, to?: string) {
     const accounts = await this.prisma.accountingAccount.findMany({
       where: { organizationId: org },
