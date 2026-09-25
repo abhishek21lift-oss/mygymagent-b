@@ -111,19 +111,7 @@ export class PayrollService {
     // The raw version joined staff_profiles -> users for a display name.
     // `TrainerCommission.trainerId` carries no relation, so resolve the
     // names in one query rather than N.
-    const ids = [...new Set(rows.map((r) => r.trainerId))];
-    const profiles = ids.length
-      ? await this.prisma.staffProfile.findMany({
-          where: { id: { in: ids } },
-          select: {
-            id: true,
-            user: { select: { firstName: true, lastName: true } },
-          },
-        })
-      : [];
-    const nameById = new Map(
-      profiles.map((p) => [p.id, `${p.user.firstName} ${p.user.lastName}`]),
-    );
+    const nameById = await this.trainerNames(rows.map((r) => r.trainerId));
 
     return rows.map((row) => ({
       ...row,
@@ -195,6 +183,15 @@ export class PayrollService {
     return { scanned: sessions.length, created };
   }
 
+  /**
+   * Totals per trainer for a pay window.
+   *
+   * Carries `trainerName` for the same reason `commissions()` does: the
+   * id is a `StaffProfile` id with no relation on `TrainerCommission`, so
+   * a caller that wants a name has no way to get one without a second
+   * round trip per row. Returning it here keeps the two endpoints the
+   * same shape rather than making the caller join one and not the other.
+   */
   async summary(org: string, from?: string, to?: string) {
     const grouped = await this.prisma.trainerCommission.groupBy({
       by: ['trainerId'],
@@ -213,13 +210,32 @@ export class PayrollService {
       _count: { _all: true },
     });
 
+    const nameById = await this.trainerNames(grouped.map((g) => g.trainerId));
+
     return grouped
       .map((g) => ({
         trainerId: g.trainerId,
+        trainerName: nameById.get(g.trainerId) ?? null,
         baseAmount: g._sum.baseAmount ?? new Prisma.Decimal(0),
         commissionAmount: g._sum.commissionAmount ?? new Prisma.Decimal(0),
         sessions: g._count._all,
       }))
       .sort((a, b) => b.commissionAmount.comparedTo(a.commissionAmount));
+  }
+
+  /** One query for the display names behind a set of StaffProfile ids. */
+  private async trainerNames(ids: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return new Map();
+    const profiles = await this.prisma.staffProfile.findMany({
+      where: { id: { in: unique } },
+      select: {
+        id: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return new Map(
+      profiles.map((p) => [p.id, `${p.user.firstName} ${p.user.lastName}`]),
+    );
   }
 }

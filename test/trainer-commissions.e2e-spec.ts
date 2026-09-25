@@ -169,6 +169,35 @@ describe('Trainer commissions (e2e)', () => {
     expect(row.status).toBe('PENDING');
   });
 
+  it('names the trainer on both the ledger and the summary', async () => {
+    // `TrainerCommission.trainerId` is a StaffProfile id with no relation
+    // to join through, so a caller that wants a person's name has no way
+    // to get one without a round trip per row. The ledger has always
+    // resolved it; the summary did not, which meant the two endpoints
+    // that sit side by side on one screen disagreed about their own
+    // shape and the totals table could only show ids.
+    const ledger = await authed(
+      request(app.getHttpServer()).get('/payroll/commissions'),
+    ).expect(200);
+    const summary = await authed(
+      request(app.getHttpServer()).get('/payroll/summary'),
+    ).expect(200);
+
+    const ledgerRow = ledger.body.data.find(
+      (c: { trainerId: string }) => c.trainerId === trainerProfileId,
+    );
+    const summaryRow = summary.body.data.find(
+      (c: { trainerId: string }) => c.trainerId === trainerProfileId,
+    );
+
+    expect(ledgerRow).toBeTruthy();
+    expect(summaryRow).toBeTruthy();
+    expect(typeof ledgerRow.trainerName).toBe('string');
+    expect(summaryRow.trainerName).toBe(ledgerRow.trainerName);
+    expect(summaryRow.sessions).toBeGreaterThanOrEqual(1);
+    expect(Number(summaryRow.commissionAmount)).toBeGreaterThan(0);
+  });
+
   it('does not double-pay a session that already has a commission', async () => {
     const again = await authed(
       request(app.getHttpServer())
