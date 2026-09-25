@@ -91,4 +91,53 @@ describe('PT sessions (e2e)', () => {
     ).expect(200);
     expect(res.body.data.items.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('filters by memberId, which the global pipe used to reject outright', async () => {
+    // This is the production bug: the handler took `@Query()
+    // PaginationQueryDto` plus separate `@Query('memberId')` params, and
+    // the global pipe validates the whole query object against the DTO
+    // with `forbidNonWhitelisted: true`. The DTO declared none of the
+    // filters, so every filtered request 400'd before the handler ran --
+    // which is the PT panel on every member's page. The suite never
+    // caught it because it only ever listed without a filter.
+    const res = await authed(
+      request(app.getHttpServer()).get('/pt-sessions').query({ memberId }),
+    ).expect(200);
+    expect(
+      res.body.data.items.every(
+        (s: { memberId: string }) => s.memberId === memberId,
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts every documented filter together', async () => {
+    await authed(
+      request(app.getHttpServer())
+        .get('/pt-sessions')
+        .query({
+          memberId,
+          branchId,
+          startFrom: new Date(Date.now() - 86_400_000).toISOString(),
+          endTo: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+          page: 1,
+          pageSize: 10,
+        }),
+    ).expect(200);
+  });
+
+  it('still rejects a filter that is not a uuid', async () => {
+    // Typing the filters is the other half of the fix: `memberId` was an
+    // unchecked string reaching a Prisma `where`.
+    await authed(
+      request(app.getHttpServer())
+        .get('/pt-sessions')
+        .query({ memberId: 'not-a-uuid' }),
+    ).expect(400);
+  });
+
+  it('still rejects a query param nobody declared', async () => {
+    await authed(
+      request(app.getHttpServer()).get('/pt-sessions').query({ nonsense: '1' }),
+    ).expect(400);
+  });
 });

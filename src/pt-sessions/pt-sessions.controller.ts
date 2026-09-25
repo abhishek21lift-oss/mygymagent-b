@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { ListPtSessionsDto } from './dto/list-pt-sessions.dto';
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PtSessionsService } from './pt-sessions.service';
@@ -30,25 +30,31 @@ function requireOrgId(user: AuthenticatedUser): string {
 export class PtSessionsController {
   constructor(private readonly ptSessionsService: PtSessionsService) {}
 
+  /**
+   * One DTO for the whole query string.
+   *
+   * This took `@Query() PaginationQueryDto` plus five separate
+   * `@Query('...')` params. The global pipe runs with
+   * `forbidNonWhitelisted: true` and validates the entire query object
+   * against the DTO, which declared none of those five -- so every
+   * request that actually used one was rejected before the handler ran.
+   * `GET /pt-sessions?memberId=x` answered 400 in production, which is
+   * the PT panel on every member's page.
+   */
   @Get()
   @RequirePermissions('pt-sessions.read')
   async list(
-    @Query() query: PaginationQueryDto,
+    @Query() query: ListPtSessionsDto,
     @CurrentUser() user: AuthenticatedUser,
-    @Query('memberId') memberId?: string,
-    @Query('trainerId') trainerId?: string,
-    @Query('branchId') branchId?: string,
-    @Query('startFrom') startFrom?: string,
-    @Query('endTo') endTo?: string,
   ) {
     return this.ptSessionsService.list(
       requireOrgId(user),
       query,
-      memberId,
-      trainerId,
-      branchId,
-      startFrom ? new Date(startFrom) : undefined,
-      endTo ? new Date(endTo) : undefined,
+      query.memberId,
+      query.trainerId,
+      query.branchId,
+      query.startFrom ? new Date(query.startFrom) : undefined,
+      query.endTo ? new Date(query.endTo) : undefined,
     );
   }
 
