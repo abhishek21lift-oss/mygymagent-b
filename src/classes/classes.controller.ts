@@ -61,6 +61,14 @@ export class ClassesController {
   ) {
     return this.classes.book(u.organizationId!, id, dto.memberId);
   }
+  @Get('sessions/:id/bookings')
+  @RequirePermissions('classes.read')
+  sessionBookings(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.classes.sessionBookings(u.organizationId!, id);
+  }
   @Patch('bookings/:id/cancel')
   @RequirePermissions('classes.book')
   cancel(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {

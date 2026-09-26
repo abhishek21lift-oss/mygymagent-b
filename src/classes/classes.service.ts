@@ -338,6 +338,64 @@ export class ClassesService {
    * also have no typed Prisma equivalent, so the fix and the port are the
    * same edit.
    */
+  /**
+   * The roster for one session.
+   *
+   * Attendance and cancellation are both keyed on a booking id, and until
+   * this existed the only place a booking id ever appeared was the response
+   * to the POST that created it -- so the front desk had no way to reach
+   * either endpoint for a booking someone else had taken.
+   *
+   * Ordered so the sheet reads the way the desk works it: booked first, in
+   * booking order, then the waitlist in queue position, then the settled
+   * rows.
+   */
+  async sessionBookings(organizationId: string, sessionId: string) {
+    const session = await this.prisma.classSession.findFirst({
+      where: { id: sessionId, organizationId },
+      select: { id: true },
+    });
+    if (!session) throw new NotFoundException('Class session not found');
+
+    const bookings = await this.prisma.classBooking.findMany({
+      where: { organizationId, sessionId },
+      select: {
+        id: true,
+        memberId: true,
+        status: true,
+        waitlistPosition: true,
+        bookedAt: true,
+        cancelledAt: true,
+        attendanceAt: true,
+        member: {
+          select: {
+            firstName: true,
+            lastName: true,
+            memberCode: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: [{ waitlistPosition: 'asc' }, { bookedAt: 'asc' }],
+    });
+
+    const rank: Record<string, number> = {
+      BOOKED: 0,
+      WAITLISTED: 1,
+      ATTENDED: 2,
+      NO_SHOW: 3,
+      CANCELLED: 4,
+    };
+    return bookings
+      .map(({ member, ...booking }) => ({
+        ...booking,
+        memberName: `${member.firstName} ${member.lastName}`.trim(),
+        memberCode: member.memberCode,
+        memberPhone: member.phone,
+      }))
+      .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
+  }
+
   async cancel(organizationId: string, bookingId: string) {
     return this.prisma.$transaction(async (tx) => {
       const booking = await tx.classBooking.findFirst({

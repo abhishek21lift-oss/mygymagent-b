@@ -316,6 +316,51 @@ describe('Group training / classes (e2e)', () => {
       expect(res.body.data.attendanceAt).toBeTruthy();
     });
 
+    it('lists the session roster so attendance has a booking id to act on', async () => {
+      const roster = await asOwner(
+        request(app.getHttpServer()).get(
+          `/classes/sessions/${sessionId}/bookings`,
+        ),
+      ).expect(200);
+
+      const rows = roster.body.data as Array<{
+        id: string;
+        status: string;
+        memberId: string;
+        memberName: string;
+        memberCode: string;
+      }>;
+      expect(rows).toHaveLength(2);
+
+      // Settled rows sink below live ones: by this point A is cancelled and
+      // B has been promoted and marked attended.
+      const [first, second] = rows;
+      expect(first.id).toBe(bookingB);
+      expect(first.status).toBe('ATTENDED');
+      expect(second.id).toBe(bookingA);
+      expect(second.status).toBe('CANCELLED');
+
+      // The name is what the desk reads off the sheet, so it has to be here
+      // and not left as a bare member id.
+      expect(first.memberName.trim().length).toBeGreaterThan(0);
+      expect(first.memberCode).toBeTruthy();
+      expect(first.memberId).toBe(memberB);
+    });
+
+    it('gates the roster on classes.read and 404s a session outside the org', async () => {
+      await asLimited(
+        request(app.getHttpServer()).get(
+          `/classes/sessions/${sessionId}/bookings`,
+        ),
+      ).expect(403);
+
+      await asOwner(
+        request(app.getHttpServer()).get(
+          '/classes/sessions/00000000-0000-4000-8000-000000000000/bookings',
+        ),
+      ).expect(404);
+    });
+
     it('rejects an unknown attendance status', async () => {
       await asLimited(
         request(app.getHttpServer())
