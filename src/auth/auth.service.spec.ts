@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { PermissionsService } from '../rbac/permissions.service';
 import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
+import { MemberOtpService } from './member-otp.service';
 
 describe('AuthService (basic)', () => {
   let service: AuthService;
@@ -22,6 +23,7 @@ describe('AuthService (basic)', () => {
         { provide: PermissionsService, useValue: {} },
         { provide: MfaService, useValue: {} },
         { provide: MfaPolicyService, useValue: {} },
+        { provide: MemberOtpService, useValue: {} },
       ],
     }).compile();
 
