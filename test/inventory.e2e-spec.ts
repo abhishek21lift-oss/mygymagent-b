@@ -222,6 +222,50 @@ describe('Inventory (e2e)', () => {
     ).expect(404);
   });
 
+  it('reads back one product and edits it, but refuses to set stock that way', async () => {
+    const product = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/products').send({
+        sku: 'EDIT-1',
+        name: 'Creatine Monohydrate',
+        unitPrice: 1200,
+        quantityOnHand: 7,
+        reorderLevel: 2,
+      }),
+    ).expect(201);
+    const productId = product.body.data.id;
+
+    const detail = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/products/${productId}`),
+    ).expect(200);
+    expect(detail.body.data.sku).toBe('EDIT-1');
+    expect(detail.body.data.quantityOnHand).toBe(7);
+
+    const updated = await authed(org.accessToken)(
+      request(app.getHttpServer()).patch(`/products/${productId}`).send({
+        name: 'Creatine Monohydrate 250g',
+        unitPrice: 1350,
+        category: 'Supplements',
+        reorderLevel: 4,
+        isActive: false,
+      }),
+    ).expect(200);
+    expect(updated.body.data.name).toBe('Creatine Monohydrate 250g');
+    expect(Number(updated.body.data.unitPrice)).toBe(1350);
+    expect(updated.body.data.category).toBe('Supplements');
+    expect(updated.body.data.reorderLevel).toBe(4);
+    expect(updated.body.data.isActive).toBe(false);
+    // Unchanged by an edit -- stock only moves through the ledger.
+    expect(updated.body.data.quantityOnHand).toBe(7);
+
+    // Which is why the edit form has no stock field: the DTO omits it, and
+    // the whitelist pipe rejects it outright rather than ignoring it.
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/products/${productId}`)
+        .send({ quantityOnHand: 999 }),
+    ).expect(400);
+  });
+
   it('deactivates a supplier without being made to resend its name', async () => {
     const supplier = await authed(org.accessToken)(
       request(app.getHttpServer())

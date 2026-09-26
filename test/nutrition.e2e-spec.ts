@@ -136,6 +136,97 @@ describe('Nutrition (e2e)', () => {
     expect(updated.body.data.status).toBe('COMPLETED');
   });
 
+  it('reads back one diet plan and edits it, replacing the item list', async () => {
+    const second = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/food-items')
+        .send({ name: `Brown Rice ${Date.now()}`, calories: 130 }),
+    ).expect(201);
+
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/diet-plans')
+        .send({
+          name: 'Editable Plan',
+          items: [
+            { foodItemId, mealSlot: 'BREAKFAST', quantity: 100, unit: 'g' },
+          ],
+          targetCalories: 1800,
+        }),
+    ).expect(201);
+    const planId = plan.body.data.id;
+
+    const detail = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/diet-plans/${planId}`),
+    ).expect(200);
+    expect(detail.body.data.name).toBe('Editable Plan');
+    expect(detail.body.data.items).toHaveLength(1);
+
+    // The edit form sends the whole item list back, so a swap is a swap and
+    // not an append. It also sends the three macro targets the create form
+    // never offered.
+    const updated = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/diet-plans/${planId}`)
+        .send({
+          name: 'Edited Plan',
+          items: [
+            {
+              foodItemId: second.body.data.id,
+              mealSlot: 'DINNER',
+              quantity: 150,
+              unit: 'g',
+            },
+          ],
+          targetProteinG: 180,
+          targetCarbsG: 220,
+          targetFatG: 60,
+        }),
+    ).expect(200);
+
+    expect(updated.body.data.name).toBe('Edited Plan');
+    expect(updated.body.data.items).toHaveLength(1);
+    expect(updated.body.data.items[0].foodItemId).toBe(second.body.data.id);
+    expect(Number(updated.body.data.targetProteinG)).toBe(180);
+    expect(Number(updated.body.data.targetCarbsG)).toBe(220);
+    expect(Number(updated.body.data.targetFatG)).toBe(60);
+    // Untouched by the PATCH, so it has to survive it.
+    expect(updated.body.data.targetCalories).toBe(1800);
+  });
+
+  it('refuses to edit a diet plan onto a food item from another org', async () => {
+    const otherOrg = await registerOrg('Nutrition Isolation Gym');
+    const foreignFood = await authed(otherOrg.accessToken)(
+      request(app.getHttpServer())
+        .post('/food-items')
+        .send({ name: `Foreign Oats ${Date.now()}` }),
+    ).expect(201);
+
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/diet-plans')
+        .send({
+          name: 'Isolation Plan',
+          items: [{ foodItemId, mealSlot: 'LUNCH', quantity: 100, unit: 'g' }],
+        }),
+    ).expect(201);
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/diet-plans/${plan.body.data.id}`)
+        .send({
+          items: [
+            {
+              foodItemId: foreignFood.body.data.id,
+              mealSlot: 'LUNCH',
+              quantity: 100,
+              unit: 'g',
+            },
+          ],
+        }),
+    ).expect(400);
+  });
+
   it('rejects assigning a plan to a member that does not exist', async () => {
     const plan = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/diet-plans').send({

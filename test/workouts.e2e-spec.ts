@@ -137,6 +137,92 @@ describe('Workouts (e2e)', () => {
     expect(updated.body.data.status).toBe('COMPLETED');
   });
 
+  it('reads back one workout plan and edits it, replacing the exercise list', async () => {
+    const second = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/exercises')
+        .send({
+          name: `Romanian Deadlift ${Date.now()}`,
+          muscleGroup: 'Hamstrings',
+        }),
+    ).expect(201);
+
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/workout-plans')
+        .send({
+          name: 'Editable Plan',
+          exercises: [{ exerciseId, order: 1, sets: 3, reps: '8-12' }],
+        }),
+    ).expect(201);
+    const planId = plan.body.data.id;
+
+    const detail = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/workout-plans/${planId}`),
+    ).expect(200);
+    expect(detail.body.data.name).toBe('Editable Plan');
+    expect(detail.body.data.exercises).toHaveLength(1);
+
+    // The edit form sends the whole exercise list back and renumbers `order`
+    // from the rendered order, so removing the middle row leaves no gap.
+    const updated = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/workout-plans/${planId}`)
+        .send({
+          name: 'Edited Plan',
+          description: 'Reworked for the off-season',
+          exercises: [
+            {
+              exerciseId: second.body.data.id,
+              order: 1,
+              sets: 5,
+              reps: '5',
+              restSeconds: 180,
+            },
+          ],
+        }),
+    ).expect(200);
+
+    expect(updated.body.data.name).toBe('Edited Plan');
+    expect(updated.body.data.description).toBe('Reworked for the off-season');
+    expect(updated.body.data.exercises).toHaveLength(1);
+    expect(updated.body.data.exercises[0].exerciseId).toBe(second.body.data.id);
+    expect(updated.body.data.exercises[0].sets).toBe(5);
+  });
+
+  it('refuses to edit a workout plan onto an exercise from another org', async () => {
+    const otherOrg = await registerOrg('Workout Isolation Gym');
+    const foreignExercise = await authed(otherOrg.accessToken)(
+      request(app.getHttpServer())
+        .post('/exercises')
+        .send({ name: `Foreign Press ${Date.now()}` }),
+    ).expect(201);
+
+    const plan = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/workout-plans')
+        .send({
+          name: 'Isolation Plan',
+          exercises: [{ exerciseId, order: 1, sets: 3, reps: '10' }],
+        }),
+    ).expect(201);
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/workout-plans/${plan.body.data.id}`)
+        .send({
+          exercises: [
+            {
+              exerciseId: foreignExercise.body.data.id,
+              order: 1,
+              sets: 3,
+              reps: '10',
+            },
+          ],
+        }),
+    ).expect(400);
+  });
+
   it('rejects assigning a plan to a member that does not exist', async () => {
     const plan = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/workout-plans').send({
