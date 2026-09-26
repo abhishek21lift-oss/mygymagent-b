@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Headers,
   HttpCode,
@@ -16,13 +15,8 @@ import type { Request } from 'express';
 import { Prisma } from '@prisma/client';
 import type { PaymentMethod } from '@prisma/client';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { InvoicesService } from '../invoices/invoices.service';
-import { CreateRazorpayOrderDto } from '../invoices/dto/create-razorpay-order.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RazorpayService } from './razorpay.service';
 
@@ -37,12 +31,16 @@ interface RazorpayPaymentEntity {
 }
 
 /**
- * Razorpay online collection against invoices. The order endpoint is a
- * thin delegate to InvoicesService.retryCollection(); the webhook is
- * @Public() (Razorpay signs deliveries with the webhook secret, not a
- * user JWT) and always answers 200 once the signature checks out -- even
- * when the payload references something unknown -- so Razorpay stops
- * retrying a delivery that would never succeed on a later attempt.
+ * Razorpay's webhook. It is @Public() (Razorpay signs deliveries with the
+ * webhook secret, not a user JWT) and always answers 200 once the
+ * signature checks out -- even when the payload references something
+ * unknown -- so Razorpay stops retrying a delivery that would never
+ * succeed on a later attempt.
+ *
+ * There was a POST order route beside it that did nothing but delegate to
+ * InvoicesService.retryCollection(), which POST /invoices/:id/retry-collection
+ * already exposes under the same permission. Two paths to one action is
+ * two paths to keep correct; the invoice route is the one the app calls.
  */
 @Controller('payments/online/razorpay')
 @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -54,21 +52,6 @@ export class RazorpayController {
     private readonly invoices: InvoicesService,
     private readonly prisma: PrismaService,
   ) {}
-
-  @Post('order')
-  @HttpCode(HttpStatus.OK)
-  @RequirePermissions('payments.create')
-  createOrder(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateRazorpayOrderDto,
-    @CurrentBranchScope() branchScope: string | null,
-  ) {
-    return this.invoices.retryCollection(
-      user.organizationId!,
-      dto.invoiceId,
-      branchScope,
-    );
-  }
 
   @Post('webhook')
   @Public()
