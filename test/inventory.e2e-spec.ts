@@ -221,4 +221,200 @@ describe('Inventory (e2e)', () => {
         .send({ type: 'RESTOCK', quantity: 10 }),
     ).expect(404);
   });
+
+  it('deactivates a supplier without being made to resend its name', async () => {
+    const supplier = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/suppliers')
+        .send({ name: 'Bulk Whey Co', phone: '9000000001' }),
+    ).expect(201);
+
+    // The whole point of PATCH: a caller that only wants to flip the flag
+    // sends only the flag. Before the DTO was partial this was a 400.
+    const patched = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/inventory/suppliers/${supplier.body.data.id}`)
+        .send({ isActive: false }),
+    ).expect(200);
+
+    expect(patched.body.data.isActive).toBe(false);
+    expect(patched.body.data.name).toBe('Bulk Whey Co');
+    expect(patched.body.data.phone).toBe('9000000001');
+  });
+
+  it("edits a supplier's contact details", async () => {
+    const supplier = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/suppliers')
+        .send({ name: 'Iron Grip Equipment' }),
+    ).expect(201);
+
+    const patched = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/inventory/suppliers/${supplier.body.data.id}`)
+        .send({ email: 'orders@irongrip.example', taxId: '29ABCDE1234F1Z5' }),
+    ).expect(200);
+
+    expect(patched.body.data.email).toBe('orders@irongrip.example');
+    expect(patched.body.data.taxId).toBe('29ABCDE1234F1Z5');
+    expect(patched.body.data.name).toBe('Iron Grip Equipment');
+  });
+
+  it('clears a supplier contact field when the UI sends null', async () => {
+    const supplier = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/inventory/suppliers').send({
+        name: 'Clearable Co',
+        email: 'old@example.com',
+        phone: '9000000002',
+      }),
+    ).expect(201);
+
+    // The edit form sends null for a field the user emptied. Empty string
+    // would fail @IsEmail and undefined would keep the old value, so null
+    // is the only spelling that actually clears the column.
+    const patched = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .patch(`/inventory/suppliers/${supplier.body.data.id}`)
+        .send({ email: null, phone: null }),
+    ).expect(200);
+
+    expect(patched.body.data.email).toBeNull();
+    expect(patched.body.data.phone).toBeNull();
+  });
+
+  it('cancels an ordered purchase order and refuses to cancel it twice', async () => {
+    const supplier = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/suppliers')
+        .send({ name: 'Cancellable Supplies' }),
+    ).expect(201);
+
+    const product = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/products')
+        .send({ sku: 'PO-CANCEL-1', name: 'Resistance Band', unitPrice: 300 }),
+    ).expect(201);
+
+    const po = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/purchase-orders')
+        .send({
+          supplierId: supplier.body.data.id,
+          branchId: org.branchId,
+          items: [
+            {
+              productId: product.body.data.id,
+              orderedQuantity: 10,
+              unitCost: 150,
+            },
+          ],
+        }),
+    ).expect(201);
+
+    const cancelled = await authed(org.accessToken)(
+      request(app.getHttpServer()).post(
+        `/inventory/purchase-orders/${po.body.data.id}/cancel`,
+      ),
+    ).expect(201);
+    expect(cancelled.body.data.status).toBe('CANCELLED');
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).post(
+        `/inventory/purchase-orders/${po.body.data.id}/cancel`,
+      ),
+    ).expect(400);
+  });
+
+  it('cancels a completed sale and puts the stock back', async () => {
+    const product = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/products')
+        .send({ sku: 'SALE-CANCEL-1', name: 'Shaker Bottle', unitPrice: 500 }),
+    ).expect(201);
+    const productId = product.body.data.id;
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/products/${productId}/stock-movements`)
+        .send({ type: 'RESTOCK', quantity: 6, branchId: org.branchId }),
+    ).expect(201);
+
+    const sale = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/sales')
+        .send({
+          branchId: org.branchId,
+          items: [{ productId, quantity: 4, unitPrice: 500 }],
+        }),
+    ).expect(201);
+
+    const cancelled = await authed(org.accessToken)(
+      request(app.getHttpServer()).post(
+        `/inventory/sales/${sale.body.data.id}/cancel`,
+      ),
+    ).expect(201);
+    expect(cancelled.body.data.status).toBe('CANCELLED');
+
+    // Cancelling a sale is not just a status flip -- the units have to come
+    // back on hand, or the branch is short four bottles it still has.
+    const after = await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/inventory/branch-stock').query({
+        branchId: org.branchId,
+        productId,
+      }),
+    ).expect(200);
+    expect(after.body.data[0].quantityOnHand).toBe(6);
+  });
+
+  it('cancels an in-transit transfer and returns the stock to the source branch', async () => {
+    const second = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/branches')
+        .send({ name: 'Transfer Cancel Branch', slug: 'transfer-cancel' }),
+    ).expect(201);
+
+    const product = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/products')
+        .send({ sku: 'XFER-CANCEL-1', name: 'Lifting Belt', unitPrice: 2500 }),
+    ).expect(201);
+    const productId = product.body.data.id;
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/products/${productId}/stock-movements`)
+        .send({ type: 'RESTOCK', quantity: 5, branchId: org.branchId }),
+    ).expect(201);
+
+    const transfer = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post('/inventory/transfers')
+        .send({
+          fromBranchId: org.branchId,
+          toBranchId: second.body.data.id,
+          items: [{ productId, quantity: 3 }],
+        }),
+    ).expect(201);
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).post(
+        `/inventory/transfers/${transfer.body.data.id}/ship`,
+      ),
+    ).expect(201);
+
+    const cancelled = await authed(org.accessToken)(
+      request(app.getHttpServer()).post(
+        `/inventory/transfers/${transfer.body.data.id}/cancel`,
+      ),
+    ).expect(201);
+    expect(cancelled.body.data.status).toBe('CANCELLED');
+
+    const source = await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/inventory/branch-stock').query({
+        branchId: org.branchId,
+        productId,
+      }),
+    ).expect(200);
+    expect(source.body.data[0].quantityOnHand).toBe(5);
+  });
 });

@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import { ToBoolean } from '../../common/transforms/to-boolean.transform';
 import {
@@ -21,7 +22,11 @@ export class CreateInventorySupplierDto {
   @IsOptional() @IsString() taxId?: string;
 }
 
-export class UpdateInventorySupplierDto extends CreateInventorySupplierDto {
+// PartialType, not a plain extend: this is a PATCH, so a caller that only
+// wants to deactivate a supplier must not be forced to resend its name.
+export class UpdateInventorySupplierDto extends PartialType(
+  CreateInventorySupplierDto,
+) {
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
