@@ -14,7 +14,11 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { SegmentsService } from './segments.service';
-import type { CreateSegmentDto, UpdateSegmentDto } from './segments.service';
+import {
+  CreateSegmentDto,
+  SegmentMembersQueryDto,
+  UpdateSegmentDto,
+} from './dto/segment.dto';
 import { SEGMENT_FIELDS } from './segment-rules';
 
 @Controller('members/segments')
@@ -59,14 +63,13 @@ export class SegmentsController {
   async getSegmentMembers(
     @CurrentUser() user: AuthenticatedUser,
     @Param('segmentId', ParseUUIDPipe) segmentId: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
+    @Query() query: SegmentMembersQueryDto,
   ) {
     const members = await this.segments.getSegmentMembers(
       user.organizationId!,
       segmentId,
-      limit ? parseInt(limit, 10) : 100,
-      offset ? parseInt(offset, 10) : 0,
+      query.limit ?? 100,
+      query.offset ?? 0,
     );
     const totalCount = await this.segments.countSegmentMembers(
       user.organizationId!,

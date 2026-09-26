@@ -11,18 +11,13 @@ import {
 } from './segment-rules';
 import { MemberSegment } from '@prisma/client';
 
-export interface CreateSegmentDto {
-  name: string;
-  description?: string;
-  rules: SegmentRule[];
-  isSystem?: boolean;
-}
+// The request shapes are validation classes in ./dto/segment.dto, so the
+// pipe actually enforces them; until they were, `rules: null` reached
+// evaluateRules and answered 500. Re-exported here because callers and the
+// controller both reference them from this module.
+import type { CreateSegmentDto, UpdateSegmentDto } from './dto/segment.dto';
 
-export interface UpdateSegmentDto {
-  name?: string;
-  description?: string;
-  rules?: SegmentRule[];
-}
+export type { CreateSegmentDto, UpdateSegmentDto };
 
 const SYSTEM_SEGMENT_DEFINITIONS: {
   name: string;
@@ -107,7 +102,10 @@ export class SegmentsService {
         name: dto.name,
         description: dto.description,
         rules: dto.rules as any,
-        isSystem: dto.isSystem ?? false,
+        // Never from the request: a system segment can be neither edited
+        // nor deleted, so a client able to set the flag could create a
+        // permanent one by accident. They are seeded, not posted.
+        isSystem: false,
         createdByUserId: userId,
       },
     });
