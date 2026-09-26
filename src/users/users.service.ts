@@ -14,6 +14,7 @@ import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
+import { PLATFORM_ONLY_ROLE_KEYS } from '../rbac/roles.catalog';
 import type { AssignRoleDto } from './dto/assign-role.dto';
 import type { CreateUserDto } from './dto/create-user.dto';
 import type { UpdateUserDto } from './dto/update-user.dto';
@@ -293,6 +294,15 @@ export class UsersService {
   }
 
   private async resolveRole(organizationId: string, roleKey: string) {
+    // The platform roles live in the same global catalogue as every other
+    // role, so without this an organization admin could hand one out.
+    // Platform routes are gated on User.platformRole rather than on an RBAC
+    // grant, so it would confer nothing a platform role implies -- it would
+    // only grant every ordinary permission under a name that reads as much
+    // more than that to anyone auditing the staff list.
+    if ((PLATFORM_ONLY_ROLE_KEYS as readonly string[]).includes(roleKey)) {
+      return null;
+    }
     return (
       (await this.prisma.role.findFirst({
         where: { organizationId, key: roleKey },

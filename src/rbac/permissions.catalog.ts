@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 /**
  * Canonical `resource.action` permission catalog for the platform.
  */
@@ -39,9 +38,13 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     delete: 'Deactivate a staff user account',
     manage_roles: 'Assign or revoke roles for a user',
   }),
+  // `roles.manage` -- custom role authoring -- was advertised here for a
+  // capability nothing implements: there is no endpoint that creates or
+  // edits a role, and the seeded catalogue is the only source of them.
+  // Dropped rather than left as a permission an administrator can grant
+  // and that then does nothing. Add it back with the endpoints.
   ...resource('roles', {
-    read: 'View roles and permissions',
-    manage: 'Create/update custom roles and their permission grants',
+    read: 'View roles and the permissions each one grants',
   }),
   ...resource('audit', { read: 'View audit log entries' }),
   ...resource('settings', { manage: 'Manage organization-wide settings' }),

@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { PERMISSION_KEYS } from './permissions.catalog';
 
 export interface RoleDefinition {
@@ -21,6 +20,20 @@ const perms = (...keys: string[]) => keys;
  * settings or touch accounting, and sweeping it in would multiply the
  * rollout's lockout surface for little gain.
  */
+/**
+ * Roles that exist in the catalogue but must never be handed out inside an
+ * organization.
+ *
+ * Platform routes are gated on `User.platformRole`, not on an RBAC grant,
+ * so granting one of these to a staff member confers nothing a platform
+ * role implies. It only hands them every ordinary permission, under a name
+ * that reads as far more than that to anyone auditing the staff list.
+ */
+export const PLATFORM_ONLY_ROLE_KEYS = [
+  'PLATFORM_OWNER',
+  'PLATFORM_ADMIN',
+] as const;
+
 export const MFA_PRIVILEGED_ROLE_KEYS = [
   'ORG_OWNER',
   'ORG_ADMIN',
