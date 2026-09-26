@@ -55,6 +55,9 @@ function publicUser(user: {
   status: string;
   primaryBranchId: string | null;
   emailVerifiedAt: Date | null;
+  /** Set only for platform staff. Absent on the register response, where
+   * a just-created account can never have one. */
+  platformRole?: 'PLATFORM_OWNER' | 'PLATFORM_ADMIN' | null;
   member?: { id: string } | null;
 }) {
   return {
@@ -66,6 +69,15 @@ function publicUser(user: {
     status: user.status,
     primaryBranchId: user.primaryBranchId,
     emailVerified: user.emailVerifiedAt !== null,
+    /**
+     * Platform staff, or null for everyone else.
+     *
+     * Platform routes are gated server-side on this column rather than on
+     * an RBAC grant, so it is the only thing that can tell a client whether
+     * to offer the cross-tenant screens at all. Without it the app had no
+     * way to know, which is why those screens did not exist.
+     */
+    platformRole: user.platformRole ?? null,
     /**
      * The gym member this login belongs to, when it is one.
      *

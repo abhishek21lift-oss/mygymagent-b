@@ -79,6 +79,23 @@ describe('Platform administration (e2e)', () => {
       .expect(403);
   });
 
+  it('tells the client who is platform staff, so the screens can exist at all', async () => {
+    const platform = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${platformToken}`)
+      .expect(200);
+    expect(platform.body.data.user.platformRole).toBe('PLATFORM_OWNER');
+
+    // Platform routes are gated on this column rather than on an RBAC
+    // grant, so it is the only thing that can tell a client whether to
+    // offer the cross-tenant screens.
+    const ordinary = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${org.accessToken}`)
+      .expect(200);
+    expect(ordinary.body.data.user.platformRole).toBeNull();
+  });
+
   it('lets a platform admin list organizations across every tenant', async () => {
     const res = await request(app.getHttpServer())
       .get('/platform/organizations')
