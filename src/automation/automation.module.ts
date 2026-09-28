@@ -2,6 +2,8 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { CommunicationsModule } from '../communications/communications.module';
 import { MemberIntelligenceModule } from '../member-intelligence/member-intelligence.module';
+import { AutomationController } from './automation.controller';
+import { AutomationOverviewService } from './automation-overview.service';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
 import { AutomationSchedulerService } from './automation-scheduler.service';
@@ -23,7 +25,9 @@ import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
     CommunicationsModule,
     MemberIntelligenceModule,
   ],
+  controllers: [AutomationController],
   providers: [
+    AutomationOverviewService,
     AutomationRunService,
     AutomationSchedulerService,
     AutomationScanProcessor,

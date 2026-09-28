@@ -64,6 +64,21 @@ export class CommunicationsService {
     @Inject(PUSH_PROVIDER) private readonly pushProvider: MessageProvider,
   ) {}
 
+  /**
+   * Which outbound channels can actually deliver right now.
+   *
+   * Every automated reminder is only as good as the channel under it, and
+   * the automation screen needs to say so up front: on 25 September four
+   * overdue-payment reminders failed because email was unconfigured, and
+   * nothing anywhere in the app said email was unconfigured.
+   */
+  channelReadiness(): { email: boolean; sms: boolean } {
+    return {
+      email: this.emailProvider.isConfigured?.() ?? true,
+      sms: this.smsProvider.isConfigured?.() ?? true,
+    };
+  }
+
   async send(input: SendInput) {
     const organization = input.organizationId
       ? await this.prisma.organization.findUnique({

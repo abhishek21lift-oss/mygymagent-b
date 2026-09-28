@@ -23,6 +23,12 @@ export class SmtpEmailProvider implements EmailProvider {
   private readonly transporter: Transporter | null;
   private readonly fromAddress: string | undefined;
 
+  /** Both the host and the sender address are required; the constructor
+   * leaves the transporter null when either is missing. */
+  isConfigured(): boolean {
+    return this.transporter !== null;
+  }
+
   constructor(private readonly config: ConfigService) {
     const host = this.config.get<string>('SMTP_HOST');
     this.fromAddress = this.config.get<string>('SMTP_FROM_ADDRESS');

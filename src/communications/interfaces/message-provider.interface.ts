@@ -19,6 +19,9 @@ export interface MessageProvider {
     text: string;
     organizationId?: string;
   }): Promise<string | void>;
+  /** Whether a send could succeed at all. Optional; absent means "assume
+   * yes", which is the generic HTTP provider's honest answer. */
+  isConfigured?(): boolean;
 }
 
 /** The provider bound for WHATSAPP/SMS/PUSH until a real one is built --

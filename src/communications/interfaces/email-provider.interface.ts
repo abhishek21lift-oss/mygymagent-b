@@ -18,4 +18,7 @@ export class ChannelNotConfiguredError extends Error {}
 
 export interface EmailProvider {
   send(message: EmailMessage): Promise<void>;
+  /** Whether a send could succeed at all. Optional so a test double need
+   * not implement it; absent means "assume yes". */
+  isConfigured?(): boolean;
 }
