@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { CommunicationsModule } from '../communications/communications.module';
+import { MemberIntelligenceModule } from '../member-intelligence/member-intelligence.module';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
 import { AutomationSchedulerService } from './automation-scheduler.service';
@@ -20,6 +21,7 @@ import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.AUTOMATION }),
     CommunicationsModule,
+    MemberIntelligenceModule,
   ],
   providers: [
     AutomationRunService,

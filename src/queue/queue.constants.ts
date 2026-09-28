@@ -20,6 +20,7 @@ export const JOB_NAMES = {
   SCAN_LEAD_FIRST_TOUCH: 'scan-lead-first-touch',
   ROTATE_QR_TOKENS: 'rotate-qr-tokens',
   SCAN_PT_EXPIRY: 'scan-pt-expiry',
+  SCAN_RISK_PROFILES: 'scan-risk-profiles',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -37,4 +38,5 @@ export const JOB_SCHEDULER_IDS = {
   SCAN_LEAD_FIRST_TOUCH: 'scan-lead-first-touch-5min',
   ROTATE_QR_TOKENS: 'rotate-qr-tokens-weekly',
   SCAN_PT_EXPIRY: 'scan-pt-expiry-daily',
+  SCAN_RISK_PROFILES: 'scan-risk-profiles-nightly',
 } as const;

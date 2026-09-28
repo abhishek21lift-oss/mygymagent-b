@@ -38,11 +38,15 @@ describe('DataRetentionScanner', () => {
     expect(prisma.auditLog.deleteMany).toHaveBeenCalled();
     expect(prisma.refreshToken.deleteMany).toHaveBeenCalled();
     expect(prisma.passwordResetToken.deleteMany).toHaveBeenCalled();
-    expect(prisma.userPermissionOverride.deleteMany).toHaveBeenCalled();
     expect(prisma.emailVerificationToken.deleteMany).toHaveBeenCalled();
+  });
 
-    // Verify logger was called
-    // Note: In a real test, we would spy on the logger, but for simplicity
-    // we're just verifying the scanner executes without throwing
+  it('never deletes permission overrides, however old', async () => {
+    await scanner.scan();
+
+    // This used to assert the opposite. An override is live access
+    // control with no expiry -- a year-old DENY still denies -- so
+    // deleting it by age hands back access an administrator removed.
+    expect(prisma.userPermissionOverride.deleteMany).not.toHaveBeenCalled();
   });
 });

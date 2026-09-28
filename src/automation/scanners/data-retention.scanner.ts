@@ -3,7 +3,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 /**
  * Scanner for data retention policies.
- * Periodically cleans up old append-only data to prevent unbounded growth.
+ * Periodically cleans up old append-only data to prevent unbounded growth:
+ * spent and expired credentials, and audit entries past a year. Nothing
+ * here may be configuration -- only records of things that happened.
  */
 @Injectable()
 export class DataRetentionScanner {
@@ -19,7 +21,6 @@ export class DataRetentionScanner {
         auditLog: 365,
         refreshToken: 90,
         passwordResetToken: 7,
-        userPermissionOverride: 365,
         emailVerificationToken: 1,
       };
 
@@ -66,18 +67,13 @@ export class DataRetentionScanner {
         `Deleted ${deletedPasswordResetTokens.count} password reset token records older than ${RETENTION_PERIODS.passwordResetToken} days`,
       );
 
-      const userPermissionOverrideCutoff = new Date();
-      userPermissionOverrideCutoff.setDate(
-        userPermissionOverrideCutoff.getDate() -
-          RETENTION_PERIODS.userPermissionOverride,
-      );
-      const deletedUserPermissionOverrides =
-        await this.prisma.userPermissionOverride.deleteMany({
-          where: { createdAt: { lt: userPermissionOverrideCutoff } },
-        });
-      this.logger.log(
-        `Deleted ${deletedUserPermissionOverrides.count} user permission override records older than ${RETENTION_PERIODS.userPermissionOverride} days`,
-      );
+      // Permission overrides are deliberately NOT here. They are live
+      // access control, not history: a DENY set on someone a year ago is
+      // still meant to deny today, and deleting it by age would silently
+      // hand back access an administrator took away. The model has no
+      // expiry for exactly that reason. This scanner deleted them for as
+      // long as it existed -- it just never ran until its dispatch was
+      // wired, which is when this came out.
 
       const emailVerificationTokenCutoff = new Date();
       emailVerificationTokenCutoff.setDate(

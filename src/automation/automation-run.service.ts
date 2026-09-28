@@ -29,7 +29,17 @@ export class AutomationRunService {
   ): Promise<boolean> {
     const since = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
     const recent = await this.prisma.automationRun.findFirst({
-      where: { organizationId, key, subjectId, createdAt: { gte: since } },
+      // A FAILED run never reached anyone -- email unconfigured, a bad
+      // address -- so it must not buy the cooldown a real send does.
+      // Counting it meant a gym that fixed its SMTP settings still waited
+      // five days before an overdue member heard anything.
+      where: {
+        organizationId,
+        key,
+        subjectId,
+        createdAt: { gte: since },
+        status: { not: 'FAILED' },
+      },
       select: { id: true },
     });
     return !recent;

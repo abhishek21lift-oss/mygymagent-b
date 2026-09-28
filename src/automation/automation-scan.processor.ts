@@ -14,6 +14,8 @@ import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner'
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
+import { DataRetentionScanner } from './scanners/data-retention.scanner';
+import { RiskEngineService } from '../member-intelligence/risk-engine.service';
 
 const LOW_STOCK_COOLDOWN_DAYS = 1;
 
@@ -39,6 +41,8 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly qrRotationScanner: QrRotationScanner,
     private readonly invoiceDunningScanner: InvoiceDunningScanner,
     private readonly ptExpiryScanner: PtExpiryScanner,
+    private readonly dataRetentionScanner: DataRetentionScanner,
+    private readonly riskEngine: RiskEngineService,
   ) {
     super();
   }
@@ -61,6 +65,13 @@ export class AutomationScanProcessor extends WorkerHost {
         return this.invoiceDunningScanner.scan();
       case JOB_NAMES.SCAN_PT_EXPIRY:
         return this.ptExpiryScanner.scan(job.data.organizationId);
+      // Scheduled daily from the start and never dispatched: with no case
+      // here it fell through to `default`, logged "Unrecognized job name"
+      // and did nothing, every day.
+      case JOB_NAMES.SCAN_DATA_RETENTION:
+        return this.dataRetentionScanner.scan();
+      case JOB_NAMES.SCAN_RISK_PROFILES:
+        return this.scanRiskProfiles();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:
         return this.sendLowStockAlert(job.data as InventoryLowEvent);
       default:
@@ -69,6 +80,47 @@ export class AutomationScanProcessor extends WorkerHost {
         );
         return undefined;
     }
+  }
+
+  /**
+   * Rescores every live organization's active members.
+   *
+   * One organization failing must not cost the others their scores, so
+   * each is caught on its own; the per-member errors inside a batch are
+   * already absorbed by batchComputeRiskProfiles. Suspended and cancelled
+   * gyms are skipped -- nobody is reading their dashboards.
+   */
+  private async scanRiskProfiles(): Promise<{
+    organizations: number;
+    processed: number;
+    errors: number;
+  }> {
+    const organizations = await this.prisma.organization.findMany({
+      where: { deletedAt: null, status: { in: ['TRIAL', 'ACTIVE'] } },
+      select: { id: true },
+    });
+    let processed = 0;
+    let errors = 0;
+    for (const organization of organizations) {
+      try {
+        const result = await this.riskEngine.batchComputeRiskProfiles(
+          organization.id,
+        );
+        processed += result.processed;
+        errors += result.errors;
+      } catch (error) {
+        errors++;
+        this.logger.warn(
+          `Risk scoring failed for organization ${organization.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    this.logger.log(
+      `Risk scoring: ${processed} members across ${organizations.length} organizations, ${errors} errors`,
+    );
+    return { organizations: organizations.length, processed, errors };
   }
 
   /**

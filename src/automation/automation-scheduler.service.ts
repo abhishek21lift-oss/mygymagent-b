@@ -14,6 +14,15 @@ import {
 const DAILY_SCAN_HOUR_UTC = 8;
 
 /**
+ * The churn scores are rebuilt overnight rather than with the daytime
+ * scans: 23:00 UTC is 04:30 in India, so an owner opening Member
+ * Intelligence first thing sees this morning's picture. Until this ran on
+ * a schedule, every score in production had come from someone clicking
+ * "Recompute" -- one member of 955 had ever been scored.
+ */
+export const RISK_SCAN_PATTERN = '0 23 * * *';
+
+/**
  * The "Scheduler" half of "Scheduler + Jobs infrastructure": registers
  * BullMQ's own repeatable-job primitive (`Queue.upsertJobScheduler`) for
  * each daily scan, rather than building a second scheduling abstraction
@@ -79,6 +88,11 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { name: JOB_NAMES.SCAN_LEAD_FIRST_TOUCH },
       ),
       this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_RISK_PROFILES,
+        { pattern: RISK_SCAN_PATTERN },
+        { name: JOB_NAMES.SCAN_RISK_PROFILES },
+      ),
+      this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.ROTATE_QR_TOKENS,
         { every: 7 * 24 * 60 * 60 * 1000 },
         { name: JOB_NAMES.ROTATE_QR_TOKENS },
@@ -86,7 +100,7 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
     ]);
 
     this.logger.log(
-      `Registered 7 daily automation scan schedulers (${pattern} UTC) + lead first-touch every 5m + QR rotation every 7d`,
+      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + QR rotation every 7d`,
     );
   }
 }

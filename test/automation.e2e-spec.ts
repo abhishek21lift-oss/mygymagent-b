@@ -6,7 +6,9 @@ import { LeadFollowupScanner } from '../src/automation/scanners/lead-followup.sc
 import { MemberInactiveScanner } from '../src/automation/scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from '../src/automation/scanners/membership-renewal.scanner';
 import { PaymentOverdueScanner } from '../src/automation/scanners/payment-overdue.scanner';
-import { QUEUE_NAMES } from '../src/queue/queue.constants';
+import { AutomationScanProcessor } from '../src/automation/automation-scan.processor';
+import { AutomationRunService } from '../src/automation/automation-run.service';
+import { JOB_NAMES, QUEUE_NAMES } from '../src/queue/queue.constants';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 import { waitForEmailTo } from './utils/mailbox';
@@ -349,6 +351,116 @@ describe('Automation (e2e)', () => {
       },
     });
     expect(run?.status).toBe('SENT');
+  });
+
+  it('lets a failed send be retried instead of spending the cooldown on it', async () => {
+    const runs = app.get(AutomationRunService);
+    const subjectId = `failed-send-${Date.now()}`;
+
+    // What production did on 25 September: SMTP unset, so the send threw.
+    const first = await runs.attempt(
+      org.organizationId,
+      'PAYMENT_OVERDUE_REMINDER',
+      subjectId,
+      5,
+      () => Promise.reject(new Error('Email is not configured')),
+    );
+    expect(first).toBe('FAILED');
+
+    // Nobody was reached, so the next scan has to be allowed to try again.
+    // It used to answer COOLDOWN here for five days.
+    const second = await runs.attempt(
+      org.organizationId,
+      'PAYMENT_OVERDUE_REMINDER',
+      subjectId,
+      5,
+      () => Promise.resolve({ status: 'SENT' }),
+    );
+    expect(second).toBe('SENT');
+
+    // A real send does still buy the cooldown.
+    const third = await runs.attempt(
+      org.organizationId,
+      'PAYMENT_OVERDUE_REMINDER',
+      subjectId,
+      5,
+      () => Promise.resolve({ status: 'SENT' }),
+    );
+    expect(third).toBe('COOLDOWN');
+  });
+
+  it('scores active members on the nightly risk job without anyone clicking', async () => {
+    const member = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/members').send({
+        primaryBranchId: org.branchId,
+        firstName: 'Nightly',
+        lastName: 'Scored',
+      }),
+    ).expect(201);
+
+    const before = await prisma.memberRiskProfile.findFirst({
+      where: { memberId: member.body.data.id },
+    });
+    expect(before).toBeNull();
+
+    const processor = app.get(AutomationScanProcessor);
+    const result = (await processor.process({
+      name: JOB_NAMES.SCAN_RISK_PROFILES,
+      data: {},
+    } as never)) as { organizations: number; processed: number };
+
+    expect(result.organizations).toBeGreaterThanOrEqual(1);
+    expect(result.processed).toBeGreaterThanOrEqual(1);
+
+    const after = await prisma.memberRiskProfile.findFirst({
+      where: { memberId: member.body.data.id },
+    });
+    expect(after).not.toBeNull();
+  }, 120_000);
+
+  it('runs data retention when its daily job fires, and never deletes an access override', async () => {
+    const old = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+
+    const spent = await prisma.passwordResetToken.create({
+      data: {
+        userId: org.userId,
+        tokenHash: `retention-${Date.now()}-${Math.random()}`,
+        expiresAt: old,
+        usedAt: old,
+        createdAt: old,
+      },
+    });
+
+    // A DENY an administrator set over a year ago, still meant to deny.
+    const permission = await prisma.permission.findFirstOrThrow({
+      where: { key: 'members.delete' },
+    });
+    const deny = await prisma.userPermissionOverride.create({
+      data: {
+        userId: org.userId,
+        permissionId: permission.id,
+        organizationId: org.organizationId,
+        effect: 'DENY',
+        createdAt: old,
+      },
+    });
+
+    // Before its case existed this fell through to "Unrecognized job
+    // name" and deleted nothing, every day.
+    await app
+      .get(AutomationScanProcessor)
+      .process({ name: JOB_NAMES.SCAN_DATA_RETENTION, data: {} } as never);
+
+    expect(
+      await prisma.passwordResetToken.findUnique({ where: { id: spent.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.userPermissionOverride.findUnique({
+        where: { id: deny.id },
+      }),
+    ).not.toBeNull();
+
+    await prisma.userPermissionOverride.delete({ where: { id: deny.id } });
   });
 
   it('alerts inventory.manage holders in real time when stock crosses the reorder level', async () => {
