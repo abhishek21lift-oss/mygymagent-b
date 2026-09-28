@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import {
   PaginationQueryDto,
   paginate,
@@ -44,13 +44,6 @@ const ENROLMENT_SELECT = {
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex');
-}
-
-/** Constant-time string comparison so token/key guesses leak nothing measurable. */
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 @Injectable()
@@ -333,22 +326,27 @@ export class AttendanceService {
     organizationId: string,
     qrToken: string,
   ): Promise<string> {
-    const presentedHash = sha256Hex(qrToken);
-    const candidates = await this.prisma.memberQrToken.findMany({
-      select: { memberId: true, tokenHash: true, rotatesAt: true },
-      take: 5000,
+    // Looked up by its unique hash. This used to load the first 5000
+    // token rows platform-wide and compare each one, so once more than
+    // 5000 members across every gym had a code, the rest were silently
+    // refused at the desk as "unknown". Comparing in constant time bought
+    // nothing: what is indexed is a sha256 of 32 random bytes, so timing
+    // the lookup cannot walk anyone toward a valid token.
+    const row = await this.prisma.memberQrToken.findUnique({
+      where: { tokenHash: sha256Hex(qrToken) },
+      select: { memberId: true, rotatesAt: true },
     });
-    for (const row of candidates) {
-      if (!safeEqual(row.tokenHash, presentedHash)) continue;
+    if (row) {
       const member = await this.prisma.member.findFirst({
         where: { id: row.memberId, organizationId, deletedAt: null },
         select: { id: true },
       });
-      if (!member) break;
-      if (row.rotatesAt.getTime() <= Date.now()) {
-        throw new GoneException('QR token has been rotated');
+      if (member) {
+        if (row.rotatesAt.getTime() <= Date.now()) {
+          throw new GoneException('QR token has been rotated');
+        }
+        return member.id;
       }
-      return member.id;
     }
     throw new GoneException('Unknown or rotated QR token');
   }

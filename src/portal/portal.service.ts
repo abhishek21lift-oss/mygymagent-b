@@ -5,7 +5,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AttendanceService } from '../attendance/attendance.service';
+import { FileStorageService } from '../files/file-storage.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { ClassesService } from '../classes/classes.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -51,6 +54,8 @@ export class PortalService {
     private readonly communications: CommunicationsService,
     private readonly classesService: ClassesService,
     private readonly notifications: NotificationsService,
+    private readonly attendanceService: AttendanceService,
+    private readonly storage: FileStorageService,
   ) {}
 
   /**
@@ -319,6 +324,330 @@ export class PortalService {
       },
     });
     return { items };
+  }
+
+  /**
+   * Body measurements and goals -- what a trainer recorded, read back by
+   * the member it describes. Measurement `notes` stay staff-side: they
+   * are the assessor's working notes, not something written for the
+   * member to read.
+   */
+  async progress(userId: string) {
+    const { id } = await this.requireMember(userId);
+    const [measurements, goals] = await Promise.all([
+      this.prisma.memberMeasurement.findMany({
+        where: { memberId: id },
+        orderBy: { recordedAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          recordedAt: true,
+          weightKg: true,
+          heightCm: true,
+          bodyFatPercent: true,
+          muscleMassKg: true,
+          waistCm: true,
+          hipCm: true,
+          chestCm: true,
+          restingHeartRate: true,
+          bloodPressureSystolic: true,
+          bloodPressureDiastolic: true,
+        },
+      }),
+      this.prisma.memberGoal.findMany({
+        where: { memberId: id },
+        orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          status: true,
+          targetValue: true,
+          targetUnit: true,
+          baselineValue: true,
+          startDate: true,
+          targetDate: true,
+          achievedAt: true,
+          milestones: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              title: true,
+              targetDate: true,
+              achievedAt: true,
+              value: true,
+            },
+          },
+        },
+      }),
+    ]);
+    // Milestones in the order they happen: reached ones by when they
+    // were reached, then the rest by target date. Sorting on targetDate
+    // alone sank a reached milestone with no target date to the bottom,
+    // under the ones still ahead of it.
+    const when = (m: {
+      achievedAt: Date | null;
+      targetDate: Date | null;
+    }): number =>
+      (m.achievedAt ?? m.targetDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    return {
+      measurements,
+      goals: goals.map((goal) => ({
+        ...goal,
+        milestones: [...goal.milestones].sort((a, b) => when(a) - when(b)),
+      })),
+    };
+  }
+
+  /**
+   * The member's own check-in QR code.
+   *
+   * Minting is the only way to get one: only the hash is stored, so the
+   * plaintext a member scans cannot be read back later. That makes this
+   * a write -- each call replaces the previous code -- and it reuses the
+   * staff mint rather than a second copy of it, so the credential a
+   * member shows and the one the desk would print are the same thing.
+   */
+  async checkInCode(userId: string) {
+    const { id, organizationId } = await this.requireMember(userId);
+    const { token, rotatesAt } =
+      await this.attendanceService.getOrRotateQrToken(organizationId, id);
+    return { token, rotatesAt };
+  }
+
+  /**
+   * What the member has been billed and what they have paid.
+   *
+   * A DRAFT invoice is the gym still preparing a bill and is not the
+   * member's business until it is issued, so it is left out.
+   */
+  async billing(userId: string) {
+    const { id } = await this.requireMember(userId);
+    const [invoices, payments] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { memberId: id, status: { not: 'DRAFT' } },
+        orderBy: [{ issuedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 50,
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          grandTotal: true,
+          currency: true,
+          lines: true,
+          issuedAt: true,
+          dueAt: true,
+          paidAt: true,
+          paymentLinks: {
+            select: { amount: true, payment: { select: { status: true } } },
+          },
+        },
+      }),
+      this.prisma.payment.findMany({
+        where: { memberId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          method: true,
+          status: true,
+          createdAt: true,
+          membership: {
+            select: { membershipPlan: { select: { name: true } } },
+          },
+          invoiceLinks: { select: { invoice: { select: { number: true } } } },
+        },
+      }),
+    ]);
+
+    return {
+      invoices: invoices.map(({ paymentLinks, ...invoice }) => {
+        // Same rule as the staff ledger: a failed payment paid nothing.
+        const paid = paymentLinks.reduce(
+          (sum, link) =>
+            link.payment.status === 'FAILED' ? sum : sum.plus(link.amount),
+          new Prisma.Decimal(0),
+        );
+        // A voided or written-off bill is not something the member owes,
+        // whatever was left on it when it was closed.
+        const closed =
+          invoice.status === 'VOID' || invoice.status === 'WRITTEN_OFF';
+        const balance = closed
+          ? new Prisma.Decimal(0)
+          : Prisma.Decimal.max(invoice.grandTotal.minus(paid), 0);
+        return {
+          ...invoice,
+          amountPaid: paid.toFixed(2),
+          balance: balance.toFixed(2),
+        };
+      }),
+      payments: payments.map(({ membership, invoiceLinks, ...payment }) => ({
+        ...payment,
+        planName: membership?.membershipPlan?.name ?? null,
+        // What it paid for, so a list of payments is not a column of
+        // identical "Payment" rows.
+        invoiceNumbers: invoiceLinks.map((link) => link.invoice.number),
+      })),
+    };
+  }
+
+  /**
+   * Personal training and logged workouts: packages with what is left on
+   * them, PT sessions either side of today, and the workouts the member
+   * actually ran. Trainer session notes stay staff-side.
+   */
+  async training(userId: string) {
+    const { id } = await this.requireMember(userId);
+    const now = new Date();
+    const ptSelect = {
+      id: true,
+      startTime: true,
+      endTime: true,
+      type: true,
+      status: true,
+      branch: { select: { name: true } },
+      trainer: {
+        select: { user: { select: { firstName: true, lastName: true } } },
+      },
+    } as const;
+
+    const [packages, upcoming, past, workoutSessions] = await Promise.all([
+      this.prisma.ptPackage.findMany({
+        where: { memberId: id },
+        orderBy: [{ status: 'asc' }, { endDate: 'desc' }],
+        take: 20,
+        select: {
+          id: true,
+          name: true,
+          totalSessions: true,
+          usedSessions: true,
+          startDate: true,
+          endDate: true,
+          status: true,
+        },
+      }),
+      this.prisma.ptSession.findMany({
+        where: {
+          memberId: id,
+          startTime: { gte: now },
+          status: 'SCHEDULED',
+        },
+        orderBy: { startTime: 'asc' },
+        take: 20,
+        select: ptSelect,
+      }),
+      this.prisma.ptSession.findMany({
+        where: {
+          memberId: id,
+          OR: [{ startTime: { lt: now } }, { status: { not: 'SCHEDULED' } }],
+        },
+        orderBy: { startTime: 'desc' },
+        take: 20,
+        select: ptSelect,
+      }),
+      this.prisma.workoutSession.findMany({
+        where: { memberId: id },
+        orderBy: { sessionDate: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          sessionDate: true,
+          status: true,
+          startedAt: true,
+          completedAt: true,
+          assignment: {
+            select: { workoutPlan: { select: { name: true } } },
+          },
+          sets: { select: { weightKg: true, reps: true } },
+        },
+      }),
+    ]);
+
+    const flattenTrainer = <
+      T extends {
+        trainer: { user: { firstName: string; lastName: string } } | null;
+      },
+    >(
+      session: T,
+    ) => {
+      const { trainer: profile, ...rest } = session;
+      return {
+        ...rest,
+        trainerName: profile
+          ? `${profile.user.firstName} ${profile.user.lastName}`.trim()
+          : null,
+      };
+    };
+
+    return {
+      packages: packages.map((pkg) => ({
+        ...pkg,
+        remainingSessions: Math.max(pkg.totalSessions - pkg.usedSessions, 0),
+      })),
+      upcomingSessions: upcoming.map(flattenTrainer),
+      pastSessions: past.map(flattenTrainer),
+      workoutSessions: workoutSessions.map(({ assignment, sets, ...s }) => ({
+        ...s,
+        planName: assignment.workoutPlan.name,
+        setCount: sets.length,
+        // Total tonnage: the one number a lifter checks first.
+        volumeKg: sets
+          .reduce(
+            (sum, set) => sum + Number(set.weightKg ?? 0) * (set.reps ?? 0),
+            0,
+          )
+          .toFixed(1),
+      })),
+    };
+  }
+
+  /**
+   * The member's own documents, with a short-lived link to each file.
+   *
+   * Reviewer identity is left out: a member needs to know a document was
+   * approved or why it was rejected, not which staff account did it.
+   */
+  async documents(userId: string) {
+    const { id } = await this.requireMember(userId);
+    const documents = await this.prisma.memberDocument.findMany({
+      where: { memberId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        category: true,
+        description: true,
+        status: true,
+        submittedAt: true,
+        reviewedAt: true,
+        rejectionReason: true,
+        currentVersion: true,
+        createdAt: true,
+        file: {
+          select: {
+            key: true,
+            originalName: true,
+            mimeType: true,
+            sizeBytes: true,
+          },
+        },
+      },
+    });
+    return {
+      items: await Promise.all(
+        documents.map(async ({ file, ...doc }) => ({
+          ...doc,
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          sizeBytes: file.sizeBytes,
+          url: await this.storage.getSignedUrl(file.key),
+        })),
+      ),
+    };
   }
 
   // ---------------------------------------------------------------

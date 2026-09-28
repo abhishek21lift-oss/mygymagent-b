@@ -87,6 +87,39 @@ export class PortalController {
     return this.portal.nutrition(user.id);
   }
 
+  @Get('progress')
+  progress(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.progress(user.id);
+  }
+
+  /**
+   * POST, not GET: only a hash is stored, so the code can't be read
+   * back -- each call mints a new one and retires the last. Audited for
+   * the same reason the staff mint is: it issues a working credential
+   * for the building's front door.
+   */
+  @Post('check-in-code')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Audited({ resource: 'member_qr_token', action: 'generate' })
+  checkInCode(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.checkInCode(user.id);
+  }
+
+  @Get('billing')
+  billing(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.billing(user.id);
+  }
+
+  @Get('training')
+  training(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.training(user.id);
+  }
+
+  @Get('documents')
+  documents(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.documents(user.id);
+  }
+
   /** Contact details only -- see UpdatePortalProfileDto for what is
    * deliberately absent and why. */
   @Patch('me')

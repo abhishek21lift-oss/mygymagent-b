@@ -624,6 +624,304 @@ describe('Member portal (e2e, F-P0-1)', () => {
     });
   });
 
+  /**
+   * The member's own record beyond contact details: progress, the
+   * check-in code, what they owe, their training and their documents.
+   * Every block is seeded for BOTH members, so each case proves the
+   * other member's rows are absent rather than merely that some exist.
+   */
+  describe('their own profile', () => {
+    let organizationId: string;
+    const mark = `iso-${Date.now()}`;
+
+    beforeAll(async () => {
+      await asMemberLogin();
+      ({ organizationId } = await prisma.member.findUniqueOrThrow({
+        where: { id: memberId },
+        select: { organizationId: true },
+      }));
+
+      const plan = await prisma.workoutPlan.create({
+        data: { organizationId, name: 'Strength block' },
+      });
+      const trainer = await prisma.user.findFirstOrThrow({
+        where: { organizationId, member: null },
+        select: { id: true },
+      });
+      const profile = await prisma.staffProfile.upsert({
+        where: { userId: trainer.id },
+        create: { userId: trainer.id, organizationId, isTrainer: true },
+        update: {},
+      });
+
+      for (const [index, id] of [memberId, otherMemberId].entries()) {
+        const own = id === memberId;
+        await prisma.memberMeasurement.create({
+          data: {
+            organizationId,
+            memberId: id,
+            weightKg: own ? 82.5 : 99,
+            notes: `${mark} assessor note`,
+          },
+        });
+        await prisma.memberGoal.create({
+          data: {
+            organizationId,
+            memberId: id,
+            title: own ? 'Squat 280' : `${mark} other goal`,
+            category: 'STRENGTH',
+            targetValue: 280,
+            targetUnit: 'kg',
+            milestones: {
+              create: { organizationId, title: own ? '250 kg' : 'x' },
+            },
+          },
+        });
+        const payment = await prisma.payment.create({
+          data: { organizationId, memberId: id, amount: 400, method: 'UPI' },
+        });
+        const failed = await prisma.payment.create({
+          data: {
+            organizationId,
+            memberId: id,
+            amount: 100,
+            method: 'CARD',
+            status: 'FAILED',
+          },
+        });
+        const invoice = await prisma.invoice.create({
+          data: {
+            organizationId,
+            memberId: id,
+            number: `${mark}-${index}`,
+            status: 'PART_PAID',
+            subtotal: 1000,
+            discountTotal: 0,
+            taxTotal: 0,
+            grandTotal: 1000,
+            issuedAt: new Date(),
+          },
+        });
+        await prisma.invoicePayment.createMany({
+          data: [
+            { invoiceId: invoice.id, paymentId: payment.id, amount: 400 },
+            { invoiceId: invoice.id, paymentId: failed.id, amount: 100 },
+          ],
+        });
+        await prisma.invoice.create({
+          data: {
+            organizationId,
+            memberId: id,
+            number: `${mark}-draft-${index}`,
+            status: 'DRAFT',
+            subtotal: 50,
+            discountTotal: 0,
+            taxTotal: 0,
+            grandTotal: 50,
+          },
+        });
+        await prisma.ptPackage.create({
+          data: {
+            organizationId,
+            branchId,
+            memberId: id,
+            name: own ? '12 PT sessions' : `${mark} other package`,
+            totalSessions: 12,
+            usedSessions: 5,
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 60 * 86_400_000),
+            price: 12000,
+          },
+        });
+        const tomorrow = new Date(Date.now() + 86_400_000);
+        await prisma.ptSession.create({
+          data: {
+            organizationId,
+            branchId,
+            memberId: id,
+            trainerId: profile.id,
+            startTime: tomorrow,
+            endTime: new Date(tomorrow.getTime() + 3_600_000),
+            notes: `${mark} trainer note`,
+          },
+        });
+        const assignment = await prisma.workoutAssignment.create({
+          data: { organizationId, memberId: id, workoutPlanId: plan.id },
+        });
+        await prisma.workoutSession.create({
+          data: {
+            organizationId,
+            memberId: id,
+            branchId,
+            assignmentId: assignment.id,
+            status: 'COMPLETED',
+            sets: {
+              create: [
+                {
+                  organizationId,
+                  exerciseId: 'sq',
+                  setNumber: 1,
+                  weightKg: 200,
+                  reps: 5,
+                },
+                {
+                  organizationId,
+                  exerciseId: 'sq',
+                  setNumber: 2,
+                  weightKg: 210,
+                  reps: 3,
+                },
+              ],
+            },
+          },
+        });
+      }
+    });
+
+    it('reads their measurements and goals, not the assessor’s notes', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/progress'),
+      ).expect(200);
+      const { measurements, goals } = res.body.data;
+      expect(measurements).toHaveLength(1);
+      expect(Number(measurements[0].weightKg)).toBe(82.5);
+      expect(measurements[0]).not.toHaveProperty('notes');
+      expect(goals.map((g: { title: string }) => g.title)).toEqual([
+        'Squat 280',
+      ]);
+      expect(goals[0].milestones[0].title).toBe('250 kg');
+      expect(JSON.stringify(res.body.data)).not.toContain(mark);
+    });
+
+    it('mints a check-in code the desk accepts, and a new one retires it', async () => {
+      const first = await asMember(
+        request(app.getHttpServer()).post('/portal/check-in-code'),
+      ).expect(201);
+      expect(first.body.data.token).toMatch(/^[0-9a-f]{64}$/);
+      expect(first.body.data).not.toHaveProperty('memberId');
+
+      const second = await asMember(
+        request(app.getHttpServer()).post('/portal/check-in-code'),
+      ).expect(201);
+      expect(second.body.data.token).not.toBe(first.body.data.token);
+
+      // The retired code is refused; the live one checks this member in.
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/attendance/check-in')
+          .send({ branchId, qrToken: first.body.data.token }),
+      ).expect(410);
+      const checkedIn = await asOwner(
+        request(app.getHttpServer())
+          .post('/attendance/check-in')
+          .send({ branchId, qrToken: second.body.data.token }),
+      ).expect(201);
+      expect(checkedIn.body.data.memberId).toBe(memberId);
+    });
+
+    it('shows issued bills with a balance that ignores failed payments', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/billing'),
+      ).expect(200);
+      const { invoices, payments } = res.body.data;
+      const numbers = invoices.map((i: { number: string }) => i.number);
+      // The draft is the gym's business until it is issued.
+      expect(numbers).not.toContain(`${mark}-draft-0`);
+      expect(numbers).toHaveLength(
+        await prisma.invoice.count({
+          where: { memberId, status: { not: 'DRAFT' } },
+        }),
+      );
+      expect(
+        invoices.find((i: { number: string }) => i.number === `${mark}-0`),
+      ).toMatchObject({ amountPaid: '400.00', balance: '600.00' });
+      expect(payments).toHaveLength(
+        await prisma.payment.count({ where: { memberId } }),
+      );
+      // Each payment says which bill it went against.
+      expect(
+        payments.filter((p: { invoiceNumbers: string[] }) =>
+          p.invoiceNumbers.includes(`${mark}-0`),
+        ),
+      ).toHaveLength(2);
+      expect(JSON.stringify(res.body.data)).not.toContain(`${mark}-1`);
+    });
+
+    it('shows packages, sessions and logged workouts, without trainer notes', async () => {
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/training'),
+      ).expect(200);
+      const data = res.body.data;
+      expect(data.packages).toHaveLength(1);
+      expect(data.packages[0]).toMatchObject({
+        name: '12 PT sessions',
+        remainingSessions: 7,
+      });
+      expect(data.upcomingSessions).toHaveLength(1);
+      expect(data.upcomingSessions[0]).toMatchObject({
+        trainerName: 'Owner Portal',
+      });
+      expect(data.upcomingSessions[0]).not.toHaveProperty('notes');
+      expect(data.upcomingSessions[0]).not.toHaveProperty('trainer');
+      expect(data.workoutSessions).toHaveLength(1);
+      expect(data.workoutSessions[0]).toMatchObject({
+        planName: 'Strength block',
+        setCount: 2,
+        volumeKg: '1630.0',
+      });
+      expect(JSON.stringify(data)).not.toContain(mark);
+    });
+
+    it('lists only their own documents, with a link to each', async () => {
+      for (const id of [memberId, otherMemberId]) {
+        const file = await prisma.file.create({
+          data: {
+            organizationId,
+            key: `member-documents/${id}.pdf`,
+            originalName: id === memberId ? 'waiver.pdf' : `${mark}.pdf`,
+            mimeType: 'application/pdf',
+            sizeBytes: 1024,
+            purpose: 'MEMBER_DOCUMENT',
+          },
+        });
+        await prisma.memberDocument.create({
+          data: {
+            organizationId,
+            memberId: id,
+            fileId: file.id,
+            category: 'DOCUMENT',
+          },
+        });
+      }
+
+      const res = await asMember(
+        request(app.getHttpServer()).get('/portal/documents'),
+      ).expect(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0]).toMatchObject({
+        originalName: 'waiver.pdf',
+        status: 'DRAFT',
+      });
+      expect(res.body.data.items[0].url).toMatch(/^https?:\/\//);
+      expect(res.body.data.items[0]).not.toHaveProperty('reviewedBy');
+      expect(JSON.stringify(res.body.data)).not.toContain(mark);
+    });
+
+    it('refuses a staff account on every one of these routes', async () => {
+      for (const path of [
+        '/portal/progress',
+        '/portal/billing',
+        '/portal/training',
+        '/portal/documents',
+      ]) {
+        await asOwner(request(app.getHttpServer()).get(path)).expect(403);
+      }
+      await asOwner(
+        request(app.getHttpServer()).post('/portal/check-in-code'),
+      ).expect(403);
+    });
+  });
+
   describe('the boundary the MEMBER role used to leave open', () => {
     beforeAll(() => asMemberLogin());
 
