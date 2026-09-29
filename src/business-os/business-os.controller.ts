@@ -14,6 +14,18 @@ import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BusinessOsService } from './business-os.service';
+import {
+  AddTicketMessageDto,
+  AdjustLoyaltyDto,
+  ConvertReferralDto,
+  CreateAccountingAccountDto,
+  CreateCampaignDto,
+  CreateSupportTicketDto,
+  CreateSurveyDto,
+  PostJournalDto,
+  RespondFeedbackDto,
+  UpdateTicketStatusDto,
+} from './dto/business-os.dto';
 import type { Request } from 'express';
 
 @Controller()
@@ -30,14 +42,14 @@ export class BusinessOsController {
   adjust(
     @CurrentUser() u: AuthenticatedUser,
     @Param('memberId') id: string,
-    @Body() b: any,
+    @Body() b: AdjustLoyaltyDto,
   ) {
     return this.s.loyaltyAdjust(
       u.organizationId!,
       u.id,
       id,
-      Number(b.points),
-      String(b.reason ?? 'manual'),
+      b.points,
+      b.reason ?? 'manual',
     );
   }
   @Get('referrals') @RequirePermissions('referrals.read') referrals(
@@ -56,9 +68,9 @@ export class BusinessOsController {
   convertReferral(
     @CurrentUser() u: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('memberId') memberId: string,
+    @Body() b: ConvertReferralDto,
   ) {
-    return this.s.convertReferral(u.organizationId!, id, memberId);
+    return this.s.convertReferral(u.organizationId!, id, b.memberId);
   }
   @Get('support/tickets') @RequirePermissions('support.read') tickets(
     @CurrentUser() u: AuthenticatedUser,
@@ -68,7 +80,7 @@ export class BusinessOsController {
   }
   @Post('support/tickets') @RequirePermissions('support.manage') ticket(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: CreateSupportTicketDto,
   ) {
     return this.s.createTicket(u.organizationId!, u.id, b);
   }
@@ -85,18 +97,18 @@ export class BusinessOsController {
   message(
     @CurrentUser() u: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('body') body: string,
+    @Body() b: AddTicketMessageDto,
   ) {
-    return this.s.addTicketMessage(u.organizationId!, u.id, id, body);
+    return this.s.addTicketMessage(u.organizationId!, u.id, id, b.body);
   }
   @Patch('support/tickets/:id')
   @RequirePermissions('support.manage')
   updateTicket(
     @CurrentUser() u: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('status') status: string,
+    @Body() b: UpdateTicketStatusDto,
   ) {
-    return this.s.updateTicket(u.organizationId!, id, status);
+    return this.s.updateTicket(u.organizationId!, id, b.status);
   }
   @Get('feedback/surveys') @RequirePermissions('feedback.read') surveys(
     @CurrentUser() u: AuthenticatedUser,
@@ -105,13 +117,13 @@ export class BusinessOsController {
   }
   @Post('feedback/surveys') @RequirePermissions('feedback.manage') survey(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: CreateSurveyDto,
   ) {
     return this.s.createSurvey(u.organizationId!, b);
   }
   @Post('feedback/respond') @RequirePermissions('feedback.respond') respond(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: RespondFeedbackDto,
   ) {
     return this.s.respondFeedback(u.organizationId!, b);
   }
@@ -127,7 +139,7 @@ export class BusinessOsController {
   }
   @Post('marketing/campaigns') @RequirePermissions('marketing.manage') campaign(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: CreateCampaignDto,
   ) {
     return this.s.createCampaign(u.organizationId!, b);
   }
@@ -156,13 +168,13 @@ export class BusinessOsController {
   }
   @Post('accounting/accounts') @RequirePermissions('accounting.manage') account(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: CreateAccountingAccountDto,
   ) {
     return this.s.createAccount(u.organizationId!, b);
   }
   @Post('accounting/journal') @RequirePermissions('accounting.manage') journal(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() b: any,
+    @Body() b: PostJournalDto,
   ) {
     return this.s.accountingJournal(u.organizationId!, u.id, b);
   }
