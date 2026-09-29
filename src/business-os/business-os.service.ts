@@ -550,6 +550,52 @@ export class BusinessOsService {
       orderBy: { code: 'asc' },
     });
   }
+
+  /**
+   * The ledger behind the trial balance.
+   *
+   * `accountingJournal` has always been able to post entries and
+   * `trialBalance` has always been able to total them, but nothing ever
+   * returned the entries themselves — so a book could be written and
+   * never read back line by line. A trial balance you cannot reconcile
+   * against is a number, not an account.
+   *
+   * Each row is one leg: `accountingJournal` writes N `AccountingEntry`
+   * rows in a single transaction and gives them no shared journal id, so
+   * legs of the same posting are related only by `referenceType` /
+   * `referenceId` and `entryDate`. The account's code and name come back
+   * on the row so the client does not need a second request per line.
+   */
+  async entries(
+    org: string,
+    opts: { accountId?: string; from?: string; to?: string } = {},
+  ) {
+    const range = this.entryDateRange(opts.from, opts.to);
+    const rows = await this.prisma.accountingEntry.findMany({
+      where: {
+        organizationId: org,
+        ...(opts.accountId ? { accountId: opts.accountId } : {}),
+        ...(range ? { entryDate: range } : {}),
+      },
+      orderBy: [{ entryDate: 'desc' }, { createdAt: 'desc' }],
+      take: 500,
+      include: {
+        account: { select: { id: true, code: true, name: true, type: true } },
+        branch: { select: { id: true, name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      entryDate: r.entryDate,
+      description: r.description,
+      debit: r.debit.toNumber(),
+      credit: r.credit.toNumber(),
+      referenceType: r.referenceType,
+      referenceId: r.referenceId,
+      account: r.account,
+      branch: r.branch,
+    }));
+  }
   createAccount(org: string, b: any) {
     const code = s(b.code),
       name = s(b.name),
@@ -578,6 +624,11 @@ export class BusinessOsService {
       const debit = sum?.debit ?? new Prisma.Decimal(0);
       const credit = sum?.credit ?? new Prisma.Decimal(0);
       return {
+        // The client keys its rows on this and offers them as the account
+        // picker, and it was not being sent — so every row rendered with
+        // an `undefined` key and nothing on the page could select an
+        // account. The total was right; the identity was missing.
+        accountId: a.id,
         code: a.code,
         name: a.name,
         type: a.type,

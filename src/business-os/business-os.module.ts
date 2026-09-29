@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
 import { BusinessOsController } from './business-os.controller';
 import { BusinessOsService } from './business-os.service';

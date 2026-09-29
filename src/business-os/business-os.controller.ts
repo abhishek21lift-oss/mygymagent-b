@@ -158,6 +158,20 @@ export class BusinessOsController {
   ) {
     return this.s.accountingJournal(u.organizationId!, u.id, b);
   }
+  @Get('accounting/entries')
+  @RequirePermissions('accounting.read')
+  entries(
+    @CurrentUser() u: AuthenticatedUser,
+    @Query('accountId') accountId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.s.entries(u.organizationId!, {
+      accountId: accountId || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    });
+  }
   @Get('accounting/tax-summary') @RequirePermissions('accounting.read') tax(
     @CurrentUser() u: AuthenticatedUser,
     @Query('from') from?: string,
