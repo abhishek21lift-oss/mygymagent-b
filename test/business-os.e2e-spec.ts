@@ -791,11 +791,13 @@ describe('Business OS (e2e)', () => {
 
     it('rejects a campaign with a misspelt audience field or a non-object filter', async () => {
       await asOwner(
-        request(app.getHttpServer()).post('/marketing/campaigns').send({
-          name: 'Win-back',
-          channel: 'EMAIL',
-          audience: { hasEmail: true },
-        }),
+        request(app.getHttpServer())
+          .post('/marketing/campaigns')
+          .send({
+            name: 'Win-back',
+            channel: 'EMAIL',
+            audience: { hasEmail: true },
+          }),
       ).expect(400);
       await asOwner(
         request(app.getHttpServer()).post('/marketing/campaigns').send({
