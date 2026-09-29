@@ -78,6 +78,34 @@ export const envSchema = z
     /** MSG91 serves regional endpoints; unset uses the default. */
     MSG91_FLOW_URL: z.string().url().optional(),
 
+    // How a member login code is produced and delivered. `msg91` is the
+    // only real option: a CSPRNG code, hashed here, carried by SMS.
+    // `mock` exists so a developer or a test can exercise the whole OTP
+    // flow -- request, verify, expiry, the session it starts -- without
+    // a carrier account, a DLT-registered template, or a real handset.
+    //
+    // The name is deliberately explicit rather than a `DEBUG`-style flag:
+    // anything that can put a fixed code in front of an authentication
+    // boundary has to be something you can grep for, type on purpose,
+    // and be refused at boot when NODE_ENV is production.
+    OTP_PROVIDER: z.enum(['msg91', 'mock']).default('msg91'),
+    /** The code `mock` hands out. Six digits, nothing looser. */
+    MOCK_OTP: z
+      .string()
+      .regex(/^[0-9]{6}$/, 'MOCK_OTP must be exactly six digits')
+      .optional(),
+    /**
+     * How long a code stays spendable. Capped at 15 minutes because this
+     * is the window an attacker gets to guess, and there is no reason
+     * for a longer one: the code is a session opener, not a mailbox.
+     */
+    OTP_EXPIRY_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(30, 'OTP_EXPIRY_SECONDS must be at least 30')
+      .max(900, 'OTP_EXPIRY_SECONDS must be at most 900')
+      .default(300),
+
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().positive().default(587),
     // Not z.coerce.boolean(): that's `Boolean(value)` under the hood, which
@@ -225,6 +253,28 @@ export const envSchema = z
       reject(
         'FRONTEND_URL',
         'Production FRONTEND_URL must be a valid absolute URL',
+      );
+    }
+
+    // The mock OTP provider is a fixed, publicly-known code in front of
+    // an authentication boundary. In production it is not a
+    // misconfiguration to warn about, it is a way in, so the process
+    // refuses to start rather than falling back to MSG91 and leaving the
+    // hole quietly closed. Two separate checks because either alone can
+    // be defeated by the other being set: selecting `mock` with no
+    // MOCK_OTP would fall back to a random code, and a stray MOCK_OTP
+    // beside a real `msg91` selection would still be a value sitting in
+    // the environment waiting for the next careless deploy.
+    if (config.OTP_PROVIDER === 'mock') {
+      reject(
+        'OTP_PROVIDER',
+        'Production OTP_PROVIDER must be "msg91"; the mock provider issues a fixed code and must never run in production',
+      );
+    }
+    if (config.MOCK_OTP !== undefined) {
+      reject(
+        'MOCK_OTP',
+        'Production must not set MOCK_OTP; the mock OTP provider is development/test only',
       );
     }
   });

@@ -1,11 +1,16 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { CommunicationsModule } from '../communications/communications.module';
+import { Msg91SmsProvider } from '../communications/providers/msg91-sms.provider';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MemberOtpService } from './member-otp.service';
+import { Msg91OtpDelivery } from './otp-delivery/msg91-otp-delivery';
+import { MockOtpDelivery } from './otp-delivery/mock-otp-delivery';
+import { OTP_DELIVERY } from './otp-delivery/otp-delivery.interface';
 import { MfaController } from './mfa/mfa.controller';
 import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
@@ -18,9 +23,34 @@ import { TokensService } from './tokens.service';
     JwtModule.register({}),
     RbacModule,
     CommunicationsModule,
+    // ConfigModule is global, but a `useFactory` reading it is resolved
+    // in this module's own context, so declaring the dependency is what
+    // makes the OTP provider selection actually injectable rather than
+    // something that happens to work because another module loaded it.
+    ConfigModule,
   ],
   controllers: [AuthController, MfaController],
   providers: [
+    Msg91OtpDelivery,
+    MockOtpDelivery,
+    /**
+     * Which member OTP provider this deployment runs. `mock` is
+     * development/test only and the refusal to bind it in production is
+     * enforced in three places (the env schema, which stops boot; the
+     * provider's constructor, which throws; and its `isConfigured()`,
+     * which reports false) — see `MockOtpDelivery`.
+     *
+     * The default is `msg91`, so a deployment that sets nothing new
+     * behaves exactly as it did before this option existed.
+     */
+    {
+      provide: OTP_DELIVERY,
+      inject: [ConfigService, Msg91SmsProvider],
+      useFactory: (config: ConfigService, msg91: Msg91SmsProvider) =>
+        config.get<string>('OTP_PROVIDER') === 'mock'
+          ? new MockOtpDelivery(config)
+          : new Msg91OtpDelivery(msg91),
+    },
     MemberOtpService,
     AuthService,
     TokensService,

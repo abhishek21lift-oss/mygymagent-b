@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash, randomInt, timingSafeEqual } from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import { createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { Msg91SmsProvider } from '../communications/providers/msg91-sms.provider';
 import { phoneKey } from '../data/customer-enquiry-mapping';
+import {
+  OTP_DELIVERY,
+  type OtpDelivery,
+} from './otp-delivery/otp-delivery.interface';
 
 export interface OtpRequestMeta {
   ipAddress?: string;
@@ -16,9 +21,11 @@ export interface OtpRequestMeta {
 }
 
 /** Long enough to type from a notification, short enough that guessing
- * inside the window is hopeless at five attempts. */
-const CODE_DIGITS = 6;
-const CODE_TTL_MS = 5 * 60_000;
+ * inside the window is hopeless at five attempts. Overridable per
+ * deployment via OTP_EXPIRY_SECONDS (default 300, capped at 900 by the
+ * env schema) so the window is configuration rather than a constant
+ * someone has to recompile to change. */
+const DEFAULT_CODE_TTL_SECONDS = 300;
 /** Wrong guesses allowed against one issued code before it is spent. */
 const MAX_ATTEMPTS = 5;
 /** A second request inside this window reuses nothing and sends nothing,
@@ -43,9 +50,12 @@ function hashCode(code: string): string {
  * Each is a separate decision about who may enter, and none of them is
  * needed to let a member read their own membership.
  *
- * The code is generated, hashed, expired and counted here. MSG91 only
- * carries it -- see `Msg91SmsProvider` for why its OTP endpoint is not
- * used.
+ * The code is hashed, expired and counted here. Producing and delivering
+ * it is `OtpDelivery` — MSG91 in production, a fixed no-send code in
+ * development and test. This class does not check which one it holds:
+ * that decision belongs to the provider (see
+ * `otp-delivery.interface.ts`), because a service that branched on "am I
+ * the mock?" would be one edit away from taking the branch the wrong way.
  */
 @Injectable()
 export class MemberOtpService {
@@ -54,8 +64,17 @@ export class MemberOtpService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly sms: Msg91SmsProvider,
+    private readonly config: ConfigService,
+    @Inject(OTP_DELIVERY) private readonly delivery: OtpDelivery,
   ) {}
+
+  /** The spendable window for a code issued right now. */
+  private get codeTtlMs(): number {
+    return (
+      this.config.get<number>('OTP_EXPIRY_SECONDS', DEFAULT_CODE_TTL_SECONDS) *
+      1000
+    );
+  }
 
   /**
    * Always resolves the same way whatever it found.
@@ -65,9 +84,15 @@ export class MemberOtpService {
    * indistinguishable to the caller. Anything else turns this endpoint
    * into a membership list: point it at a range of numbers and read the
    * answers.
+   *
+   * The response is the same shape under every provider and never
+   * carries the code — in production or out of it. A developer reads it
+   * out of the mock provider's log line, a member off their handset.
+   * Nobody reads it out of an HTTP response, because a response is the
+   * one place somebody holding a phone number can see.
    */
   async requestCode(rawPhone: string, meta: OtpRequestMeta) {
-    if (!this.sms.isConfigured()) {
+    if (!this.delivery.isConfigured()) {
       // Configuration is about this deployment, not about the caller, so
       // it is the one thing worth saying plainly: a member staring at a
       // code that is never going to arrive has no way to know.
@@ -78,7 +103,7 @@ export class MemberOtpService {
 
     const generic = {
       sent: true as const,
-      expiresInSeconds: CODE_TTL_MS / 1000,
+      expiresInSeconds: this.codeTtlMs / 1000,
     };
 
     const last10 = phoneKey(rawPhone);
@@ -116,25 +141,24 @@ export class MemberOtpService {
     if (recent) return generic;
 
     // randomInt is the CSPRNG; Math.random would make the code guessable
-    // from a previous one.
-    const code = String(randomInt(0, 10 ** CODE_DIGITS)).padStart(
-      CODE_DIGITS,
-      '0',
-    );
+    // from a previous one. (Under OTP_PROVIDER=mock this is the fixed
+    // MOCK_OTP instead, and is equally hashed and expiring -- the point
+    // of the mock is to exercise this path, not to skip past it.)
+    const code = this.delivery.issueCode();
 
     await this.prisma.memberOtpChallenge.create({
       data: {
         memberId: member.id,
         phone,
         codeHash: hashCode(code),
-        expiresAt: new Date(Date.now() + CODE_TTL_MS),
+        expiresAt: new Date(Date.now() + this.codeTtlMs),
       },
     });
 
     try {
-      await this.sms.send({
+      await this.delivery.send({
         to: phone,
-        text: code,
+        code,
         organizationId: member.organizationId,
       });
     } catch (error) {
