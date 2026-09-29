@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { Injectable, Logger } from '@nestjs/common';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import { AiService } from './ai.service';
