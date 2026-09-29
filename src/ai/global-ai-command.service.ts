@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { Injectable, Logger } from '@nestjs/common';
 import { AiSupervisorService } from './supervisor/ai-supervisor.service';
 import { AiService } from './ai.service';
@@ -93,22 +92,26 @@ export class GlobalAiCommandService {
       // Execute the tool via AI Supervisor
       let result: unknown;
       if (isActionable) {
-        // For actionable commands, we need to go through approval workflow
-        result = await this.supervisor.executeWithApproval(
-          toolName,
-          args,
-          {
-            organizationId: request.organizationId,
-            userId: request.userId,
-            requestedBranchId:
-              request.context &&
-              typeof request.context === 'object' &&
-              'branchId' in request.context
-                ? String(request.context['branchId'])
-                : undefined,
-          },
-          request.userId, // The user requesting the action is also the approver for self-service
-        );
+        // An actionable command only ever *proposes*. The proposal lands in
+        // the Action Center as PENDING_APPROVAL and a different person with
+        // `workouts.assign` / `nutrition.assign` has to accept it.
+        //
+        // This used to pass `request.userId` as the approver, which made
+        // the whole approval step a formality: one request proposed the
+        // change and executed it, and the only check was that the asker
+        // already held the permission the approval was supposed to be
+        // granting. The assistant's reading of a sentence went straight
+        // onto a member's plan.
+        result = await this.supervisor.executeWithApproval(toolName, args, {
+          organizationId: request.organizationId,
+          userId: request.userId,
+          requestedBranchId:
+            request.context &&
+            typeof request.context === 'object' &&
+            'branchId' in request.context
+              ? String(request.context['branchId'])
+              : undefined,
+        });
       } else {
         // For read-only commands, execute directly
         result = await this.supervisor.execute(toolName, args, {

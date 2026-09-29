@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AiActionsService } from '../src/ai-actions/ai-actions.service';
+import { GlobalAiCommandService } from '../src/ai/global-ai-command.service';
 import { ToolExecutorService } from '../src/ai/tools/tool-executor.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
@@ -114,6 +115,45 @@ describe('AI Actions / Action Center (e2e)', () => {
     dietPlanId = dietPlan.body.data.id;
   });
 
+  /**
+   * A second ACTIVE user in the same organization, for tests where the
+   * proposer must not be the approver.
+   *
+   * ORG_OWNER holds every permission by definition (`ALL_PERMISSIONS`),
+   * so this second account is given the same role rather than a narrow
+   * grant — the point of the separation-of-duties tests is *who* decides,
+   * not what they are allowed to decide.
+   */
+  async function secondUser(): Promise<RegisteredAccount> {
+    const email = `action-center-second-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}@example.com`;
+    const invited = await authed(org.accessToken)(
+      request(app.getHttpServer()).post('/users').send({
+        email,
+        firstName: 'Second',
+        lastName: 'Approver',
+        primaryBranchId: org.branchId,
+        roleKey: 'ORG_OWNER',
+      }),
+    ).expect(201);
+    const id = invited.body.data.id;
+    await prisma.user.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: 'CorrectHorseBattery9' })
+      .expect(201);
+    return {
+      accessToken: login.body.data.accessToken,
+      organizationId: org.organizationId,
+      userId: id,
+      branchId: org.branchId,
+    };
+  }
+
   afterAll(async () => {
     if (app) {
       await app.close().catch(() => {});
@@ -137,7 +177,11 @@ describe('AI Actions / Action Center (e2e)', () => {
     ).expect(200);
     expect(assignments.body.data.items).toHaveLength(0);
 
-    const approved = await authed(org.accessToken)(
+    // A different person with the same permission decides it. The owner
+    // proposed it, so under separation of duties the owner may not also
+    // approve it -- see the dedicated case below.
+    const approver = await secondUser();
+    const approved = await authed(approver.accessToken)(
       request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(200);
     expect(approved.body.data.status).toBe('EXECUTED');
@@ -162,6 +206,8 @@ describe('AI Actions / Action Center (e2e)', () => {
     )) as { id: string; status: string };
     expect(result.status).toBe('PENDING_APPROVAL');
 
+    // Rejecting your own proposal is fine -- declining your own idea needs
+    // no second opinion, and the restriction is deliberately one-sided.
     const rejected = await authed(org.accessToken)(
       request(app.getHttpServer())
         .patch(`/ai-actions/${result.id}/reject`)
@@ -185,16 +231,90 @@ describe('AI Actions / Action Center (e2e)', () => {
       { organizationId: org.organizationId, userId: org.userId },
     )) as { id: string };
 
-    await authed(org.accessToken)(
+    const approver = await secondUser();
+    await authed(approver.accessToken)(
       request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(200);
 
-    await authed(org.accessToken)(
+    // Already EXECUTED, so neither verb is available to anyone -- the
+    // second user here is only proving the state check, not the
+    // separation of duties.
+    await authed(approver.accessToken)(
       request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(400);
-    await authed(org.accessToken)(
+    await authed(approver.accessToken)(
       request(app.getHttpServer()).patch(`/ai-actions/${result.id}/reject`),
     ).expect(400);
+  });
+
+  it('refuses to let the proposer approve their own proposal', async () => {
+    // The defect this pins: `SupervisorService.executeWithApproval` used
+    // to take an approver and call `approve()` itself, and the only caller
+    // passed the *requesting* user. So the AI command shell proposed a
+    // plan and executed it in one request, and the permission check in
+    // `approve` only confirmed the asker could have done it anyway. The
+    // approval step had no content.
+    //
+    // The proposer here is an ORG_OWNER, who holds `workouts.assign` by
+    // definition — so before the fix this call returned 200 and a workout
+    // plan landed on a real member.
+    const result = (await toolExecutor.execute(
+      'propose_assign_workout_plan',
+      { memberId, planId: workoutPlanId },
+      { organizationId: org.organizationId, userId: org.userId },
+    )) as { id: string };
+
+    await authed(org.accessToken)(
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
+    ).expect(403);
+
+    // And nothing was executed: still awaiting a decision, and the member
+    // still has no assignment.
+    const stillPending = await authed(org.accessToken)(
+      request(app.getHttpServer()).get(`/ai-actions/${result.id}`),
+    ).expect(200);
+    expect(stillPending.body.data.status).toBe('PENDING_APPROVAL');
+
+    const assignments = await prisma.workoutAssignment.findMany({
+      where: { organizationId: org.organizationId, memberId },
+    });
+    expect(assignments).toHaveLength(0);
+
+    // A different person with the same permission can still do it, which
+    // is what makes this separation of duties and not a dead end.
+    const approver = await secondUser();
+    const approved = await authed(approver.accessToken)(
+      request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
+    ).expect(200);
+    expect(approved.body.data.status).toBe('EXECUTED');
+  });
+
+  it('the AI command shell proposes without approving', async () => {
+    // End-to-end through the real entry point the assistant uses, rather
+    // than through the tool executor directly.
+    const globalCommand = app.get(GlobalAiCommandService);
+    const result = (await globalCommand.processCommand({
+      command: `assign workout plan ${workoutPlanId} to member ${memberId}`,
+      organizationId: org.organizationId,
+      userId: org.userId,
+    })) as { type: string; requiresApproval?: boolean };
+
+    // Whatever the parser made of the sentence, the invariant is the same:
+    // this path can no longer approve, so an actionable command comes back
+    // as something awaiting a decision.
+    expect(result.type).not.toBe('error');
+    if (result.type === 'approval_required') {
+      expect(result.requiresApproval).toBe(true);
+    }
+
+    const executed = await prisma.aiAction.findMany({
+      where: {
+        organizationId: org.organizationId,
+        status: { in: ['EXECUTED', 'APPROVED'] },
+        decidedByUserId: org.userId,
+      },
+    });
+    expect(executed).toHaveLength(0);
   });
 
   it('rejects proposing without the underlying resource permission (workouts.assign)', async () => {

@@ -140,6 +140,28 @@ export class AiActionsService {
       );
     }
 
+    // Separation of duties, enforced here rather than trusted to callers.
+    //
+    // `approve` was reachable from `SupervisorService.executeWithApproval`,
+    // which passed the *requesting* user as the approver — so the proposer
+    // decided their own proposal, and the permission check below only
+    // confirmed they could have done it anyway. That is the whole content
+    // of an approval step: nothing.
+    //
+    // The AI command shell no longer self-approves, so this is a backstop
+    // for the next caller that assumes it will. Someone who proposed a
+    // change may reject it, escalate it, or wait — but approving their own
+    // proposal is refused by name, because "I checked it and it's fine" is
+    // not a second pair of eyes.
+    if (
+      action.proposedByUserId &&
+      action.proposedByUserId === decidedByUserId
+    ) {
+      throw new ForbiddenException(
+        'You proposed this action, so you cannot approve it. Ask someone else with the same permission to review it.',
+      );
+    }
+
     const requiredPermission = REQUIRED_PERMISSION[action.type];
     const allowed = await this.permissions.hasPermission(
       decidedByUserId,

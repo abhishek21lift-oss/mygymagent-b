@@ -31,16 +31,30 @@ export class AiSupervisorService {
   }
 
   /**
-   * WARNING: this method self-approves (propose + approve in one call with the
-   * requester as approver). It must not be exposed without human approval --
-   * keep it out of any unauthenticated/self-service shell and route writes
-   * through the Action Center approval flow instead.
+   * Propose an AI write and route it to the Action Center.
+   *
+   * There is deliberately **no approval step in this method.** It used to
+   * take an `approverUserId` and call `approve()` itself, and the only
+   * caller passed the requesting user as that approver — so the write was
+   * proposed and executed inside one request by the same person, and the
+   * approval workflow on the AI write path was decorative. The
+   * `approve` call checked that its caller held `workouts.assign` or
+   * `nutrition.assign`, which the requester usually does, so nothing
+   * stood between an LLM's reading of a sentence and a workout plan
+   * being assigned to a real member.
+   *
+   * What it returns now is the proposal: a `PENDING_APPROVAL` row that a
+   * *different* person with the right permission has to accept in the
+   * Action Center. `approve` is unchanged, and still refuses a
+   * non-`PENDING_APPROVAL` row, so this cannot be double-approved.
+   *
+   * The name is kept rather than renamed to avoid churning the call site;
+   * it means "execute through the approval flow", not "approve".
    */
   async executeWithApproval(
     name: AiToolName,
     rawArgs: unknown,
     context: SupervisorToolCallContext,
-    approverUserId: string,
   ): Promise<unknown> {
     this.logger.debug(`Supervisor executing tool with approval: ${name}`);
     const payload = rawArgs as {
@@ -79,10 +93,8 @@ export class AiSupervisorService {
             required,
           );
 
-    return this.aiActions.approve(
-      context.organizationId,
-      proposal.id,
-      approverUserId,
-    );
+    // Stop here. The proposal waits in the Action Center for someone
+    // other than the person who asked for it.
+    return proposal;
   }
 }
