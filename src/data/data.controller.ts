@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { DataService } from './data.service';
 import { CustomerEnquiryImportService } from './customer-enquiry-import.service';
 import { ImportCustomerEnquiryDto } from './dto/import-customer-enquiry.dto';
+import { ImportMembersDto } from './dto/import-members.dto';
 import { Audited } from '../common/decorators/audited.decorator';
 
 @Controller('data')
@@ -40,7 +41,7 @@ export class DataController {
   @RequirePermissions('data.import')
   importMembers(
     @CurrentUser() u: AuthenticatedUser,
-    @Body() body: { rows: Record<string, string>[] },
+    @Body() body: ImportMembersDto,
   ) {
     return this.data.importMembers(u.organizationId!, body.rows ?? []);
   }

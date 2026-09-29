@@ -432,6 +432,90 @@ describe('Tenant isolation (e2e)', () => {
     ).toBe(false);
   });
 
+  it("Org A cannot import a member pointing at Org B's branch or trainer", async () => {
+    // `Member.primaryBranchId` and `assignedTrainerId` are bare UUID
+    // foreign keys with no same-organization constraint, and the CSV
+    // import takes both straight from the uploaded file. It used to
+    // write them unvalidated, so this created a member owned by Org A
+    // that pointed at Org B's branch -- and the member profile then
+    // rendered Org B's branch name and staff name back to Org A.
+    const foreignBranchEmail = `mallory-import-${Date.now()}@example.com`;
+    const foreignBranchRes = await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post('/data/members/import')
+        .send({
+          rows: [
+            {
+              firstName: 'Mallory',
+              lastName: 'Import',
+              email: foreignBranchEmail,
+              primaryBranchId: orgB.branchId,
+            },
+          ],
+        }),
+    ).expect(201);
+
+    // Refused per row, not by failing the whole request: this importer's
+    // contract is that one bad line does not abandon the rest of the file.
+    expect(foreignBranchRes.body.data.created).toBe(0);
+    expect(foreignBranchRes.body.data.errors).toHaveLength(1);
+    expect(foreignBranchRes.body.data.errors[0].message).toMatch(
+      /Branch does not belong to this organization/,
+    );
+
+    // Nothing was written, so Org A's member list cannot be showing Org
+    // B's branch. This is the disclosure the hole produced.
+    const listA = await authed(orgA.accessToken)(
+      request(app.getHttpServer()).get('/members'),
+    ).expect(200);
+    expect(
+      listA.body.data.items.some(
+        (m: { email: string }) => m.email === foreignBranchEmail,
+      ),
+    ).toBe(false);
+
+    // Same for a foreign trainer.
+    const foreignTrainerEmail = `mallory-trainer-${Date.now()}@example.com`;
+    const foreignTrainerRes = await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post('/data/members/import')
+        .send({
+          rows: [
+            {
+              firstName: 'Mallory',
+              lastName: 'Trainer',
+              email: foreignTrainerEmail,
+              assignedTrainerId: orgB.userId,
+            },
+          ],
+        }),
+    ).expect(201);
+    expect(foreignTrainerRes.body.data.created).toBe(0);
+    expect(foreignTrainerRes.body.data.errors[0].message).toMatch(
+      /Assigned trainer must be active/,
+    );
+
+    // A row naming Org A's own branch still imports, so the check is a
+    // tenant check and not a blanket refusal of the endpoint.
+    const ownEmail = `own-branch-${Date.now()}@example.com`;
+    const ownRes = await authed(orgA.accessToken)(
+      request(app.getHttpServer())
+        .post('/data/members/import')
+        .send({
+          rows: [
+            {
+              firstName: 'Own',
+              lastName: 'Branch',
+              email: ownEmail,
+              primaryBranchId: orgA.branchId,
+            },
+          ],
+        }),
+    ).expect(201);
+    expect(ownRes.body.data.created).toBe(1);
+    expect(ownRes.body.data.errors).toEqual([]);
+  });
+
   it('rejects (rather than silently ignoring) an attempt to inject organizationId into the request body', async () => {
     // CreateMemberDto has no organizationId field, and the global
     // ValidationPipe runs with forbidNonWhitelisted: true, so an injected

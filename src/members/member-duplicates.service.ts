@@ -198,12 +198,17 @@ export class MemberDuplicatesService {
         this.prisma.membership.count({
           where: { organizationId, memberId: target.id, status: 'ACTIVE' },
         }),
+        // Scoped to the organization, not just the id. `source` and
+        // `target` are proven to be this org's members, but
+        // `Member.userId` carries no same-tenant constraint, so a bare
+        // `{ id }` would return the email of whichever account that id
+        // points at — including one belonging to a different gym.
         this.prisma.user.findFirst({
-          where: { id: source.userId ?? undefined },
+          where: { id: source.userId ?? undefined, organizationId },
           select: { id: true, email: true },
         }),
         this.prisma.user.findFirst({
-          where: { id: target.userId ?? undefined },
+          where: { id: target.userId ?? undefined, organizationId },
           select: { id: true, email: true },
         }),
       ]);
