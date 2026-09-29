@@ -32,6 +32,7 @@
     "db:seed:dev": "tsx prisma/seed-dev.ts",
     "db:seed:demo-profile": "tsx prisma/seed-demo-profile.ts",
     "db:seed:exercises": "tsx prisma/seed-exercises.ts",
+    "db:seed:today-sessions": "tsx prisma/seed-today-sessions.ts",
     "platform:create-admin": "tsx prisma/create-platform-admin.ts",
     "postinstall": "prisma generate"
   },
