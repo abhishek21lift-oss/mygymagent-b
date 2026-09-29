@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PlatformBillingModule } from '../platform-billing/platform-billing.module';
+import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
 import { CommunicationsModule } from '../communications/communications.module';
 import { MemberBulkController } from './member-bulk.controller';
 import { MemberBulkService } from './member-bulk.service';
@@ -49,6 +50,7 @@ import { MembersService } from './members.service';
   ],
   providers: [
     MembersService,
+    TenantReferenceValidator,
     MemberDetailsService,
     MemberAssessmentsService,
     MemberGoalsService,

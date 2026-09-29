@@ -2,6 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Gender, MemberStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
+import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
+import type { ImportMemberRowDto } from './dto/import-members.dto';
 
 const ALLOWED_MEMBER_STATUSES = new Set(['ACTIVE', 'INACTIVE']);
 
@@ -12,6 +14,7 @@ export class DataService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: PlatformBillingService,
+    private readonly references: TenantReferenceValidator,
   ) {}
 
   async exportMembers(org: string) {
@@ -52,7 +55,7 @@ export class DataService {
     return branch.id;
   }
 
-  async importMembers(org: string, rows: Record<string, string>[]) {
+  async importMembers(org: string, rows: ImportMemberRowDto[]) {
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new BadRequestException('No member rows supplied');
     }
@@ -129,6 +132,28 @@ export class DataService {
         }
 
         const fallbackBranchId = r.primaryBranchId?.trim() || defaultBranchId;
+        const assignedTrainerId = r.assignedTrainerId?.trim() || null;
+
+        // The uploaded file names its own branch and trainer by id, and
+        // neither column carries a same-organization constraint, so
+        // without this a row could point at another gym's branch or
+        // staff member. The member profile then renders that branch's
+        // name and that trainer's full name back to the importing org.
+        //
+        // Rejected into `errors` rather than thrown, so one bad row does
+        // not abandon the other 1,999 — the same contract every other
+        // per-row failure in this loop already has.
+        const referenceProblems = await this.references.checkMemberReferences(
+          org,
+          {
+            primaryBranchId: fallbackBranchId,
+            assignedTrainerId,
+          },
+        );
+        if (referenceProblems.length > 0) {
+          errors.push({ row: i + 1, message: referenceProblems.join('; ') });
+          continue;
+        }
 
         await this.prisma.member.create({
           data: {
@@ -142,7 +167,7 @@ export class DataService {
             dateOfBirth: r.dateOfBirth ? new Date(r.dateOfBirth) : null,
             gender: genderRaw as Gender | null,
             status,
-            assignedTrainerId: r.assignedTrainerId?.trim() || null,
+            assignedTrainerId,
           },
         });
         if (emailKey) existingEmails.add(emailKey);

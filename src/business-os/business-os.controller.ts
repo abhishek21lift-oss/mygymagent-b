@@ -72,6 +72,14 @@ export class BusinessOsController {
   ) {
     return this.s.createTicket(u.organizationId!, u.id, b);
   }
+  @Get('support/tickets/:id/messages')
+  @RequirePermissions('support.read')
+  ticketMessages(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.s.ticketMessages(u.organizationId!, id);
+  }
   @Post('support/tickets/:id/messages')
   @RequirePermissions('support.manage')
   message(
@@ -123,6 +131,14 @@ export class BusinessOsController {
   ) {
     return this.s.createCampaign(u.organizationId!, b);
   }
+  @Get('marketing/campaigns/:id/preview')
+  @RequirePermissions('marketing.read')
+  previewCampaign(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.s.previewCampaign(u.organizationId!, id);
+  }
   @Post('marketing/campaigns/:id/enroll')
   @RequirePermissions('marketing.manage')
   enroll(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {
@@ -149,6 +165,20 @@ export class BusinessOsController {
     @Body() b: any,
   ) {
     return this.s.accountingJournal(u.organizationId!, u.id, b);
+  }
+  @Get('accounting/entries')
+  @RequirePermissions('accounting.read')
+  entries(
+    @CurrentUser() u: AuthenticatedUser,
+    @Query('accountId') accountId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.s.entries(u.organizationId!, {
+      accountId: accountId || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    });
   }
   @Get('accounting/tax-summary') @RequirePermissions('accounting.read') tax(
     @CurrentUser() u: AuthenticatedUser,

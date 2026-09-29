@@ -392,6 +392,63 @@ describe('Business OS (e2e)', () => {
   describe('marketing campaigns', () => {
     let campaignId: string;
 
+    it('previews the audience without enrolling anyone', async () => {
+      const campaign = await asOwner(
+        request(app.getHttpServer())
+          .post('/marketing/campaigns')
+          .send({
+            name: 'Preview only',
+            channel: 'EMAIL',
+            audienceFilter: { hasActiveMembership: true, hasEmail: true },
+          }),
+      ).expect(201);
+
+      const preview = await asOwner(
+        request(app.getHttpServer()).get(
+          `/marketing/campaigns/${campaign.body.data.id}/preview`,
+        ),
+      ).expect(200);
+
+      // Same count the enroll below asserts, from the same resolver.
+      expect(preview.body.data.matched).toBe(1);
+      expect(preview.body.data.truncated).toBe(false);
+      expect(preview.body.data.sample).toHaveLength(1);
+
+      // The whole point: looking must not send, and must not enroll.
+      expect(preview.body.data.alreadyEnqueued).toBe(0);
+      const campaigns = await asOwner(
+        request(app.getHttpServer()).get('/marketing/campaigns'),
+      ).expect(200);
+      const untouched = campaigns.body.data.find(
+        (c: { id: string }) => c.id === campaign.body.data.id,
+      );
+      expect(untouched.status).toBe('DRAFT');
+    });
+
+    it('refuses a preview for a campaign in another organization', async () => {
+      const campaign = await asOwner(
+        request(app.getHttpServer())
+          .post('/marketing/campaigns')
+          .send({ name: 'Org A only', channel: 'EMAIL' }),
+      ).expect(201);
+      // A manager account is a different organization; the campaign id
+      // must be indistinguishable from one that does not exist.
+      const asManager = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          organizationName: 'Preview Probe Gym',
+          email: `preview-probe-${Date.now()}@example.com`,
+          password: 'CorrectHorseBattery9',
+          firstName: 'Probe',
+          lastName: 'User',
+        })
+        .expect(201);
+      await request(app.getHttpServer())
+        .get(`/marketing/campaigns/${campaign.body.data.id}/preview`)
+        .set('Authorization', `Bearer ${asManager.body.data.accessToken}`)
+        .expect(404);
+    });
+
     it('enrolls only members matching the audience filter', async () => {
       // Regression test for B-P0-1: this call's raw SQL referenced
       // snake_case columns against camelCase tables and threw on every

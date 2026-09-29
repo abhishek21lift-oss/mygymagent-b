@@ -9,6 +9,7 @@ import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
+import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
 import type { CreateMemberDto } from './dto/create-member.dto';
 import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
@@ -19,6 +20,7 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly billing: PlatformBillingService,
+    private readonly references: TenantReferenceValidator,
   ) {}
 
   async list(
@@ -577,63 +579,25 @@ export class MembersService {
     };
   }
 
+  /**
+   * Throwing wrapper around `TenantReferenceValidator`.
+   *
+   * The check itself moved out to `common/validators` because the CSV
+   * import needs the identical rule and could not reach a `private`
+   * method on this service. The messages are unchanged, so the e2e
+   * assertions on them still hold.
+   */
   private async validateReferences(
     organizationId: string,
     primaryBranchId?: string,
     assignedTrainerId?: string | null,
   ) {
-    if (primaryBranchId) {
-      const branch = await this.prisma.branch.findFirst({
-        where: { id: primaryBranchId, organizationId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!branch) {
-        throw new BadRequestException(
-          'Branch does not belong to this organization',
-        );
-      }
-    }
-    if (assignedTrainerId) {
-      const trainer = await this.prisma.user.findFirst({
-        where: {
-          id: assignedTrainerId,
-          organizationId,
-          deletedAt: null,
-          status: 'ACTIVE',
-          AND: [
-            {
-              OR: [
-                { staffProfile: { is: { isTrainer: true } } },
-                { userRoles: { some: { role: { key: 'TRAINER' } } } },
-              ],
-            },
-            ...(primaryBranchId
-              ? [
-                  {
-                    OR: [
-                      { primaryBranchId },
-                      { staffProfile: { is: { branchId: primaryBranchId } } },
-                      {
-                        userRoles: {
-                          some: {
-                            branchId: primaryBranchId,
-                            role: { key: 'TRAINER' },
-                          },
-                        },
-                      },
-                    ],
-                  },
-                ]
-              : []),
-          ],
-        },
-        select: { id: true },
-      });
-      if (!trainer) {
-        throw new BadRequestException(
-          'Assigned trainer must be active, a trainer, and compatible with the member branch',
-        );
-      }
+    const problems = await this.references.checkMemberReferences(
+      organizationId,
+      { primaryBranchId, assignedTrainerId },
+    );
+    if (problems.length > 0) {
+      throw new BadRequestException(problems[0]);
     }
   }
 
