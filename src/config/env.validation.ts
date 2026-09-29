@@ -78,6 +78,16 @@ export const envSchema = z
     /** MSG91 serves regional endpoints; unset uses the default. */
     MSG91_FLOW_URL: z.string().url().optional(),
 
+    // Push over FCM (src/communications/providers/fcm-push.provider.ts).
+    // The service account JSON Firebase issues, raw or base64. Unset means
+    // push is off: devices can still register, and every attempted send
+    // is logged FAILED rather than dropped. The two URLs exist so a test
+    // can point at a local fake instead of Google; leave them unset.
+    FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
+    FCM_TOKEN_URL: z.string().url().optional(),
+    FCM_API_BASE_URL: z.string().url().optional(),
+    FCM_DEFAULT_TITLE: z.string().optional(),
+
     // How a member login code is produced and delivered. `msg91` is the
     // only real option: a CSPRNG code, hashed here, carried by SMS.
     // `mock` exists so a developer or a test can exercise the whole OTP

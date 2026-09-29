@@ -22,7 +22,8 @@ describe('NotificationsService', () => {
       },
     };
 
-    const service = new NotificationsService(prisma as never);
+    const push = { dispatch: jest.fn() };
+    const service = new NotificationsService(prisma as never, push as never);
 
     await expect(
       service.notifyOrganization('org-1', {
@@ -42,6 +43,18 @@ describe('NotificationsService', () => {
       },
       select: { id: true },
     });
+    // Push is its own opt-in, decided per user by PushDispatchService, so
+    // user-2 muting the bell must not keep them off the push fan-out.
+    expect(push.dispatch).toHaveBeenCalledTimes(1);
+    expect(push.dispatch).toHaveBeenCalledWith(
+      'org-1',
+      ['user-1', 'user-2', 'user-3'],
+      expect.objectContaining({
+        type: 'PAYMENT_RECORDED',
+        category: 'PAYMENTS',
+        title: 'Payment recorded',
+      }),
+    );
     expect(prisma.notificationPreference.findMany).toHaveBeenCalledWith({
       where: {
         organizationId: 'org-1',
@@ -100,7 +113,8 @@ describe('NotificationsService', () => {
       notification: { createMany: jest.fn() },
     };
 
-    const service = new NotificationsService(prisma as never);
+    const push = { dispatch: jest.fn() };
+    const service = new NotificationsService(prisma as never, push as never);
 
     await expect(
       service.notifyOrganization('org-1', {
@@ -113,5 +127,6 @@ describe('NotificationsService', () => {
 
     expect(prisma.notificationPreference.findMany).not.toHaveBeenCalled();
     expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    expect(push.dispatch).not.toHaveBeenCalled();
   });
 });

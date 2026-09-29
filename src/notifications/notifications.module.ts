@@ -7,18 +7,28 @@ import { DomainNotificationListener } from './domain-notification.listener';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { WelcomeEmailProcessor } from './welcome-email.processor';
+import { PushDeliveryProcessor } from './push/push-delivery.processor';
+import { PushDevicesController } from './push/push-devices.controller';
+import { PushDevicesService } from './push/push-devices.service';
+import { PushDispatchService } from './push/push-dispatch.service';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS }),
+    BullModule.registerQueue(
+      { name: QUEUE_NAMES.NOTIFICATIONS },
+      { name: QUEUE_NAMES.PUSH },
+    ),
     CommunicationsModule,
   ],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, PushDevicesController],
   providers: [
     NotificationsService,
     MemberCreatedListener,
     DomainNotificationListener,
     WelcomeEmailProcessor,
+    PushDevicesService,
+    PushDispatchService,
+    PushDeliveryProcessor,
   ],
   exports: [NotificationsService],
 })

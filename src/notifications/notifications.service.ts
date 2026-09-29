@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import { PushDispatchService } from './push/push-dispatch.service';
 import {
   isNotificationCategory,
   NOTIFICATION_CATEGORY_KEYS,
@@ -42,7 +43,10 @@ export interface NotificationInput {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushDispatchService,
+  ) {}
 
   private encodeCursor(cursor: NotificationCursor) {
     return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
@@ -302,6 +306,20 @@ export class NotificationsService {
     if (!recipientIds.length) return { created: 0 };
 
     const { category } = input;
+    // Before the in-app opt-out filter: push is its own preference, and
+    // someone who muted the bell may still want the phone to buzz.
+    const pushRecipients = recipientIds;
+    // Time-bucket the default dedupe key so recurring events (low stock,
+    // restarted memberships) can notify again on a later day instead of
+    // being permanently suppressed by the unique constraint. Computed
+    // before the in-app filter because push dedupes on it too.
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    const dedupeKey =
+      input.dedupeKey ??
+      (input.entityId
+        ? `${input.type}:${input.entityId}:${dayBucket}`
+        : undefined);
+    const pushInput = this.pushInput({ ...input, dedupeKey });
     const preferences = await this.prisma.notificationPreference.findMany({
       where: { organizationId, userId: { in: recipientIds }, category },
       select: { userId: true, inApp: true },
@@ -310,17 +328,11 @@ export class NotificationsService {
       preferences.filter((p) => !p.inApp).map((p) => p.userId),
     );
     const recipients = recipientIds.filter((id) => !optedOut.has(id));
-    if (!recipients.length) return { created: 0 };
+    if (!recipients.length) {
+      this.push.dispatch(organizationId, pushRecipients, pushInput);
+      return { created: 0 };
+    }
 
-    // Time-bucket the default dedupe key so recurring events (low stock,
-    // restarted memberships) can notify again on a later day instead of
-    // being permanently suppressed by the unique constraint.
-    const dayBucket = new Date().toISOString().slice(0, 10);
-    const dedupeKey =
-      input.dedupeKey ??
-      (input.entityId
-        ? `${input.type}:${input.entityId}:${dayBucket}`
-        : undefined);
     const data = recipients.map((userId) => ({
       organizationId,
       userId,
@@ -343,6 +355,7 @@ export class NotificationsService {
       data,
       skipDuplicates: true,
     });
+    this.push.dispatch(organizationId, pushRecipients, pushInput);
     return { created: result.count };
   }
 
@@ -359,6 +372,11 @@ export class NotificationsService {
       },
       select: { inApp: true },
     });
+    this.push.dispatch(
+      input.organizationId,
+      [input.userId],
+      this.pushInput(input),
+    );
     if (preference?.inApp === false) return null;
     return this.prisma.notification.create({
       data: {
@@ -380,5 +398,16 @@ export class NotificationsService {
         expiresAt: input.expiresAt,
       },
     });
+  }
+
+  private pushInput(input: NotificationInput) {
+    return {
+      type: input.type,
+      category: input.category,
+      title: input.title,
+      body: input.body,
+      actionUrl: input.actionUrl,
+      dedupeKey: input.dedupeKey,
+    };
   }
 }
