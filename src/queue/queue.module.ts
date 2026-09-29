@@ -7,6 +7,7 @@ import {
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import { queuePrefix } from './queue-prefix';
 
 /**
  * Owns the single IORedis connection every BullMQ queue/worker in the app
@@ -99,9 +100,18 @@ class QueueConnectionModule {}
     QueueConnectionModule,
     BullModule.forRootAsync({
       imports: [QueueConnectionModule],
-      inject: [QueueConnection],
-      useFactory: (queueConnection: QueueConnection) => ({
+      inject: [QueueConnection, ConfigService],
+      useFactory: (
+        queueConnection: QueueConnection,
+        config: ConfigService,
+      ) => ({
         connection: queueConnection.client,
+        // Per-deployment namespace, not BullMQ's shared default -- see
+        // queue-prefix.ts for the bug a shared one caused (B-P1-10).
+        prefix: queuePrefix({
+          QUEUE_PREFIX: config.get<string>('QUEUE_PREFIX'),
+          DATABASE_URL: config.get<string>('DATABASE_URL'),
+        }),
         defaultJobOptions: {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5_000 },

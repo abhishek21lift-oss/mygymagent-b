@@ -47,6 +47,16 @@ export const envSchema = z
     // enqueue call just stays pending until Redis is reachable again rather
     // than erroring (see the class comment on MemberCreatedListener for why).
     REDIS_URL: z.string().default('redis://localhost:6379'),
+    // Optional name for this deployment's BullMQ keys. Unset, it is derived
+    // from DATABASE_URL, which already keeps deployments that share a Redis
+    // apart -- see src/queue/queue-prefix.ts.
+    QUEUE_PREFIX: z
+      .string()
+      .regex(
+        /^[A-Za-z0-9_-]+$/,
+        'QUEUE_PREFIX may use letters, digits, - and _ only',
+      )
+      .optional(),
 
     // Object storage (src/files/), S3-compatible -- Cloudflare R2 in
     // production, s3rver locally (see docker-compose.yml / README). All
