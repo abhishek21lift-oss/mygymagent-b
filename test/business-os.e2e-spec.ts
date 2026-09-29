@@ -620,6 +620,203 @@ describe('Business OS (e2e)', () => {
     });
   });
 
+  /**
+   * B-P1-9. These routes took `@Body() b: any`, so the global
+   * ValidationPipe had no DTO to check against and a misspelt field was
+   * accepted and ignored. Each case below returned 2xx before the fix.
+   */
+  describe('request bodies are validated (B-P1-9)', () => {
+    let cashId: string;
+    let bankId: string;
+
+    beforeAll(async () => {
+      const cash = await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/accounts')
+          .send({ code: '1100', name: 'Petty cash', type: 'ASSET' }),
+      ).expect(201);
+      cashId = cash.body.data.id;
+      const bank = await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/accounts')
+          .send({ code: '1200', name: 'Bank', type: 'ASSET' }),
+      ).expect(201);
+      bankId = bank.body.data.id;
+    });
+
+    it('rejects a journal whose date and narration are misspelt instead of booking it today', async () => {
+      // The exact payload from the backlog entry: `date`/`narration`
+      // instead of `entryDate`/per-line `description`.
+      const res = await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/journal')
+          .send({
+            date: '2026-01-15',
+            narration: 'Opening float',
+            lines: [
+              { accountId: cashId, debit: 25 },
+              { accountId: bankId, credit: 25 },
+            ],
+          }),
+      ).expect(400);
+      expect(JSON.stringify(res.body.error)).toMatch(/date|narration/);
+      const booked = await prisma.accountingEntry.count({
+        where: { organizationId: owner.organizationId, accountId: cashId },
+      });
+      expect(booked).toBe(0);
+    });
+
+    it('rejects an unknown field on a journal line', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/journal')
+          .send({
+            lines: [
+              { accountId: cashId, debit: 25, narration: 'x' },
+              { accountId: bankId, credit: 25 },
+            ],
+          }),
+      ).expect(400);
+    });
+
+    it('rejects a journal amount with more precision than the column stores', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/journal')
+          .send({
+            lines: [
+              { accountId: cashId, debit: 10.005 },
+              { accountId: bankId, credit: 10.005 },
+            ],
+          }),
+      ).expect(400);
+    });
+
+    it('books entryDate and uses memo for lines with no description of their own', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/journal')
+          .send({
+            entryDate: '2026-01-15',
+            memo: 'Opening float',
+            lines: [
+              { accountId: cashId, debit: 40 },
+              { accountId: bankId, credit: 40, description: 'Withdrawn' },
+            ],
+          }),
+      ).expect(201);
+      const legs = await prisma.accountingEntry.findMany({
+        where: {
+          organizationId: owner.organizationId,
+          accountId: { in: [cashId, bankId] },
+        },
+      });
+      expect(legs).toHaveLength(2);
+      const byAccount = new Map(legs.map((l) => [l.accountId, l]));
+      expect(byAccount.get(cashId)!.description).toBe('Opening float');
+      expect(byAccount.get(bankId)!.description).toBe('Withdrawn');
+      for (const leg of legs) {
+        expect(leg.entryDate.toISOString().slice(0, 10)).toBe('2026-01-15');
+      }
+      // Legs of one posting share no journal id, so they must share a date.
+      expect(legs[0].entryDate.getTime()).toBe(legs[1].entryDate.getTime());
+    });
+
+    it('rejects an unknown account type', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/accounting/accounts')
+          .send({ code: '9999', name: 'Misc', type: 'INCOME' }),
+      ).expect(400);
+    });
+
+    it('rejects an unknown field and an unknown priority on a support ticket', async () => {
+      await asOwner(
+        request(app.getHttpServer()).post('/support/tickets').send({
+          subject: 'Shower is cold',
+          description: 'Men’s changing room',
+          urgency: 'HIGH',
+        }),
+      ).expect(400);
+      await asOwner(
+        request(app.getHttpServer()).post('/support/tickets').send({
+          subject: 'Shower is cold',
+          description: 'Men’s changing room',
+          priority: 'SEVERE',
+        }),
+      ).expect(400);
+    });
+
+    it('rejects an extra field on a ticket status change and a reply', async () => {
+      const ticket = await asOwner(
+        request(app.getHttpServer())
+          .post('/support/tickets')
+          .send({ subject: 'Mirror cracked', description: 'Studio 2' }),
+      ).expect(201);
+      const id = ticket.body.data.id;
+      await asOwner(
+        request(app.getHttpServer())
+          .patch(`/support/tickets/${id}`)
+          .send({ status: 'RESOLVED', resolvedAt: '2020-01-01' }),
+      ).expect(400);
+      await asOwner(
+        request(app.getHttpServer())
+          .post(`/support/tickets/${id}/messages`)
+          .send({ message: 'Ordered a replacement' }),
+      ).expect(400);
+    });
+
+    it('rejects a fractional feedback score instead of failing on the Int column', async () => {
+      const survey = await asOwner(
+        request(app.getHttpServer())
+          .post('/feedback/surveys')
+          .send({ name: 'Class CSAT', kind: 'CSAT' }),
+      ).expect(201);
+      await asOwner(
+        request(app.getHttpServer()).post('/feedback/respond').send({
+          surveyId: survey.body.data.id,
+          memberId: memberWithMembership,
+          score: 7.5,
+        }),
+      ).expect(400);
+    });
+
+    it('rejects an unknown field on a survey', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/feedback/surveys')
+          .send({ name: 'Trainer NPS', type: 'NPS' }),
+      ).expect(400);
+    });
+
+    it('rejects a campaign with a misspelt audience field or a non-object filter', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/marketing/campaigns')
+          .send({
+            name: 'Win-back',
+            channel: 'EMAIL',
+            audience: { hasEmail: true },
+          }),
+      ).expect(400);
+      await asOwner(
+        request(app.getHttpServer()).post('/marketing/campaigns').send({
+          name: 'Win-back',
+          channel: 'EMAIL',
+          audienceFilter: 'everyone',
+        }),
+      ).expect(400);
+    });
+
+    it('rejects a loyalty adjustment sent as a string', async () => {
+      await asOwner(
+        request(app.getHttpServer())
+          .post(`/loyalty/${memberWithMembership}/adjust`)
+          .send({ points: '100', reason: 'Bonus' }),
+      ).expect(400);
+    });
+  });
+
   describe('member portal', () => {
     it('bootstraps once from a valid invite token, then rejects reuse', async () => {
       const invite = await asOwner(

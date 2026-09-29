@@ -11,6 +11,14 @@ import { AttendanceService } from '../attendance/attendance.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { AuditService } from '../audit/audit.service';
+import type {
+  CreateAccountingAccountDto,
+  CreateCampaignDto,
+  CreateSupportTicketDto,
+  CreateSurveyDto,
+  PostJournalDto,
+  RespondFeedbackDto,
+} from './dto/business-os.dto';
 
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const s = (v: unknown, fallback = '') =>
@@ -193,7 +201,7 @@ export class BusinessOsService {
       },
     });
   }
-  async createTicket(org: string, userId: string, b: any) {
+  async createTicket(org: string, userId: string, b: CreateSupportTicketDto) {
     const subject = s(b.subject);
     const description = s(b.description);
     if (!subject || !description)
@@ -250,14 +258,14 @@ export class BusinessOsService {
       orderBy: { createdAt: 'desc' },
     });
   }
-  createSurvey(org: string, b: any) {
+  createSurvey(org: string, b: CreateSurveyDto) {
     const name = s(b.name);
     if (!name) throw new BadRequestException('name is required');
     return this.prisma.feedbackSurvey.create({
       data: { organizationId: org, name, kind: s(b.kind, 'CSAT') },
     });
   }
-  async respondFeedback(org: string, b: any) {
+  async respondFeedback(org: string, b: RespondFeedbackDto) {
     if (!b.surveyId || !b.memberId)
       throw new BadRequestException('surveyId and memberId are required');
     const score = n(b.score, -1);
@@ -353,12 +361,16 @@ export class BusinessOsService {
               : 'LOW',
     };
   }
-  async accountingJournal(org: string, userId: string, b: any) {
-    const lines: Array<{ accountId: string; debit?: unknown; credit?: unknown; branchId?: string; description?: string }> = Array.isArray(b.lines) ? b.lines : [];
+  async accountingJournal(org: string, userId: string, b: PostJournalDto) {
+    const lines = Array.isArray(b.lines) ? b.lines : [];
     if (lines.length < 2) throw new BadRequestException('at least two journal lines are required');
     const debit = lines.reduce((a, l) => a + n(l.debit), 0);
     const credit = lines.reduce((a, l) => a + n(l.credit), 0);
     if (Math.abs(debit - credit) > 0.005) throw new BadRequestException('journal is not balanced');
+    // One timestamp for every leg: legs share no journal id and are related
+    // only by reference and entryDate, so they must not drift apart.
+    const entryDate = b.entryDate ? new Date(b.entryDate) : new Date();
+    const memo = s(b.memo, 'Journal entry');
     return this.prisma.$transaction(async (tx) => {
       const created: Prisma.AccountingEntryGetPayload<object>[] = [];
       for (const l of lines) {
@@ -377,8 +389,8 @@ export class BusinessOsService {
               referenceId: b.referenceId ?? null,
               debit: d,
               credit: cr,
-              description: s(l.description, 'Journal entry'),
-              entryDate: b.entryDate ? new Date(b.entryDate) : new Date(),
+              description: s(l.description, memo),
+              entryDate,
             },
           }),
         );
@@ -412,13 +424,13 @@ export class BusinessOsService {
       take: 200,
     });
   }
-  async createCampaign(org: string, b: any) {
+  async createCampaign(org: string, b: CreateCampaignDto) {
     const name = s(b.name);
     if (!name) throw new BadRequestException('name is required');
     const channel = s(b.channel, 'EMAIL');
     if (!['EMAIL', 'WHATSAPP', 'SMS'].includes(channel)) throw new BadRequestException('channel must be EMAIL, WHATSAPP or SMS');
     if (b.branchId) await this.ensureBranch(org, String(b.branchId));
-    const audienceFilter = b.audienceFilter && typeof b.audienceFilter === 'object' ? b.audienceFilter : {};
+    const audienceFilter = (b.audienceFilter && typeof b.audienceFilter === 'object' ? b.audienceFilter : {}) as Prisma.InputJsonObject;
     return this.prisma.marketingCampaign.create({
       data: {
         organizationId: org,
@@ -658,7 +670,7 @@ export class BusinessOsService {
       branch: r.branch,
     }));
   }
-  createAccount(org: string, b: any) {
+  createAccount(org: string, b: CreateAccountingAccountDto) {
     const code = s(b.code),
       name = s(b.name),
       type = s(b.type, 'EXPENSE');
