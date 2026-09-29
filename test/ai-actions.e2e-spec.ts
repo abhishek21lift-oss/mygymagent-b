@@ -1,7 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AiActionsService } from '../src/ai-actions/ai-actions.service';
-import { GlobalAiCommandService } from '../src/ai/global-ai-command.service';
+import { AiSupervisorService } from '../src/ai/supervisor/ai-supervisor.service';
+import { TokensService } from '../src/auth/tokens.service';
 import { ToolExecutorService } from '../src/ai/tools/tool-executor.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
@@ -18,6 +19,7 @@ describe('AI Actions / Action Center (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let toolExecutor: ToolExecutorService;
+  let tokens: TokensService;
   let org: RegisteredAccount;
   let memberId: string;
   let workoutPlanId: string;
@@ -59,6 +61,7 @@ describe('AI Actions / Action Center (e2e)', () => {
     app = result.app;
     prisma = app.get(PrismaService);
     toolExecutor = app.get(ToolExecutorService);
+    tokens = app.get(TokensService);
     org = await registerOrg('Action Center Test Gym');
 
     const member = await authed(org.accessToken)(
@@ -142,12 +145,13 @@ describe('AI Actions / Action Center (e2e)', () => {
       where: { id },
       data: { status: 'ACTIVE' },
     });
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email, password: 'CorrectHorseBattery9' })
-      .expect(201);
+    // A token signed directly rather than via /auth/login. An invited
+    // account has no password until it accepts its invitation, so a
+    // password login here would 401 -- and walking the invite-accept flow
+    // is covered by the auth suite, not this one. Same approach as
+    // branch-scoping.e2e-spec.ts's manager fixture.
     return {
-      accessToken: login.body.data.accessToken,
+      accessToken: tokens.signAccessToken(id),
       organizationId: org.organizationId,
       userId: id,
       branchId: org.branchId,
@@ -258,6 +262,10 @@ describe('AI Actions / Action Center (e2e)', () => {
     // The proposer here is an ORG_OWNER, who holds `workouts.assign` by
     // definition — so before the fix this call returned 200 and a workout
     // plan landed on a real member.
+    const before = await prisma.workoutAssignment.count({
+      where: { organizationId: org.organizationId, memberId },
+    });
+
     const result = (await toolExecutor.execute(
       'propose_assign_workout_plan',
       { memberId, planId: workoutPlanId },
@@ -268,17 +276,20 @@ describe('AI Actions / Action Center (e2e)', () => {
       request(app.getHttpServer()).patch(`/ai-actions/${result.id}/approve`),
     ).expect(403);
 
-    // And nothing was executed: still awaiting a decision, and the member
-    // still has no assignment.
+    // And nothing was executed: the action is still awaiting a decision,
+    // and no new assignment appeared. The count is a delta rather than a
+    // total because the shared `memberId` already carries an assignment
+    // from the first case in this suite.
     const stillPending = await authed(org.accessToken)(
       request(app.getHttpServer()).get(`/ai-actions/${result.id}`),
     ).expect(200);
     expect(stillPending.body.data.status).toBe('PENDING_APPROVAL');
+    expect(stillPending.body.data.decidedByUserId).toBeNull();
 
-    const assignments = await prisma.workoutAssignment.findMany({
+    const after = await prisma.workoutAssignment.count({
       where: { organizationId: org.organizationId, memberId },
     });
-    expect(assignments).toHaveLength(0);
+    expect(after).toBe(before);
 
     // A different person with the same permission can still do it, which
     // is what makes this separation of duties and not a dead end.
@@ -289,32 +300,54 @@ describe('AI Actions / Action Center (e2e)', () => {
     expect(approved.body.data.status).toBe('EXECUTED');
   });
 
-  it('the AI command shell proposes without approving', async () => {
-    // End-to-end through the real entry point the assistant uses, rather
-    // than through the tool executor directly.
-    const globalCommand = app.get(GlobalAiCommandService);
-    const result = (await globalCommand.processCommand({
-      command: `assign workout plan ${workoutPlanId} to member ${memberId}`,
-      organizationId: org.organizationId,
-      userId: org.userId,
-    })) as { type: string; requiresApproval?: boolean };
+  it('the supervisor proposes without approving', async () => {
+    // `executeWithApproval` is where the self-approval lived, so that is
+    // what this drives. It cannot be reached through `processCommand`:
+    // `parseCommand` returns `isActionable: false` from all seven of its
+    // branches, so the actionable path there is currently unreachable and
+    // an unrecognised command falls through to the LLM chat handler.
+    // That is pre-existing behaviour and not what this change is about.
+    //
+    // What is under test is the guarantee: calling this proposes and
+    // stops. Before the fix it took an approver and approved, and the one
+    // caller passed the requester.
+    const supervisor = app.get(AiSupervisorService);
+    const before = await prisma.workoutAssignment.count({
+      where: { organizationId: org.organizationId, memberId },
+    });
 
-    // Whatever the parser made of the sentence, the invariant is the same:
-    // this path can no longer approve, so an actionable command comes back
-    // as something awaiting a decision.
-    expect(result.type).not.toBe('error');
-    if (result.type === 'approval_required') {
-      expect(result.requiresApproval).toBe(true);
-    }
+    const proposal = (await supervisor.executeWithApproval(
+      'propose_assign_workout_plan',
+      { memberId, planId: workoutPlanId },
+      { organizationId: org.organizationId, userId: org.userId },
+    )) as { id: string; status: string; decidedByUserId: string | null };
 
-    const executed = await prisma.aiAction.findMany({
+    // Proposed, not executed, and nobody has decided it.
+    expect(proposal.status).toBe('PENDING_APPROVAL');
+    expect(proposal.decidedByUserId).toBeNull();
+
+    const row = await prisma.aiAction.findUniqueOrThrow({
+      where: { id: proposal.id },
+    });
+    expect(row.status).toBe('PENDING_APPROVAL');
+    expect(row.decidedByUserId).toBeNull();
+    expect(row.executedAt).toBeNull();
+
+    // And the member's plan is untouched.
+    const after = await prisma.workoutAssignment.count({
+      where: { organizationId: org.organizationId, memberId },
+    });
+    expect(after).toBe(before);
+
+    // No action anywhere was decided by the person who asked for it.
+    const selfDecided = await prisma.aiAction.findMany({
       where: {
         organizationId: org.organizationId,
-        status: { in: ['EXECUTED', 'APPROVED'] },
         decidedByUserId: org.userId,
+        status: { in: ['APPROVED', 'EXECUTED'] },
       },
     });
-    expect(executed).toHaveLength(0);
+    expect(selfDecided).toHaveLength(0);
   });
 
   it('rejects proposing without the underlying resource permission (workouts.assign)', async () => {
