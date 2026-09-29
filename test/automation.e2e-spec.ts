@@ -114,7 +114,11 @@ describe('Automation (e2e)', () => {
     const first = await scanner.scan();
     expect(first.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    // Matched on the subject, because creating the member above also fired
+    // a welcome email at this address.
+    const sentEmail = await waitForEmailTo(email, 5000, (candidate) =>
+      candidate.subject.includes('expiring soon'),
+    );
     expect(sentEmail.subject).toContain('expiring soon');
 
     const runs = await prisma.automationRun.findMany({
@@ -178,7 +182,12 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(email);
+    // Matched on the amount. Creating the member above also fired a
+    // welcome email at this address, so "the newest email" is a race
+    // between the two — the same hazard the "miss you" case documents.
+    const sentEmail = await waitForEmailTo(email, 5000, (candidate) =>
+      candidate.body.includes('60.00'),
+    );
     expect(sentEmail.body).toContain('60.00');
 
     const run = await prisma.automationRun.findFirst({
@@ -340,7 +349,11 @@ describe('Automation (e2e)', () => {
     const result = await scanner.scan();
     expect(result.sent).toBeGreaterThanOrEqual(1);
 
-    const sentEmail = await waitForEmailTo(ownerEmail);
+    // Matched for the same reason as the low-stock case: the owner address
+    // collects every automation email this suite sends.
+    const sentEmail = await waitForEmailTo(ownerEmail, 5000, (candidate) =>
+      candidate.body.includes('Overdue Prospect'),
+    );
     expect(sentEmail.body).toContain('Overdue Prospect');
 
     const run = await prisma.automationRun.findFirst({
@@ -492,7 +505,16 @@ describe('Automation (e2e)', () => {
       );
     });
 
-    const sentEmail = await waitForEmailTo(ownerEmail);
+    // Matched rather than "whatever is newest to the owner": every
+    // automation in this suite mails the same address. The original
+    // failure read `Expected "Protein Bar", Received "Follow up due:
+    // Overdue Prospect"`, which looked like cross-test contamination but
+    // is not — the low-stock email was never sent at all in those runs.
+    // See B-P1-10. The matcher makes a recurrence report a timeout naming
+    // this address instead of pointing at the wrong email.
+    const sentEmail = await waitForEmailTo(ownerEmail, 5000, (candidate) =>
+      candidate.subject.includes('Protein Bar'),
+    );
     expect(sentEmail.subject).toContain('Protein Bar');
 
     const run = await prisma.automationRun.findFirst({
