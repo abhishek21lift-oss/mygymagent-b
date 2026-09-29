@@ -72,6 +72,14 @@ export class BusinessOsController {
   ) {
     return this.s.createTicket(u.organizationId!, u.id, b);
   }
+  @Get('support/tickets/:id/messages')
+  @RequirePermissions('support.read')
+  ticketMessages(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.s.ticketMessages(u.organizationId!, id);
+  }
   @Post('support/tickets/:id/messages')
   @RequirePermissions('support.manage')
   message(

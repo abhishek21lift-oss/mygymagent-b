@@ -159,6 +159,38 @@ export class BusinessOsService {
       where: { organizationId: org, ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
       take: 200,
+      // The reply count, so a list can show which tickets actually have a
+      // conversation. Without it the UI could write replies that were then
+      // invisible, because nothing ever read them back.
+      include: { _count: { select: { messages: true } } },
+    });
+  }
+
+  /**
+   * The thread on one ticket.
+   *
+   * `addTicketMessage` has always existed and nothing read it back, so a
+   * reply could be written and then never seen again — the mutation
+   * invalidated the ticket list, which does not carry messages, and the
+   * page looked exactly as it had before the reply.
+   *
+   * Tenant scope is proven by loading the ticket first and 404ing when it
+   * is not this org's, rather than by filtering the message query on an
+   * `organizationId` alone: a ticket id from another gym must be
+   * indistinguishable from one that does not exist.
+   */
+  async ticketMessages(org: string, ticketId: string) {
+    const ticket = await this.prisma.supportTicket.findFirst({
+      where: { id: ticketId, organizationId: org },
+      select: { id: true },
+    });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    return this.prisma.supportTicketMessage.findMany({
+      where: { organizationId: org, ticketId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        authorUser: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
   }
   async createTicket(org: string, userId: string, b: any) {
