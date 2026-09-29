@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
+import { MemberPushService } from '../../notifications/push/member-push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AutomationRunService } from '../automation-run.service';
 
 const REMINDER_WINDOW_DAYS = 7;
 const COOLDOWN_DAYS = 3;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** Days-before-expiry on which the member's phone is nudged. A push is
+ * cheaper to ignore than an email, so it goes at a week, then closer in. */
+const PUSH_ON_DAYS = new Set([7, 3, 1]);
 
 /**
  * Trigger: an ACTIVE membership's `endDate` falls within the next
@@ -23,6 +27,7 @@ export class MembershipRenewalScanner {
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
     private readonly runs: AutomationRunService,
+    private readonly memberPush: MemberPushService,
   ) {}
 
   async scan(): Promise<{ checked: number; sent: number }> {
@@ -41,10 +46,29 @@ export class MembershipRenewalScanner {
 
     let sent = 0;
     for (const membership of memberships) {
-      if (!membership.member.email) continue;
       const daysUntilExpiry = Math.ceil(
         (membership.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
+      // Before the email check: a member who signs in by SMS has no
+      // email on file and, until push, was never reminded at all.
+      if (PUSH_ON_DAYS.has(daysUntilExpiry)) {
+        await this.memberPush.notifyMember(
+          membership.organizationId,
+          membership.member.id,
+          {
+            type: 'MEMBERSHIP_EXPIRING',
+            category: 'MEMBERSHIPS',
+            title:
+              daysUntilExpiry === 1
+                ? 'Your membership ends tomorrow'
+                : `Your membership ends in ${daysUntilExpiry} days`,
+            body: `Renew ${membership.membershipPlan.name} to keep training without a break.`,
+            actionUrl: '/portal/renew',
+            dedupeKey: `membership-expiring:${membership.id}:${daysUntilExpiry}`,
+          },
+        );
+      }
+      if (!membership.member.email) continue;
       const outcome = await this.runs.attempt(
         membership.organizationId,
         'MEMBERSHIP_RENEWAL_REMINDER',

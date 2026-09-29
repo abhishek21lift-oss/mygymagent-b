@@ -3,7 +3,11 @@ import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
 import { createVerify, generateKeyPairSync } from 'crypto';
 import request from 'supertest';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TokensService } from '../src/auth/tokens.service';
+import { MembershipRenewalScanner } from '../src/automation/scanners/membership-renewal.scanner';
+import { DomainEvent } from '../src/events/domain-events';
+import { MemberPushService } from '../src/notifications/push/member-push.service';
 import { NotificationsService } from '../src/notifications/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './utils/test-app';
@@ -462,5 +466,210 @@ describe('Push notifications over FCM (e2e)', () => {
       where: { address: 'owner-phone-token' },
     });
     expect(left).toBe(0);
+  });
+
+  /**
+   * Members receive pushes on their own login's devices, with their own
+   * wording and portal links, for the six member-facing categories.
+   */
+  describe('members', () => {
+    let memberId: string;
+    let memberUserId: string;
+    let memberToken: string;
+    let branchId: string;
+
+    const emit = (event: DomainEvent, payload: object) =>
+      app.get(EventEmitter2).emit(event, { organizationId, ...payload });
+
+    const pushTo = (token: string, before: number) =>
+      waitFor(() => received.slice(before).find((p) => p.token === token));
+
+    beforeAll(async () => {
+      const branches = await as(ownerToken)(
+        request(app.getHttpServer()).get('/branches'),
+      ).expect(200);
+      branchId = branches.body.data.items[0].id;
+      const member = await as(ownerToken)(
+        request(app.getHttpServer())
+          .post('/members')
+          .send({
+            primaryBranchId: branchId,
+            firstName: 'Asha',
+            lastName: 'Member',
+            email: `push-member-${Date.now()}@example.com`,
+          }),
+      ).expect(201);
+      memberId = member.body.data.id;
+      await as(ownerToken)(
+        request(app.getHttpServer()).post(`/portal/enable/${memberId}`),
+      ).expect(201);
+      const linked = await prisma.member.findUniqueOrThrow({
+        where: { id: memberId },
+        select: { userId: true },
+      });
+      memberUserId = linked.userId!;
+      // The invitation flow itself is member-portal.e2e-spec's subject.
+      await prisma.user.update({
+        where: { id: memberUserId },
+        data: { status: 'ACTIVE' },
+      });
+      memberToken = app.get(TokensService).signAccessToken(memberUserId);
+      await register(memberToken, 'member-phone').expect(201);
+    });
+
+    it('records the device against the member, so the push log names them', async () => {
+      const device = await prisma.notificationDevice.findFirstOrThrow({
+        where: { address: 'member-phone' },
+      });
+      expect(device.memberId).toBe(memberId);
+    });
+
+    it("pushes a payment receipt in the member's words, linking to their billing", async () => {
+      const before = received.length;
+      emit(DomainEvent.PaymentRecorded, {
+        branchId,
+        paymentId: `pay-${Date.now()}`,
+        memberId,
+        amount: '2000.00',
+        currency: 'INR',
+      });
+      const push = await pushTo('member-phone', before);
+      expect(push.title).toBe('Payment received');
+      expect(push.body).toContain('₹2,000');
+      expect(push.data?.url).toBe('/portal/billing');
+      // Push is on by default for members, as the portal shows it.
+      const prefs = await as(memberToken)(
+        request(app.getHttpServer()).get('/portal/notification-preferences'),
+      ).expect(200);
+      expect(
+        prefs.body.data.items.find((i: { key: string }) => i.key === 'PAYMENTS')
+          .push,
+      ).toBe(true);
+    });
+
+    it('respects the member muting a category in the portal', async () => {
+      await as(memberToken)(
+        request(app.getHttpServer())
+          .patch('/portal/notification-preferences/DIET')
+          .send({ push: false }),
+      ).expect(200);
+      const before = received.length;
+      emit(DomainEvent.DietAssigned, {
+        dietAssignmentId: `diet-${Date.now()}`,
+        dietPlanId: 'plan',
+        memberId,
+      });
+      // A category still on, sent after, proves the queue was not simply idle.
+      emit(DomainEvent.WorkoutAssigned, {
+        workoutAssignmentId: `wo-${Date.now()}`,
+        workoutPlanId: 'plan',
+        memberId,
+      });
+      const workout = await pushTo('member-phone', before);
+      expect(workout.title).toBe('New workout plan');
+      await new Promise((r) => setTimeout(r, 500));
+      expect(
+        received.slice(before).some((p) => p.title === 'New diet plan'),
+      ).toBe(false);
+    });
+
+    it('does not push a member about a booking they made themselves', async () => {
+      const before = received.length;
+      const start = new Date('2026-10-06T12:30:00.000Z');
+      emit(DomainEvent.PtSessionBooked, {
+        ptSessionId: `pt-self-${Date.now()}`,
+        memberId,
+        branchId,
+        startTime: start,
+        endTime: start,
+        bookedByUserId: memberUserId,
+      });
+      emit(DomainEvent.PtSessionBooked, {
+        ptSessionId: `pt-staff-${Date.now()}`,
+        memberId,
+        branchId,
+        startTime: start,
+        endTime: start,
+        bookedByUserId: ownerId,
+      });
+      const push = await pushTo('member-phone', before);
+      expect(push.title).toBe('PT session booked');
+      // The gym's timezone defaults to UTC: 12:30 UTC reads as 12:30 pm.
+      expect(push.body).toMatch(/Tue.*6 Oct.*12:30/);
+      await new Promise((r) => setTimeout(r, 500));
+      expect(
+        received.slice(before).filter((p) => p.title === 'PT session booked'),
+      ).toHaveLength(1);
+    });
+
+    it('never pushes the member a staff-only category', async () => {
+      const before = received.length;
+      // Straight at the service: emitting InventoryLow would also fire the
+      // real low-stock email automation for a product that does not exist.
+      await app.get(MemberPushService).notifyMember(organizationId, memberId, {
+        type: 'INVENTORY_LOW',
+        category: 'INVENTORY',
+        title: 'Bars low',
+        body: 'stock',
+        actionUrl: '/portal',
+        dedupeKey: `inv-${Date.now()}`,
+      });
+      emit(DomainEvent.AttendanceRecorded, {
+        branchId,
+        attendanceId: `att-${Date.now()}`,
+        memberId,
+      });
+      const checkIn = await pushTo('member-phone', before);
+      expect(checkIn.title).toBe('Checked in');
+      expect(checkIn.data?.url).toBe('/portal/visits');
+      await new Promise((r) => setTimeout(r, 500));
+      expect(
+        received
+          .slice(before)
+          .some(
+            (p) =>
+              p.token === 'member-phone' &&
+              /stock|Bars/i.test(p.title + p.body),
+          ),
+      ).toBe(false);
+    });
+
+    it('reminds a member with no email address that their membership is ending', async () => {
+      // SMS-login members have no email; the renewal email skips them, so
+      // until push they were never reminded at all.
+      await prisma.member.update({
+        where: { id: memberId },
+        data: { email: null },
+      });
+      const plan = await prisma.membershipPlan.create({
+        data: {
+          organizationId,
+          name: 'Quarterly Gold',
+          durationDays: 90,
+          price: 9000,
+          currency: 'INR',
+        },
+      });
+      const now = Date.now();
+      await prisma.membership.create({
+        data: {
+          organizationId,
+          branchId,
+          memberId,
+          membershipPlanId: plan.id,
+          status: 'ACTIVE',
+          startDate: new Date(now - 87 * 86_400_000),
+          endDate: new Date(now + 2.5 * 86_400_000),
+          price: 9000,
+          currency: 'INR',
+        },
+      });
+      const before = received.length;
+      await app.get(MembershipRenewalScanner).scan();
+      const push = await pushTo('member-phone', before);
+      expect(push.title).toBe('Your membership ends in 3 days');
+      expect(push.body).toContain('Quarterly Gold');
+      expect(push.data?.url).toBe('/portal/renew');
+    });
   });
 });

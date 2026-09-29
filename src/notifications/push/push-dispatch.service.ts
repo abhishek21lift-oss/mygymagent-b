@@ -19,6 +19,16 @@ export interface PushNotificationInput {
   dedupeKey?: string;
 }
 
+export interface PushDispatchOptions {
+  /**
+   * What a missing preference row means. Staff default to off -- the
+   * settings screen shows Push off until switched on. Members default to
+   * on, because the portal shows every channel on until switched off, and
+   * for a member the real consent is turning push on for a device.
+   */
+  defaultOn?: boolean;
+}
+
 export interface DeliverPushJobData {
   organizationId: string;
   deviceId: string;
@@ -67,13 +77,16 @@ export class PushDispatchService {
     organizationId: string,
     userIds: string[],
     input: PushNotificationInput,
+    options: PushDispatchOptions = {},
   ): void {
     if (!userIds.length || !this.fcm.isConfigured()) return;
-    void this.enqueue(organizationId, userIds, input).catch((error) => {
-      this.logger.error(
-        `Failed to enqueue push for ${input.type}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
+    void this.enqueue(organizationId, userIds, input, options).catch(
+      (error) => {
+        this.logger.error(
+          `Failed to enqueue push for ${input.type}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
   }
 
   /** Exposed for tests; production callers use `dispatch`. */
@@ -81,21 +94,26 @@ export class PushDispatchService {
     organizationId: string,
     userIds: string[],
     input: PushNotificationInput,
+    options: PushDispatchOptions = {},
   ): Promise<number> {
-    const optedIn = await this.prisma.notificationPreference.findMany({
+    const candidates = [...new Set(userIds)];
+    const rows = await this.prisma.notificationPreference.findMany({
       where: {
         organizationId,
-        userId: { in: [...new Set(userIds)] },
+        userId: { in: candidates },
         category: input.category,
-        push: true,
       },
-      select: { userId: true },
+      select: { userId: true, push: true },
     });
-    if (!optedIn.length) return 0;
+    const saved = new Map(rows.map((row) => [row.userId, row.push]));
+    const recipients = candidates.filter(
+      (userId) => saved.get(userId) ?? options.defaultOn ?? false,
+    );
+    if (!recipients.length) return 0;
 
     const devices = await this.devices.activeDevicesFor(
       organizationId,
-      optedIn.map((p) => p.userId),
+      recipients,
     );
     if (!devices.length) return 0;
 
