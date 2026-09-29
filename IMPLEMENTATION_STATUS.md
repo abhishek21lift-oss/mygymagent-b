@@ -96,7 +96,7 @@ remain blocked on the same missing PT-session data model P1 already flagged, not
 
 | Area | Status | Note |
 |---|---|---|
-| Action Center (approval workflow) | ✅ | `src/ai-actions/` — READ→RECOMMEND→DRAFT→APPROVE→EXECUTE for the first genuinely consequential AI tools (`propose_assign_workout_plan`, `propose_assign_diet_plan`). `ai.approve` alone is not sufficient to approve: the approver's own resource permission (`workouts.assign`/`nutrition.assign`) is independently re-checked — see `ARCHITECTURE_DECISIONS.md` AI-15 |
+| Action Center (approval workflow) | ✅ | `src/ai-actions/` — READ→RECOMMEND→DRAFT→APPROVE→EXECUTE for the first genuinely consequential AI tools (`propose_assign_workout_plan`, `propose_assign_diet_plan`). Two independent gates on every approval: `ai.approve` alone is not sufficient, because the approver's own resource permission (`workouts.assign`/`nutrition.assign`) is re-checked (AI-15); and the proposer can never be the decider, enforced in `AiActionsService.approve()` rather than trusted to the caller (AI-34). Rejecting your own proposal is still allowed |
 | AI memory | ✅ | `src/ai/conversations/` — `AiConversation`/`AiMessage`, per-org-and-per-user scoped, soft-delete only per `docs/database/data-retention.md`. `POST /ai/chat` accepts `conversationId` to continue a real persisted conversation; `GET/DELETE /ai/conversations` for history management. See `ARCHITECTURE_DECISIONS.md` AI-16 |
 | Owner Daily Briefing | ✅ | `src/briefing/` — `GET /briefing/daily` (and the `get_daily_briefing` AI tool) aggregate today's check-ins, this month's revenue, at-risk members, sales funnel, low-stock products, trainer workload, and pending Action Center proposals into one real, computed report — no new data source, every `notComputable` disclosure preserved |
 | AI Supervisor / specialist agents | ⬜ (deliberate) | Still one tool-calling loop (14 tools); nothing built has ever needed routing between specialist toolsets. See `ARCHITECTURE_DECISIONS.md` AI-17 |
@@ -118,8 +118,28 @@ specialist-agent layer and the global AI command interface are the two P3 master
 built, both as deliberate, documented scope decisions rather than oversights — see
 `ARCHITECTURE_DECISIONS.md` AI-17.
 
+## Shipped outside the phase plan
+
+Subsystems built after the P0–P3 plan above was written, and therefore absent from those tables.
+Listed here so this file does not read as a complete inventory when it is not. Full detail in
+`CHANGELOG_AI_TRANSFORMATION.md`.
+
+| Area | Status | Note |
+|---|---|---|
+| HR / Payroll | ✅ | `src/hr-payroll/` — leave types/balances/requests, payroll runs and items, with regular-hours pay items. A second, older `src/payroll/` module still exists; reconciling the two is tracked in `BACKLOG.md`, not done. Tested: `test/hr-payroll.e2e-spec.ts`, `test/staff-payroll-settings.e2e-spec.ts` |
+| Group Training OS | ✅ | `class_programs` / `class_sessions` / `class_bookings` |
+| Notification Center | ✅ | Preferences by category, message log, templates. Delivery is queued and real; the *push* channel still has no provider wired (B-P1-1) |
+| Complete Inventory OS | ✅ | Suppliers, purchase orders, returns, transfers on top of the existing product/stock engine |
+| Business OS | ✅ | `src/business-os/` — loyalty, referrals, support, feedback, marketing, accounting, PT intelligence, portal invites (29 routes) |
+| Member self-service portal | ✅ | ADR AI-29/AI-30 — members authenticate and read only their own data; the backend resolves the member from the JWT and no read route takes a `memberId` |
+| MFA | ✅ | TOTP + recovery codes, and a per-org policy (ADR, B-P0-10) |
+
 ## How this file is maintained
 
 Updated at the end of every phase that changes what's built. Each row's evidence column should
 name real files and real tests, not aspirations — matching the discipline the pre-existing module
 READMEs already use in this codebase (state what's built, what's not, and why).
+
+This file covers the P0–P3 plan, which is **not** the same thing as the whole codebase. Anything
+shipped outside that plan belongs in the table above rather than being left to the changelog, so a
+reader who trusts this file is not misled by an omission.

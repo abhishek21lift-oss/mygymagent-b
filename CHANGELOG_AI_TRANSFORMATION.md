@@ -653,3 +653,137 @@ npm run build                        # all routes compiled successfully
   notComputable for the same reason).
 - E2E suite for the new endpoints against real Postgres/Redis -- must run in CI before a
   production-safety claim.
+
+---
+
+## 2026-09-29 — Separation of duties in the Action Center, and a real E2E environment
+
+**Source:** audit pass over the AI approval workflow and a tenancy audit of the import path, plus
+the first time the full e2e suite has been run locally rather than only in CI.
+
+### 1. The proposer can no longer approve their own proposal (AI-34)
+
+Before: `AiSupervisorService.executeWithApproval()` took an approver argument and approved.
+`GlobalAiCommandService` — its only caller — passed `request.userId`, the person who typed the
+command. So a user asked the assistant to assign a plan, the assistant proposed it, the supervisor
+confirmed the asker held `workouts.assign`, and then approved *as that asker* and executed. Both
+checks ran; the approval step was a formality. Dormant in practice only because `parseCommand()`
+returns `isActionable: false` from all seven of its branches, which is a property of today's parser
+rather than of the design — the next actionable branch would have re-armed it with the suite green.
+
+After, at two layers: `executeWithApproval()` no longer takes an approver and only proposes
+(dropping the parameter so a future caller cannot reintroduce it), and `AiActionsService.approve()`
+throws `ForbiddenException` when `proposedByUserId === decidedByUserId` — the single point where a
+proposal becomes executed, so the one place a new caller cannot forget.
+
+- Changed: `src/ai/supervisor/ai-supervisor.service.ts`, `src/ai-actions/ai-actions.service.ts`,
+  `src/ai/global-ai-command.service.ts`
+- Tested: `test/ai-actions.e2e-spec.ts` — "refuses to let the proposer approve their own proposal"
+  (403 for the asker, the same permission held by a different user still works, and no assignment is
+  left behind) and "the supervisor proposes without approving" (PENDING_APPROVAL, no decider, no
+  `executedAt`, no new assignment, and no action anywhere decided by the requester). Both cases were
+  confirmed to fail with the enforcement removed.
+
+### 2. Cross-tenant import closed (`6098a32`)
+
+`POST /data/import/members` validated the org id in the path but not the branch and trainer ids
+inside each CSV row, so a row naming another organization's branch wrote to it. Both are now
+validated per row through a new `TenantReferenceValidator`, extracted so every importer gets the same
+rule. The route also took a body that `ValidationPipe` never saw (no DTO, no `@Body()` type), so
+`forbidNonWhitelisted` was not in force at all — it now takes a real `ImportMembersDto`.
+`MemberSegmentAssignment.organizationId` was a bare column with no foreign key; migration
+`20260929120000_member_segment_tenant_fk` adds it idempotently, along with the index.
+
+- Changed: `src/common/validators/tenant-reference.validator.ts`, `src/data/data.service.ts`,
+  `src/data/dto/import-members.dto.ts`, `src/data/member-duplicates.service.ts` (org-scoped user
+  read), `prisma/migrations/20260929120000_member_segment_tenant_fk/`
+- Tested: `src/common/validators/tenant-schema.spec.ts` is a ratchet, not a spot check — it asserts
+  the exact list of tenant tables still carrying a bare `organizationId` (`StaffProfile`,
+  `TrainerCommission`, `TrainerCommissionRule`, `UserPermissionOverride`), so the next table to get
+  an FK fails the suite until the list shrinks. `test/tenant-isolation.e2e-spec.ts` covers the
+  import path. Five of six cases were confirmed red before the fix.
+
+### 3. Three screens that could write but not read (`6098a32`)
+
+Support tickets, the accounting ledger, and campaign audiences each had a working form and no way to
+see what already existed. Added `GET /support/tickets/:id/messages`, `GET /accounting/entries` (with
+`accountId` on `trialBalance` so the ledger can be filtered per account), and
+`GET /marketing/campaigns/:id/preview`. The campaign preview deliberately reuses the same
+`campaignAudienceWhere` resolver as the send, because a count that is computed any other way can
+disagree with what actually goes out.
+
+### 4. The e2e suite now runs locally, against real dependencies
+
+The e2e tests had only ever run in CI. Nothing was mocked to make that happen: this environment got
+a real PostgreSQL, a real Redis (the Ubuntu `redis-server` binary unpacked without root, plus its two
+shared libraries), and `s3rver` for S3. Mocking `QueueConnection` was tried first and abandoned —
+`test/notifications-queue.e2e-spec.ts` asserts on real `getJobs()` results, so a stub would have
+made that assertion vacuous, which is the same failure mode as the WhatsApp one below.
+
+One real test bug did fall out of running it. The WhatsApp suite set `META_APP_SECRET` in
+`beforeAll`, but `ConfigModule.forRoot({ validate: validateEnv })` snapshots the validated
+environment when `AppModule` is *imported*, and `ConfigService.get` prefers that snapshot over live
+`process.env` — it only falls through when a key is absent, and an empty string is not absent. On a
+machine with a local `.env` (untracked, so present on workstations and absent in CI) the snapshot's
+`META_APP_SECRET=""` won, `verifyInboundSignature` took its documented development bypass, and three
+signature tests that expected 403 got 200. The suite passed in CI and failed locally — the worst
+version of that bug, because it also meant the tests would have passed if the HMAC check were
+deleted. The credentials moved to a module imported ahead of `test-app`, the only ordering that wins
+(TypeScript emits requires in source order).
+
+- Changed: `test/utils/whatsapp-test-env.ts` (new), `test/whatsapp.e2e-spec.ts`
+- No production code changed, and no assertion was weakened.
+
+```
+# backend (mygymagent-b)
+npx tsc --noEmit              # clean
+npm run lint                  # 0 errors
+npm test                      # 137/137 unit tests (23 suites)
+npm run test:e2e              # 539 passing, 3 skipped, 0 failing (49 suites) against real
+                              # Postgres + Redis + s3rver
+```
+
+### Honest remaining gaps
+
+- `test/rate-limiting.e2e-spec.ts` is still `describe.skip`, and now honestly so: the test app
+  substitutes `MockThrottlerGuard`, so rate limiting cannot be asserted through it. Pre-existing, and
+  un-skipping it needs a different test-app guard strategy rather than a tweak.
+- `parseCommand()` never returns `isActionable: true`, so the actionable branch of
+  `GlobalAiCommandService.processCommand()` is unreachable and an unrecognised command falls through
+  to the LLM chat handler. Noted in the test that covers the supervisor directly, rather than papered
+  over — but it does mean the command shell is not yet a typed command surface.
+- RLS: no Row Level Security anywhere across 48 migrations. `prisma.service.ts` documents
+  application-level scoping as the deliberate choice, and the bare-`organizationId` ratchet in item 2
+  bounds the remaining gap, but the database itself does not currently refuse a cross-tenant query.
+- Four tenant tables still carry a bare `organizationId` with no FK (`StaffProfile`,
+  `TrainerCommission`, `TrainerCommissionRule`, `UserPermissionOverride`), pinned as an exact list in
+  `tenant-schema.spec.ts`.
+
+### 5. Closing the B-P1-5 documentation gap
+
+B-P1-5 recorded that these three files had drifted: `IMPLEMENTATION_STATUS.md` and
+`ARCHITECTURE_DECISIONS.md` stopped at 2026-08-22, and five shipped subsystems appeared in none of
+them. Two of those are covered above (the Action Center, and the tenancy/import work in `6098a32`).
+The rest, added here from the migrations and suites that actually exist:
+
+- **HR / Payroll** — `src/hr-payroll/` (leave types, balances, requests, payroll runs and items;
+  migration `20260921000000_add_hr_payroll`, plus `20260922000100_add_regular_hours_to_payroll_items`
+  and `20260923080000_drop_payroll_periods`, which removed a table the feature had outgrown).
+  `src/payroll/` remains a separate older module — reconciling the two is tracked, not done.
+  Tested: `test/hr-payroll.e2e-spec.ts`, `test/staff-payroll-settings.e2e-spec.ts`.
+- **Group Training OS** — `class_programs` / `class_sessions` / `class_bookings`
+  (migration `20260922230000_add_group_training_os`).
+- **Notification Center** — migration `20260920140000_add_notification_center` and
+  `20260922230000_notifications_complete_10x`. Tested: `test/notifications-center.e2e-spec.ts`,
+  `test/notifications-queue.e2e-spec.ts`.
+- **Complete Inventory OS** — migrations `20260919193000_complete_inventory_os`,
+  `20260920100000_inventory_integrity_hardening`, `20260920103000_inventory_product_invariants`, with
+  the four sub-screens (suppliers, purchase orders, returns, transfers) among the load/error/empty
+  states fixed under F-P0-3. Tested: `test/inventory.e2e-spec.ts`.
+- **Business OS** — `src/business-os/`, one controller covering loyalty, referrals, support,
+  feedback, marketing, accounting, PT intelligence and portal invites (29 routes). Tested:
+  `test/business-os.e2e-spec.ts`.
+
+Also updated: `IMPLEMENTATION_STATUS.md`'s Action Center row now states both approval gates, and
+`mygymagent-f/AI_TASK_STATE.md` was mid-task on a subtask that finished on 2026-09-22 — it now
+points at the real next item (B-P1-1) rather than B-P0-4/B-P0-7, both of which closed weeks ago.

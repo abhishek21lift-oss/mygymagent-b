@@ -1268,3 +1268,47 @@ that returns a report.
 - The hard-coded `1342`/`952`/`390` assertions are gone. A different export is a different number of
   rows, not a failure.
 - The boot-time environment-variable path is removed, which also ends the per-restart error line.
+
+---
+
+## AI-34: The proposer can never be the decider -- enforced in the service that decides, not by the caller
+
+**Context:** AI-15 established that approving an AI proposal needs the *approver's* own resource
+permission, so `ai.approve` alone cannot cause a plan assignment. That closed the permission half of
+the problem and left the identity half untouched. `AiSupervisorService.executeWithApproval()` took
+an approver argument, and its one caller, `GlobalAiCommandService`, passed `request.userId` — the
+person who typed the command. So the sequence was: a user asked the assistant to assign a plan, the
+assistant proposed it, the supervisor checked that the asker held the permission, the supervisor
+then approved *as that same asker*, and it executed. Two checks ran and the approval step was a
+formality. Nothing about the write was independently decided by anyone. The only reason this was not
+directly exploitable is that `parseCommand()` returns `isActionable: false` from all seven of its
+branches, so the actionable path in `processCommand` is currently unreachable — the self-approval
+was dormant. That is a fact about today's parser, not a property of the design; the next person to
+add an actionable branch would have re-armed it silently, with a passing test suite either way.
+
+**Decision:** two changes, deliberately at two different layers.
+
+1. `executeWithApproval()` no longer accepts an approver and no longer approves. It proposes and
+   returns. Removing the parameter rather than ignoring it means a future caller cannot reintroduce
+   the pattern by passing the wrong argument — the compiler refuses.
+2. `AiActionsService.approve()` rejects with `ForbiddenException` when
+   `proposedByUserId === decidedByUserId`. This is the real enforcement point: it is the single place
+   a proposal becomes executed, so it is the one place that cannot be forgotten by a new caller. Layer
+   1 alone would be a convention, and a convention is what the original code was.
+
+**Alternatives considered:** *Check the caller and trust it* — the original design, which is what
+failed. *Forbid self-proposal* (nobody may propose work they cannot approve) rejected: too broad, it
+blocks the many legitimate cases where a manager proposes and an owner approves, and it would need
+per-role reasoning that the permission check already covers. *Allow it but log it* rejected: an audit
+trail is not a control, and the master prompt's "AI must never bypass existing permissions" is about
+prevention, not detection.
+
+**Consequences:** separation of duties is **one-sided**. Rejecting your own proposal is still
+allowed — there is no reason to force an error path where "no, not this one" is a perfectly good
+answer, and blocking it would make the Action Center harder to use for no security gain. The
+proposer still has to hold the underlying resource permission to propose at all
+(`test/ai-actions.e2e-spec.ts`, "rejects proposing without the underlying resource permission"), so
+the pair is: you may ask for a change you are allowed to make, and you may not be the one who signs
+it off. Anyone with `ai.approve` plus the resource permission can decide anyone else's proposal,
+which is the same fixture `branch-scoping.e2e-spec.ts` already uses, so no invite-accept flow is
+needed to test it.
