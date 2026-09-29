@@ -446,14 +446,23 @@ export class BusinessOsService {
    * made a "recently active" filter also match members with zero attendance
    * history once the column-name bug above was fixed.
    */
-  async enrollCampaign(org: string, id: string) {
-    const camp = await this.prisma.marketingCampaign.findFirst({ where: { id, organizationId: org } });
-    if (!camp) throw new NotFoundException('Campaign not found');
-    const filter = (
-      camp.audienceFilter && typeof camp.audienceFilter === 'object' && !Array.isArray(camp.audienceFilter)
-        ? (camp.audienceFilter as Record<string, unknown>)
-        : {}
-    );
+  /**
+   * Translate a campaign's stored `audienceFilter` into a member query.
+   *
+   * Extracted from `enrollCampaign` so the preview and the real thing
+   * cannot disagree. A preview that recomputed the audience on its own
+   * would be the one place in this service where a count could disagree
+   * with the send — and a count that under-reports before you press send
+   * is worse than no count at all, because it is trusted.
+   */
+  private async campaignAudienceWhere(
+    org: string,
+    raw: unknown,
+  ): Promise<Prisma.MemberWhereInput> {
+    const filter =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
     const allowed = new Set(['branchId','status','memberType','leadSource','assignedTrainerId','hasActiveMembership','minDaysSinceCheckIn','maxDaysSinceCheckIn','hasEmail','hasPhone']);
     for (const key of Object.keys(filter)) if (!allowed.has(key)) throw new BadRequestException('Unsupported audience filter: '+key);
 
@@ -486,6 +495,59 @@ export class BusinessOsService {
       and.push({ attendances: { some: { checkInAt: { gte: cutoff } } } });
     }
     if (and.length > 0) where.AND = and;
+    return where;
+  }
+
+  /**
+   * Who this campaign would actually reach, before it reaches them.
+   *
+   * `enrollCampaign` has always been callable and always irreversible:
+   * it writes one row per matched member and moves the campaign to QUEUED.
+   * There was no way to ask "how many, and who" first, so the first
+   * honest look at a filter's effect was after the send.
+   */
+  async previewCampaign(org: string, id: string) {
+    const camp = await this.prisma.marketingCampaign.findFirst({
+      where: { id, organizationId: org },
+      select: { id: true, name: true, channel: true, status: true, audienceFilter: true },
+    });
+    if (!camp) throw new NotFoundException('Campaign not found');
+
+    const where = await this.campaignAudienceWhere(org, camp.audienceFilter);
+    const [matched, alreadyEnqueued, sample] = await Promise.all([
+      this.prisma.member.count({ where }),
+      this.prisma.marketingCampaignMember.count({ where: { campaignId: id, organizationId: org } }),
+      this.prisma.member.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        take: 10,
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+      }),
+    ]);
+    return {
+      campaign: camp,
+      matched,
+      alreadyEnqueued,
+      // 5,000 is `enrollCampaign`'s own cap, so a count above it is a
+      // count that will not be fully sent. Said out loud rather than
+      // left for the sender to discover afterwards.
+      cappedAt: 5000,
+      truncated: matched > 5000,
+      sample: sample.map((m) => ({
+        id: m.id,
+        name: `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() || 'Unnamed member',
+        email: m.email,
+        phone: m.phone,
+      })),
+    };
+  }
+
+  async enrollCampaign(org: string, id: string) {
+    const camp = await this.prisma.marketingCampaign.findFirst({ where: { id, organizationId: org } });
+    if (!camp) throw new NotFoundException('Campaign not found');
+    // The same resolver `previewCampaign` uses, deliberately: the number
+    // you were shown is the number that gets written.
+    const where = await this.campaignAudienceWhere(org, camp.audienceFilter);
 
     const members = await this.prisma.member.findMany({
       where,
@@ -504,7 +566,7 @@ export class BusinessOsService {
       where: { id, organizationId: org, status: { in: ['DRAFT', 'QUEUED', 'RUNNING'] } },
       data: { status: 'QUEUED' },
     });
-    return { enrolled: members.length, audienceFilter: filter };
+    return { enrolled: members.length, audienceFilter: camp.audienceFilter };
   }
   async runCampaign(org: string, id: string) {
     const camp = await this.prisma.marketingCampaign.findFirst({ where: { id, organizationId: org } });

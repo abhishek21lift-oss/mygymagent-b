@@ -131,6 +131,14 @@ export class BusinessOsController {
   ) {
     return this.s.createCampaign(u.organizationId!, b);
   }
+  @Get('marketing/campaigns/:id/preview')
+  @RequirePermissions('marketing.read')
+  previewCampaign(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.s.previewCampaign(u.organizationId!, id);
+  }
   @Post('marketing/campaigns/:id/enroll')
   @RequirePermissions('marketing.manage')
   enroll(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {
