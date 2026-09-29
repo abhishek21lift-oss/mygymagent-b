@@ -42,9 +42,19 @@
   transient failure retries with backoff and is logged FAILED only on the
   last attempt. A notification's `dedupeKey` becomes the job id, so a
   repeated event does not buzz the phone twice.
-- **Not yet:** pushes to members. Nothing creates member-facing
-  notifications today, and `POST /members/:id/messages` with channel PUSH
-  still addresses a phone number rather than the member's devices.
+- **Members** -- `MemberPushListener` turns domain events into pushes on
+  the member's own login's devices (`MemberPushService`), with the
+  member's wording and portal links: membership started/cancelled,
+  check-in (a receipt, and the first sign of a borrowed credential),
+  payment and refund, workout and diet plan assigned, PT session booked
+  and cancelled. `MembershipRenewalScanner` adds "ends in 7/3/1 days" --
+  including for members with no email, whom the renewal email skips.
+  Only the six member-facing categories send; no preference row means
+  on (what the portal shows), `push: false` mutes. A member is not
+  pushed about something they did themselves in the portal. Not pushed:
+  workout sessions and PT completions -- the member was there.
+- **Not yet:** `POST /members/:id/messages` with channel PUSH still
+  addresses a phone number rather than the member's devices.
 
 ## What's still a stub
 

@@ -109,7 +109,7 @@ export class PushDevicesService {
       try {
         await fcm.sendToToken(device.address, {
           title: 'Push is working',
-          body: 'This device will receive your MyGymAgent notifications.',
+          body: 'This device will now receive your notifications.',
           data: { type: 'PUSH_TEST' },
         });
         results.push({ deviceId: device.id, ok: true });

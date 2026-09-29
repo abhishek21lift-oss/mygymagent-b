@@ -19,11 +19,14 @@ import { DataRetentionScanner } from './scanners/data-retention.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
 
+import { NotificationsModule } from '../notifications/notifications.module';
+
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.AUTOMATION }),
     CommunicationsModule,
     MemberIntelligenceModule,
+    NotificationsModule,
   ],
   controllers: [AutomationController],
   providers: [

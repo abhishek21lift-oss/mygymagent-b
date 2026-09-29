@@ -83,7 +83,7 @@ export class FcmPushProvider implements MessageProvider {
     organizationId?: string;
   }): Promise<string> {
     return this.sendToToken(message.to, {
-      title: this.config.get<string>('FCM_DEFAULT_TITLE', 'MyGymAgent'),
+      title: this.config.get<string>('FCM_DEFAULT_TITLE', 'THE CULT CLIENT'),
       body: message.text,
     });
   }

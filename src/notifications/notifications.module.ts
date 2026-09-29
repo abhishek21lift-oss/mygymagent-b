@@ -11,6 +11,8 @@ import { PushDeliveryProcessor } from './push/push-delivery.processor';
 import { PushDevicesController } from './push/push-devices.controller';
 import { PushDevicesService } from './push/push-devices.service';
 import { PushDispatchService } from './push/push-dispatch.service';
+import { MemberPushListener } from './push/member-push.listener';
+import { MemberPushService } from './push/member-push.service';
 
 @Module({
   imports: [
@@ -29,7 +31,9 @@ import { PushDispatchService } from './push/push-dispatch.service';
     PushDevicesService,
     PushDispatchService,
     PushDeliveryProcessor,
+    MemberPushService,
+    MemberPushListener,
   ],
-  exports: [NotificationsService],
+  exports: [NotificationsService, MemberPushService],
 })
 export class NotificationsModule {}
