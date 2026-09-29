@@ -1,12 +1,18 @@
 import { createHmac } from 'crypto';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+// MUST stay first: sets META_APP_SECRET / META_WABA_VERIFY_TOKEN before
+// anything pulls in AppModule, whose ConfigModule snapshots the validated
+// environment at import time. See the file for why beforeAll is too late
+// when a local .env exists.
+import {
+  META_TEST_APP_SECRET as APP_SECRET,
+  META_TEST_VERIFY_TOKEN as VERIFY_TOKEN,
+  restoreWhatsAppTestEnv,
+} from './utils/whatsapp-test-env';
 import { TokensService } from '../src/auth/tokens.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './utils/test-app';
-
-const APP_SECRET = 'test-meta-app-secret';
-const VERIFY_TOKEN = 'test-meta-verify-token';
 
 /**
  * B-P0-2 (BACKLOG.md): first e2e coverage for src/whatsapp/ -- the send
@@ -31,7 +37,6 @@ describe('WhatsApp (e2e)', () => {
   let ownerToken: string;
   let organizationId: string;
   let limitedToken: string;
-  const originalEnv: Record<string, string | undefined> = {};
 
   const authed = (token: string) => (req: request.Test) =>
     req.set('Authorization', `Bearer ${token}`);
@@ -47,10 +52,9 @@ describe('WhatsApp (e2e)', () => {
       .digest('hex')}`;
 
   beforeAll(async () => {
-    originalEnv.META_APP_SECRET = process.env.META_APP_SECRET;
-    originalEnv.META_WABA_VERIFY_TOKEN = process.env.META_WABA_VERIFY_TOKEN;
-    process.env.META_APP_SECRET = APP_SECRET;
-    process.env.META_WABA_VERIFY_TOKEN = VERIFY_TOKEN;
+    // The two Meta credentials are already set at import time by
+    // ./utils/whatsapp-test-env -- the only point early enough to beat
+    // ConfigModule's snapshot -- which also owns putting them back.
 
     const result = await createTestApp();
     app = result.app;
@@ -94,10 +98,7 @@ describe('WhatsApp (e2e)', () => {
 
   afterAll(async () => {
     if (app) await app.close().catch(() => {});
-    for (const [key, value] of Object.entries(originalEnv)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+    restoreWhatsAppTestEnv();
   });
 
   describe('integration status', () => {
