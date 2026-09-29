@@ -1,6 +1,6 @@
 # communications
 
-**Status: EMAIL is real and provider-backed. WHATSAPP/SMS/PUSH are typed but not implemented.**
+**Status: EMAIL (SMTP), WHATSAPP (Meta Cloud API), SMS (MSG91) and PUSH (FCM) are provider-backed. Each throws when unconfigured rather than pretending to send.**
 
 ## What exists
 
@@ -41,14 +41,14 @@
 
 ## What's NOT here
 
-- **WhatsApp, SMS, push are unimplemented, not faked.** `WHATSAPP_PROVIDER`/`SMS_PROVIDER`/
-  `PUSH_PROVIDER` are bound to `UnimplementedChannelProvider`, which always throws — a
-  `MessageLog` row for one of these channels would be recorded `FAILED` with a clear "not connected"
-  error, never silently dropped or pretended-sent. Building a real one needs: a provider SDK/API
-  (e.g. Twilio for SMS, the WhatsApp Business API, FCM/APNs for push), real account credentials,
-  and — for WhatsApp/SMS in particular — a webhook receiver for inbound delivery-status callbacks
-  (`MessageLog.status` today is only ever set by the sending code itself, immediately; nothing
-  updates a row later based on a provider's own async delivery/bounce/read receipt).
+- **Push is FCM only, and send-side only.** `FcmPushProvider` (HTTP v1, service-account JWT
+  signed with Node's `crypto`, no `firebase-admin`) is bound to `PUSH_PROVIDER` when
+  `FCM_SERVICE_ACCOUNT_JSON` is set; otherwise the generic `HttpChannelProvider` relay stays bound,
+  so an existing `PUSH_PROVIDER_URL` deployment is unchanged. Staff notifications reach devices via
+  `src/notifications/push/`. FCM has no delivery receipt, so a push `MessageLog` row ends at
+  `SENT`, never `DELIVERED`.
+- **No SMS/push delivery receipts.** `MessageLog.status` for those channels is only ever set by the
+  sending code itself; only WhatsApp has a webhook that advances a row afterwards.
 - **No template-management API.** `MessageTemplate` rows exist and are read by
   `MessageTemplateService.resolve()`; there's no `POST/PATCH /communications/templates` route yet
   for an org to create its own override — only the system defaults are seeded. `settings.manage`

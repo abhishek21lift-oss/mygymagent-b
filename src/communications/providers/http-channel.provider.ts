@@ -9,6 +9,14 @@ export class HttpChannelProvider implements MessageProvider {
     private readonly config: ConfigService,
     private readonly channel: 'SMS' | 'PUSH',
   ) {}
+  isConfigured(): boolean {
+    const prefix = this.channel === 'SMS' ? 'SMS' : 'PUSH';
+    return Boolean(
+      this.config.get<string>(`${prefix}_PROVIDER_URL`, '') &&
+      this.config.get<string>(`${prefix}_PROVIDER_TOKEN`, ''),
+    );
+  }
+
   async send(message: {
     to: string;
     text: string;

@@ -19,12 +19,37 @@
 - Runs in-process (no separate worker deployment) -- see `src/queue/
   queue.module.ts`'s class comment for why that's fine at current scale.
 
+## Push (B-P1-1)
+
+- **Devices** -- `src/notifications/push/`. `POST /notifications/devices
+  {token}` registers the caller's FCM token; `GET` lists their devices
+  (never the token); `DELETE /notifications/devices/:id` and `POST
+  /notifications/devices/unregister {token}` remove one; `GET .../status`
+  says whether push is configured; `POST .../test` sends a test push to
+  the caller's own devices. No permission: personal, keyed on the JWT
+  user. Registering a token deletes any other row for it, in any org --
+  a token is an app install, and a shared tablet must stop receiving the
+  previous user's notifications.
+- **Delivery** -- `NotificationsService.notifyOrganization`/`createInApp`
+  call `PushDispatchService.dispatch`, fire-and-forget. It sends only to
+  users whose `NotificationPreference.push` is `true` for that category
+  (default false: opt-in), independent of `inApp`. One job per device on
+  its own `push` queue (the `notifications` queue's processor completes
+  unknown job names, so push cannot share it). `PushDeliveryProcessor`
+  sends via `FcmPushProvider` and writes `MessageLog` (`recipient:
+  device:<id>`, never the token). A dead token (UNREGISTERED,
+  SENDER_ID_MISMATCH) deactivates the device instead of retrying; a
+  transient failure retries with backoff and is logged FAILED only on the
+  last attempt. A notification's `dedupeKey` becomes the job id, so a
+  repeated event does not buzz the phone twice.
+- **Not yet:** pushes to members. Nothing creates member-facing
+  notifications today, and `POST /members/:id/messages` with channel PUSH
+  still addresses a phone number rather than the member's devices.
+
 ## What's still a stub
 
-- **No in-app/WhatsApp/SMS/push channels.** Email only (via
-  `CommunicationsService`), and only the one message type routed through
-  this queue -- WhatsApp/SMS/push have typed provider interfaces
-  (`src/communications/interfaces/`) but no implementation wired in yet.
+- **This queue carries email only.** Push has its own queue (above);
+  WhatsApp and SMS go through `CommunicationsService` directly.
 - **No delivery tracking, retry-visibility, or unsubscribe handling.**
   BullMQ retries a failed job 3x with backoff (queue-level default,
   `src/queue/queue.module.ts`), but nothing surfaces "this welcome email

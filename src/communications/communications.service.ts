@@ -72,10 +72,11 @@ export class CommunicationsService {
    * overdue-payment reminders failed because email was unconfigured, and
    * nothing anywhere in the app said email was unconfigured.
    */
-  channelReadiness(): { email: boolean; sms: boolean } {
+  channelReadiness(): { email: boolean; sms: boolean; push: boolean } {
     return {
       email: this.emailProvider.isConfigured?.() ?? true,
       sms: this.smsProvider.isConfigured?.() ?? true,
+      push: this.pushProvider.isConfigured?.() ?? true,
     };
   }
 
