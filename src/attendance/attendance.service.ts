@@ -86,6 +86,12 @@ export class AttendanceService {
             },
           },
           staffUser: { select: { id: true, firstName: true, lastName: true } },
+          // The name, not just the id. Every attendance row carries a
+          // branch and the clients render one on each -- the member 360
+          // attendance tab was showing a raw UUID for the branch of every
+          // single visit, which is unreadable and tells an operator
+          // nothing about which of their locations the member trains at.
+          branch: { select: { id: true, name: true } },
         },
       }),
       this.prisma.attendance.count({ where }),
