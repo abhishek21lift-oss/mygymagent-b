@@ -31,16 +31,23 @@ import { TokensService } from './tokens.service';
   ],
   controllers: [AuthController, MfaController],
   providers: [
-    Msg91OtpDelivery,
-    MockOtpDelivery,
     /**
-     * Which member OTP provider this deployment runs. `mock` is
-     * development/test only and the refusal to bind it in production is
-     * enforced in three places (the env schema, which stops boot; the
-     * provider's constructor, which throws; and its `isConfigured()`,
-     * which reports false) — see `MockOtpDelivery`.
+     * Which member OTP provider this deployment runs.
      *
-     * The default is `msg91`, so a deployment that sets nothing new
+     * Both implementations are constructed *inside the factory*, not
+     * listed as class providers beside it. That detail is load-bearing:
+     * Nest instantiates every entry in `providers` eagerly at boot, so
+     * listing `MockOtpDelivery` there built it on every deployment —
+     * including production, where its constructor throws by design — and
+     * the app died in the InstanceLoader with a stack pointing at
+     * `new MockOtpDelivery` and no mention of configuration. The factory
+     * only reaches `MockOtpDelivery` when `OTP_PROVIDER=mock`, which
+     * `env.validation.ts` already refuses to boot on in production
+     * (ConfigModule validates before any provider is constructed), so
+     * the constructor guard is now a backstop rather than the thing
+     * standing between a bad config and a live process.
+     *
+     * `msg91` remains the default, so a deployment that sets nothing new
      * behaves exactly as it did before this option existed.
      */
     {
