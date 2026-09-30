@@ -1,3 +1,9 @@
+import {
+  organizationTimezone,
+  startOfZonedMonth,
+  zonedBound,
+  zonedMonthKey,
+} from '../common/time/zoned';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -105,7 +111,10 @@ export class FinanceService {
     query: { from?: string; to?: string },
     branchScope: string | null,
   ): Promise<RevenueSummary> {
-    const { from, to } = resolvePeriod(query);
+    const { from, to } = resolvePeriod(
+      query,
+      await organizationTimezone(this.prisma, organizationId),
+    );
     // Payment.amount is always the original charge regardless of refund
     // status (refunds are tracked separately and never mutate it -- see
     // the Payment model comment), so refunded payments count toward gross
@@ -114,7 +123,7 @@ export class FinanceService {
     const paymentWhere = {
       organizationId,
       status: { not: 'FAILED' as const },
-      createdAt: { gte: from, lte: to },
+      createdAt: { gte: from, lt: to },
       ...(branchScope ? { branchId: branchScope } : {}),
     };
 
@@ -133,7 +142,7 @@ export class FinanceService {
       this.prisma.refund.findMany({
         where: {
           organizationId,
-          createdAt: { gte: from, lte: to },
+          createdAt: { gte: from, lt: to },
           ...(branchScope ? { payment: { branchId: branchScope } } : {}),
         },
         select: { amount: true, payment: { select: { currency: true } } },
@@ -195,23 +204,16 @@ export class FinanceService {
     months: number,
   ): Promise<RevenueTrendMonth[]> {
     const now = new Date();
-    const monthStarts = Array.from(
-      { length: months },
-      (_, i) =>
-        new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth() - (months - 1 - i),
-            1,
-          ),
-        ),
+    // The gym's calendar months: a UTC month starts at 05:30 on the 1st in
+    // India, so the first hours of every month were counted in the last.
+    const timezone = await organizationTimezone(this.prisma, organizationId);
+    const monthStarts = Array.from({ length: months }, (_, i) =>
+      startOfZonedMonth(now, timezone, months - 1 - i),
     );
 
     return Promise.all(
-      monthStarts.map(async (start) => {
-        const end = new Date(
-          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1),
-        );
+      monthStarts.map(async (start, i) => {
+        const end = startOfZonedMonth(now, timezone, months - 2 - i);
         const paymentWhere = {
           organizationId,
           status: { not: 'FAILED' as const },
@@ -255,7 +257,7 @@ export class FinanceService {
           };
         });
 
-        return { month: start.toISOString().slice(0, 7), revenue };
+        return { month: zonedMonthKey(start, timezone), revenue };
       }),
     );
   }
@@ -317,16 +319,23 @@ export class FinanceService {
   }
 }
 
-/// Defaults to the current UTC calendar month when the caller doesn't
-/// specify a range -- the "this period" a revenue view would open to.
-function resolvePeriod(query: { from?: string; to?: string }): {
+/// Defaults to the gym's current calendar month when the caller doesn't
+/// specify a range -- the "this period" a revenue view would open to. A
+/// bare date means that whole day in the gym's timezone; `to` is
+/// exclusive (compared with `lt`).
+function resolvePeriod(
+  query: { from?: string; to?: string },
+  timezone: string,
+): {
   from: Date;
   to: Date;
 } {
   const now = new Date();
-  const to = query.to ? new Date(query.to) : now;
+  const to = query.to
+    ? zonedBound(query.to, timezone, 'to')
+    : new Date(now.getTime() + 1);
   const from = query.from
-    ? new Date(query.from)
-    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    ? zonedBound(query.from, timezone, 'from')
+    : startOfZonedMonth(now, timezone);
   return { from, to };
 }

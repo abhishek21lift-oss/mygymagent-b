@@ -1,3 +1,4 @@
+import { zonedDate } from '../common/time/zoned';
 import {
   BadRequestException,
   ConflictException,
@@ -244,9 +245,13 @@ export class InvoicesService {
         create: { organizationId, lastNumber: 1 },
         update: { lastNumber: { increment: 1 } },
       });
-      const number = `INV-${new Date().getFullYear()}-${String(
-        sequence.lastNumber,
-      ).padStart(4, '0')}`;
+      // The gym's year: the server's clock is UTC, so invoices raised in
+      // India before 05:30 on 1 January were numbered with the old year.
+      const year = zonedDate(new Date(), organization.timezone).year;
+      const number = `INV-${year}-${String(sequence.lastNumber).padStart(
+        4,
+        '0',
+      )}`;
       const issued = !dto.draft;
       const now = new Date();
       return tx.invoice.create({

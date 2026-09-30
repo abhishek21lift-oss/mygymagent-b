@@ -18,6 +18,7 @@ import {
   type AttendanceRecordedEvent,
 } from '../events/domain-events';
 import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
+import { organizationTimezone, startOfZonedDay } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
 import type { DeviceKind } from '@prisma/client';
@@ -808,8 +809,10 @@ export class AttendanceService {
     assignmentScope: string | null = null,
   ) {
     const now = new Date();
-    const startOfToday = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    // The gym's today, not UTC's, which starts at 05:30 in India.
+    const startOfToday = startOfZonedDay(
+      now,
+      await organizationTimezone(this.prisma, organizationId),
     );
     const scope = {
       organizationId,

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { membershipBalances } from '../memberships/membership-balance';
+import { organizationTimezone, startOfZonedMonth } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -82,8 +83,9 @@ export class Member360Service {
       assignmentScope,
     );
     const now = new Date();
-    const monthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    const monthStart = startOfZonedMonth(
+      now,
+      await organizationTimezone(this.prisma, organizationId),
     );
     const days30Ago = new Date(now.getTime() - 30 * MS_PER_DAY);
 
