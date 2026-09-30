@@ -1,6 +1,9 @@
+import { getQueueToken } from '@nestjs/bullmq';
 import type { INestApplication } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { QUEUE_NAMES } from '../src/queue/queue.constants';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 
 /** GET /automation -- the screen nine background jobs never had. */
@@ -168,4 +171,36 @@ describe('Automation overview (e2e)', () => {
       ),
     ).toContain('Other gym only');
   });
+
+  it('still loads, with job times unknown, when the job queue does not answer', async () => {
+    // What a slow or unreachable Redis looks like from here: the queue's
+    // connection retries forever, so its reads never settle.
+    const queue = app.get<Queue>(getQueueToken(QUEUE_NAMES.AUTOMATION));
+    const never = () => new Promise<never>(() => {});
+    const schedulers = jest
+      .spyOn(queue, 'getJobSchedulers')
+      .mockImplementation(never);
+    const jobs = jest.spyOn(queue, 'getJobs').mockImplementation(never);
+    try {
+      const started = Date.now();
+      const res = await authed(org.accessToken)(
+        request(app.getHttpServer()).get('/automation'),
+      )
+        .timeout(8_000)
+        .expect(200);
+      expect(Date.now() - started).toBeLessThan(6_000);
+      const scanners = res.body.data.scanners as Array<{
+        job: string | null;
+        lastRunAt: string | null;
+        nextRunAt: string | null;
+      }>;
+      expect(scanners.length).toBeGreaterThan(0);
+      for (const scanner of scanners.filter((s) => s.job)) {
+        expect(scanner).toMatchObject({ lastRunAt: null, nextRunAt: null });
+      }
+    } finally {
+      schedulers.mockRestore();
+      jobs.mockRestore();
+    }
+  }, 15_000);
 });
