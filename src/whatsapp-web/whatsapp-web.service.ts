@@ -23,16 +23,32 @@ export class WhatsappWebService {
     private readonly manager: WhatsappWebManager,
   ) {}
 
-  /** Whether this deployment can run WhatsApp Web at all: switched on,
-   * and with a vault key to encrypt the session with. */
-  available(): boolean {
-    if (!this.manager.enabled) return false;
-    try {
-      parseWhatsappVaultKey(this.config.get<string>('WHATSAPP_TOKEN_KEY'));
-      return true;
-    } catch {
-      return false;
+  /**
+   * Whether this deployment can run WhatsApp Web, and if not, which
+   * setting is missing -- the settings page names it, since "not switched
+   * on" is misleading when the switch is on and the key is the problem.
+   */
+  availability():
+    | { available: true; unavailableReason: null }
+    | {
+        available: false;
+        unavailableReason: 'DISABLED' | 'KEY_MISSING' | 'KEY_INVALID';
+      } {
+    if (!this.manager.enabled) {
+      return { available: false, unavailableReason: 'DISABLED' };
     }
+    const key = this.config.get<string>('WHATSAPP_TOKEN_KEY')?.trim();
+    if (!key) return { available: false, unavailableReason: 'KEY_MISSING' };
+    try {
+      parseWhatsappVaultKey(key);
+    } catch {
+      return { available: false, unavailableReason: 'KEY_INVALID' };
+    }
+    return { available: true, unavailableReason: null };
+  }
+
+  available(): boolean {
+    return this.availability().available;
   }
 
   async status(organizationId: string) {
@@ -52,7 +68,7 @@ export class WhatsappWebService {
       ? await this.manager.codes(organizationId)
       : { qrDataUrl: null, pairingCode: null };
     return {
-      available: this.available(),
+      ...this.availability(),
       status: session?.status ?? 'DISCONNECTED',
       phoneNumber: session?.phoneNumber ?? null,
       useForSending: session?.useForSending ?? false,

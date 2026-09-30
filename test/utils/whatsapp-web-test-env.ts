@@ -10,12 +10,15 @@ const KEYS = [
   'WHATSAPP_WEB_MIN_GAP_MS',
   'WHATSAPP_WEB_JITTER_MS',
   'WHATSAPP_TOKEN_KEY',
+  'WHATSAPP_WEB_PAIRING_TIMEOUT_MS',
 ] as const;
 const previous = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
 
 process.env.WHATSAPP_WEB_ENABLED = 'true';
 process.env.WHATSAPP_WEB_MIN_GAP_MS = '0';
 process.env.WHATSAPP_WEB_JITTER_MS = '0';
+// Short, so the "WhatsApp never answered" case is testable.
+process.env.WHATSAPP_WEB_PAIRING_TIMEOUT_MS = '3000';
 process.env.WHATSAPP_TOKEN_KEY ||= 'a'.repeat(64);
 
 export function restoreWhatsappWebTestEnv(): void {

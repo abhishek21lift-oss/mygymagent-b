@@ -506,4 +506,74 @@ describe('WhatsApp Web (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('when WhatsApp does not answer', () => {
+    const session = () =>
+      prisma.whatsappWebSession.findUniqueOrThrow({
+        where: { organizationId: gym.organizationId },
+      });
+
+    it('stops waiting and says why, instead of spinning forever', async () => {
+      const before = sockets.length;
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+      expect(sockets.length).toBe(before + 1);
+      // No QR, no open, no close: the server cannot reach WhatsApp.
+      const s = await eventually(
+        session,
+        (x) => x.status === 'DISCONNECTED',
+        10_000,
+      );
+      expect(s.lastError).toMatch(/didn't answer the server within 3 seconds/);
+      expect(socketFor(gym.organizationId).ended).toBe(true);
+      const res = await as(gym.accessToken).get('/whatsapp-web').expect(200);
+      expect(res.body.data).toMatchObject({
+        status: 'DISCONNECTED',
+        qrDataUrl: null,
+      });
+    });
+
+    it('shows each failed attempt, and gives up after three', async () => {
+      const failure = () =>
+        Object.assign(new Error('Connection Failure'), {
+          output: { statusCode: 405 },
+        });
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+
+      socketFor(gym.organizationId).emit('connection.update', {
+        connection: 'close',
+        lastDisconnect: { error: failure() },
+      });
+      const first = await eventually(session, (x) =>
+        /Retrying/.test(x.lastError ?? ''),
+      );
+      expect(first).toMatchObject({ status: 'PAIRING' });
+      expect(first.lastError).toMatch(/code 405: Connection Failure/);
+
+      for (let attempt = 2; attempt <= 3; attempt++) {
+        const count = sockets.length;
+        await eventually(
+          async () => sockets.length,
+          (n) => n > count,
+          10_000,
+        );
+        socketFor(gym.organizationId).emit('connection.update', {
+          connection: 'close',
+          lastDisconnect: { error: failure() },
+        });
+      }
+      const last = await eventually(
+        session,
+        (x) => x.status === 'DISCONNECTED',
+      );
+      expect(last.lastError).toMatch(
+        /Couldn't connect to WhatsApp after 3 tries \(code 405: Connection Failure\)/,
+      );
+    });
+  });
 });
