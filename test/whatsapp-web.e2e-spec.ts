@@ -4,6 +4,8 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { CommunicationsService } from '../src/communications/communications.service';
+import { QueueConnection } from '../src/queue/queue.module';
+import { WhatsappWebManager } from '../src/whatsapp-web/whatsapp-web.manager';
 import { WA_SOCKET_FACTORY } from '../src/whatsapp-web/whatsapp-web.types';
 import { createTestApp, type RegisteredAccount } from './utils/test-app';
 import { eventually, fakeWhatsapp } from './utils/fake-whatsapp';
@@ -626,6 +628,41 @@ describe('WhatsApp Web (e2e)', () => {
       const count = sockets.length;
       failNow();
       await nextSocket(count, 2_500);
+    });
+  });
+
+  describe('after a redeploy', () => {
+    it("reconnects a linked number once the old server's lock runs out", async () => {
+      // The last server was killed before it could let go of the gym's
+      // lock, so it is still held for a moment when this one boots.
+      await prisma.whatsappWebSession.upsert({
+        where: { organizationId: other.organizationId },
+        create: { organizationId: other.organizationId, status: 'CONNECTED' },
+        update: { status: 'CONNECTED' },
+      });
+      const manager = app.get(WhatsappWebManager);
+      const redis = app.get(QueueConnection).client;
+      await redis.set(
+        manager.key(other.organizationId, 'lock'),
+        'the-server-before',
+        'PX',
+        1_500,
+      );
+      const before = sockets.filter(
+        (s) => s.organizationId === other.organizationId,
+      ).length;
+
+      await manager.resumeLinked();
+
+      await eventually(
+        async () =>
+          sockets.filter((s) => s.organizationId === other.organizationId)
+            .length,
+        (n) => n > before,
+        10_000,
+      );
+
+      await as(other.accessToken).post('/whatsapp-web/disconnect').expect(201);
     });
   });
 });
