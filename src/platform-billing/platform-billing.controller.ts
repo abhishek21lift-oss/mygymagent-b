@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Post } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -20,13 +20,20 @@ export class PlatformBillingController {
     return this.billing.subscription(u.organizationId!);
   }
 
+  /**
+   * Gyms cannot change their own plan. This used to switch the caller's
+   * organization to any plan on request, with no payment behind it -- the
+   * Billing page's "Choose plan" gave any owner the top plan for free.
+   * Until self-serve checkout exists, the platform team sets plans through
+   * PATCH /platform/organizations/:id/subscription. Kept as an explicit 403
+   * rather than removed, so an older client gets a reason instead of a 404.
+   */
   @Post('subscription')
-  @RequirePermissions('platform_billing.manage')
-  subscribe(
-    @CurrentUser() u: AuthenticatedUser,
-    @Body() body: { planKey: string },
-  ) {
-    return this.billing.subscribe(u.organizationId!, body.planKey);
+  @RequirePermissions('platform_billing.read')
+  subscribe(): never {
+    throw new ForbiddenException(
+      'Plan changes are handled by our team. Contact support to change your plan.',
+    );
   }
 
   @Get('usage')

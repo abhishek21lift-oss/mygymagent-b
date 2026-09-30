@@ -27,7 +27,7 @@ export class SearchService {
       `SELECT * FROM (
         SELECT id, 'member' AS type, concat("firstName",' ',"lastName") AS title, "phone" AS subtitle, concat('/members/',id) AS href,
                CASE WHEN lower(concat("firstName",' ',"lastName")) = lower($2) THEN 100 ELSE 80 END AS rank
-        FROM members WHERE "organizationId"=$1 AND ("firstName" ILIKE $3 OR "lastName" ILIKE $3 OR "phone" ILIKE $3 OR COALESCE("email",'') ILIKE $3)
+        FROM members WHERE "organizationId"=$1 AND "deletedAt" IS NULL AND ("firstName" ILIKE $3 OR "lastName" ILIKE $3 OR "phone" ILIKE $3 OR COALESCE("email",'') ILIKE $3)
         UNION ALL
         SELECT id, 'lead', concat("firstName",' ',"lastName"), "phone", concat('/crm/leads/',id), 70
         FROM leads WHERE "organizationId"=$1 AND ("firstName" ILIKE $3 OR "lastName" ILIKE $3 OR "phone" ILIKE $3 OR COALESCE("email",'') ILIKE $3)
