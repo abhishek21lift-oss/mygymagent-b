@@ -7,6 +7,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
+import { membershipBalances } from '../memberships/membership-balance';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
@@ -521,62 +522,37 @@ export class MembersService {
       orderBy: { createdAt: 'desc' },
       include: { membershipPlan: true },
     });
-    const membershipIds = new Set(memberships.map((m) => m.id));
-
     const payments = await this.prisma.payment.findMany({
       where: {
         organizationId,
         memberId,
-        status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+        membershipId: { in: memberships.map((m) => m.id) },
       },
-      select: { id: true, amount: true, membershipId: true },
-    });
-
-    const refunds = await this.prisma.refund.findMany({
-      where: {
-        organizationId,
-        payment: {
-          memberId,
-          membershipId: { not: null },
-        },
+      select: {
+        amount: true,
+        status: true,
+        membershipId: true,
+        refunds: { select: { amount: true } },
       },
-      select: { amount: true, paymentId: true },
     });
-
-    const paymentIdsForMemberships = new Set(
-      payments
-        .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
-        .map((p) => p.id),
-    );
-
-    const totalPaid = payments
-      .filter((p) => p.membershipId && membershipIds.has(p.membershipId))
-      .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
-
-    const totalRefunded = refunds
-      .filter((r) => paymentIdsForMemberships.has(r.paymentId))
-      .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
-
-    const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price.sub(m.discount ?? new Prisma.Decimal(0))),
-      new Prisma.Decimal(0),
-    );
-    const outstandingBalance = totalDue.sub(totalPaid).add(totalRefunded);
+    const { total } = membershipBalances(memberships, payments);
     return {
       memberships: memberships.map((m) => ({
         id: m.id,
         planName: m.membershipPlan.name,
         price: m.price,
         discount: m.discount,
-        finalPrice: m.price.sub(m.discount ?? new Prisma.Decimal(0)),
+        // `price` is already net of the discount; subtracting it again
+        // here understated what every discounted member owed.
+        finalPrice: m.price,
         startDate: m.startDate,
         endDate: m.endDate,
         status: m.status,
       })),
-      totalDue,
-      totalPaid,
-      totalRefunded,
-      outstandingBalance,
+      totalDue: total.due,
+      totalPaid: total.paid,
+      totalRefunded: total.refunded,
+      outstandingBalance: total.outstanding,
     };
   }
 

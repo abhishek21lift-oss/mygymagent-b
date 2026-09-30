@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { paginate } from '../common/dto/pagination-query.dto';
+import { organizationCurrency } from '../common/money/organization-currency';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CreateExpenseDto,
@@ -126,7 +127,9 @@ export class ExpensesService {
         branchId: dto.branchId ?? branchScope,
         category: dto.category.trim().toUpperCase(),
         amount: new Prisma.Decimal(dto.amount),
-        currency: dto.currency ?? 'USD',
+        currency:
+          dto.currency ??
+          (await organizationCurrency(this.prisma, organizationId)),
         vendor: dto.vendor,
         billNo: dto.billNo,
         notes: dto.notes,

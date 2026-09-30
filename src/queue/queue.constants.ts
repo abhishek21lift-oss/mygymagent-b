@@ -29,6 +29,7 @@ export const JOB_NAMES = {
   ROTATE_QR_TOKENS: 'rotate-qr-tokens',
   SCAN_PT_EXPIRY: 'scan-pt-expiry',
   SCAN_RISK_PROFILES: 'scan-risk-profiles',
+  SCAN_MEMBERSHIP_STATUS: 'scan-membership-status',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -47,4 +48,5 @@ export const JOB_SCHEDULER_IDS = {
   ROTATE_QR_TOKENS: 'rotate-qr-tokens-weekly',
   SCAN_PT_EXPIRY: 'scan-pt-expiry-daily',
   SCAN_RISK_PROFILES: 'scan-risk-profiles-nightly',
+  SCAN_MEMBERSHIP_STATUS: 'scan-membership-status-hourly',
 } as const;

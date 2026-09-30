@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -22,6 +23,8 @@ import type { RefundPaymentDto } from './dto/refund-payment.dto';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
@@ -217,6 +220,18 @@ export class PaymentsService {
     });
     if (invoice) {
       await this.invoices.recomputeInvoiceStatus(invoice.id);
+    } else if (membership) {
+      // Paid against a membership, not a named invoice: settle it into the
+      // membership's open invoice. The payment is recorded either way.
+      await this.invoices
+        .settleMembershipPayments(organizationId, membership.id)
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `Settling payment ${payment.id} into membership ${membership.id}'s invoice failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
     }
 
     const payload: PaymentRecordedEvent = {
@@ -242,6 +257,11 @@ export class PaymentsService {
     const payment = await this.getOne(organizationId, id, branchScope);
     if (payment.status === 'REFUNDED') {
       throw new BadRequestException('Payment is already fully refunded');
+    }
+    if (payment.status === 'FAILED') {
+      throw new BadRequestException(
+        'A failed payment collected nothing, so there is nothing to refund',
+      );
     }
 
     const refund = await this.prisma.$transaction(async (tx) => {
@@ -302,6 +322,15 @@ export class PaymentsService {
       });
       return created;
     });
+
+    // An invoice this payment settled is owed again for what went back.
+    const links = await this.prisma.invoicePayment.findMany({
+      where: { paymentId: payment.id },
+      select: { invoiceId: true },
+    });
+    for (const link of links) {
+      await this.invoices.recomputeInvoiceStatus(link.invoiceId);
+    }
 
     const payload: PaymentRefundedEvent = {
       organizationId,

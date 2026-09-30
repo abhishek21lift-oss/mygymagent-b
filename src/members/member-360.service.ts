@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { membershipBalances } from '../memberships/membership-balance';
 import { PrismaService } from '../prisma/prisma.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -90,7 +91,6 @@ export class Member360Service {
       memberships,
       attendances,
       payments,
-      refunds,
       ptSessions,
       latestMeasurement,
       activeGoals,
@@ -108,15 +108,16 @@ export class Member360Service {
         select: { checkInAt: true },
         take: 365,
       }),
+      // Membership payments only, without a cap: a balance summed over
+      // "the latest 200" is wrong for anyone with more.
       this.prisma.payment.findMany({
-        where: { organizationId, memberId, status: 'COMPLETED' },
-        select: { id: true, amount: true, membershipId: true },
-        take: 200,
-      }),
-      this.prisma.refund.findMany({
-        where: { organizationId, payment: { memberId } },
-        select: { amount: true, paymentId: true },
-        take: 100,
+        where: { organizationId, memberId, membershipId: { not: null } },
+        select: {
+          amount: true,
+          status: true,
+          membershipId: true,
+          refunds: { select: { amount: true } },
+        },
       }),
       this.prisma.ptSession.findMany({
         where: { organizationId, memberId },
@@ -142,8 +143,12 @@ export class Member360Service {
       }),
     ]);
 
+    // The term running now: a renewal queued to start later is ACTIVE too.
     const current =
-      memberships.find((m) => m.status === 'ACTIVE') ?? memberships[0] ?? null;
+      memberships.find((m) => m.status === 'ACTIVE' && m.startDate <= now) ??
+      memberships.find((m) => m.status === 'ACTIVE') ??
+      memberships[0] ??
+      null;
 
     let membershipBlock: {
       id: string;
@@ -157,38 +162,12 @@ export class Member360Service {
       totalPaid: string;
       outstandingBalance: string;
     } | null = null;
-    const membershipIds = new Set(memberships.map((m) => m.id));
-    const membershipPayments = payments.filter(
-      (p) => p.membershipId !== null && membershipIds.has(p.membershipId),
-    );
-    const membershipPaymentIds = new Set(membershipPayments.map((p) => p.id));
-    const totalPaid = membershipPayments.reduce(
-      (sum, p) => sum.plus(p.amount),
-      new Prisma.Decimal(0),
-    );
-    const totalRefunded = refunds
-      .filter((r) => membershipPaymentIds.has(r.paymentId))
-      .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
-    const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price.sub(m.discount ?? new Prisma.Decimal(0))),
-      new Prisma.Decimal(0),
-    );
+    const balances = membershipBalances(memberships, payments);
+    const totalPaid = balances.total.paid;
+    const totalRefunded = balances.total.refunded;
 
     if (current) {
-      const paidForCurrent = membershipPayments
-        .filter((p) => p.membershipId === current.id)
-        .reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
-      const currentPaymentIds = new Set(
-        membershipPayments
-          .filter((p) => p.membershipId === current.id)
-          .map((p) => p.id),
-      );
-      const refundedForCurrent = refunds
-        .filter((r) => currentPaymentIds.has(r.paymentId))
-        .reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
-      const currentDue = current.price.sub(
-        current.discount ?? new Prisma.Decimal(0),
-      );
+      const forCurrent = balances.byMembership.get(current.id)!;
       membershipBlock = {
         id: current.id,
         planName: current.membershipPlan.name,
@@ -198,11 +177,8 @@ export class Member360Service {
         price: current.price.toFixed(2),
         currency: current.currency,
         autoRenew: current.autoRenew,
-        totalPaid: paidForCurrent.toFixed(2),
-        outstandingBalance: currentDue
-          .sub(paidForCurrent)
-          .add(refundedForCurrent)
-          .toFixed(2),
+        totalPaid: forCurrent.paid.toFixed(2),
+        outstandingBalance: forCurrent.outstanding.toFixed(2),
       };
     }
 
@@ -239,8 +215,8 @@ export class Member360Service {
               : 0;
     const score = Math.min(100, Math.min(visits30 * 10, 70) + recencyBonus);
 
-    // Finance totals intentionally mirror membership billing: only membership-linked
-    // payments/refunds contribute, and discounts reduce the amount due.
+    // Finance totals are membership billing's (membershipBalances): only
+    // membership-linked payments/refunds contribute.
 
     const completed = ptSessions.filter((s) => s.status === 'COMPLETED');
     const ptRevenue = completed.reduce(
@@ -292,10 +268,7 @@ export class Member360Service {
       finance: {
         totalPaid: totalPaid.toFixed(2),
         totalRefunded: totalRefunded.toFixed(2),
-        outstandingBalance: totalDue
-          .sub(totalPaid)
-          .add(totalRefunded)
-          .toFixed(2),
+        outstandingBalance: balances.total.outstanding.toFixed(2),
         pendingPayments: 0,
       },
       ptSummary: {

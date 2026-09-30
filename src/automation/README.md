@@ -21,6 +21,7 @@ run never uses up a cooldown.
 | Lead follow-up due | Daily; overdue follow-up with an assignee | Staff | Email | 1 day |
 | Low stock | `inventory.low` event | Staff with `inventory.manage` | Email | 1 day per product and recipient |
 | Push nudges | Renewal at 7/3/1 days, and domain events | Member's devices | Push | Deduped per event |
+| Membership status | Hourly; ACTIVE past `endDate` becomes EXPIRED, and a FROZEN membership past `freezeEndDate` resumes with the booked days added | Nobody (no message) | None | Idempotent |
 
 **WhatsApp first.** A member reminder goes on WhatsApp when the gym has linked its own number
 (WhatsApp Web) and turned on "send from this number", and the member has a phone. Otherwise it

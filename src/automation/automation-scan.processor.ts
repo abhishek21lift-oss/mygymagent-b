@@ -11,6 +11,7 @@ import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
+import { MembershipStatusScanner } from './scanners/membership-status.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
@@ -43,6 +44,7 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly ptExpiryScanner: PtExpiryScanner,
     private readonly dataRetentionScanner: DataRetentionScanner,
     private readonly riskEngine: RiskEngineService,
+    private readonly membershipStatusScanner: MembershipStatusScanner,
   ) {
     super();
   }
@@ -70,6 +72,8 @@ export class AutomationScanProcessor extends WorkerHost {
       // and did nothing, every day.
       case JOB_NAMES.SCAN_DATA_RETENTION:
         return this.dataRetentionScanner.scan();
+      case JOB_NAMES.SCAN_MEMBERSHIP_STATUS:
+        return this.membershipStatusScanner.scan();
       case JOB_NAMES.SCAN_RISK_PROFILES:
         return this.scanRiskProfiles();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:

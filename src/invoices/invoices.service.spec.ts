@@ -40,6 +40,13 @@ function prismaMock() {
 
 type PrismaMock = ReturnType<typeof prismaMock>;
 
+/** A linked payment as paidTotalOf reads it: status, amount, refunds. */
+const paid = (status: string, amount: number, refunded: number[] = []) => ({
+  status,
+  amount: new Prisma.Decimal(amount),
+  refunds: refunded.map((r) => ({ amount: new Prisma.Decimal(r) })),
+});
+
 describe('InvoicesService', () => {
   let service: InvoicesService;
   let prisma: PrismaMock;
@@ -159,7 +166,10 @@ describe('InvoicesService', () => {
         status: 'ISSUED',
         grandTotal: new Prisma.Decimal(100),
         paymentLinks: [
-          { amount: new Prisma.Decimal(10), payment: { status: 'COMPLETED' } },
+          {
+            amount: new Prisma.Decimal(10),
+            payment: paid('COMPLETED', 10),
+          },
         ],
         dunningAttempts: [],
       });
@@ -206,8 +216,14 @@ describe('InvoicesService', () => {
       (prisma.tx.invoice.findUnique as jest.Mock).mockResolvedValue({
         ...baseInvoice,
         paymentLinks: [
-          { amount: new Prisma.Decimal(40), payment: { status: 'COMPLETED' } },
-          { amount: new Prisma.Decimal(100), payment: { status: 'FAILED' } },
+          {
+            amount: new Prisma.Decimal(40),
+            payment: paid('COMPLETED', 40),
+          },
+          {
+            amount: new Prisma.Decimal(100),
+            payment: paid('FAILED', 100),
+          },
         ],
       });
       (prisma.tx.invoice.update as jest.Mock).mockImplementation(
@@ -229,7 +245,10 @@ describe('InvoicesService', () => {
       (prisma.tx.invoice.findUnique as jest.Mock).mockResolvedValue({
         ...baseInvoice,
         paymentLinks: [
-          { amount: new Prisma.Decimal(100), payment: { status: 'COMPLETED' } },
+          {
+            amount: new Prisma.Decimal(100),
+            payment: paid('COMPLETED', 100),
+          },
         ],
       });
       (prisma.tx.invoice.update as jest.Mock).mockImplementation(
@@ -243,6 +262,40 @@ describe('InvoicesService', () => {
       expect(result.status).toBe('PAID');
       expect(result.paidAt).toBeInstanceOf(Date);
     });
+
+    it.each([
+      // A refund from the payment that settled the invoice reopens it.
+      [[100, [30]], 'PART_PAID'],
+      [[100, [100]], 'ISSUED'],
+      // One 200 payment split 100/100 across two invoices, 50 refunded:
+      // each invoice keeps its share, 75.
+      [[200, [50]], 'PART_PAID'],
+    ] as const)(
+      'nets refunds out of what was paid (%j -> %s)',
+      async ([paymentAmount, refunds], status) => {
+        (prisma.tx.invoice.findUnique as jest.Mock).mockResolvedValue({
+          ...baseInvoice,
+          status: 'PAID',
+          paidAt: new Date(),
+          paymentLinks: [
+            {
+              amount: new Prisma.Decimal(100),
+              payment: paid('PARTIALLY_REFUNDED', paymentAmount, [...refunds]),
+            },
+          ],
+        });
+        (prisma.tx.invoice.update as jest.Mock).mockImplementation(
+          async ({ data }: { data: Record<string, unknown> }) => ({
+            ...baseInvoice,
+            ...data,
+          }),
+        );
+
+        const result = await service.recomputeInvoiceStatus('inv_1');
+        expect(result.status).toBe(status);
+        expect(result.paidAt).toBeNull();
+      },
+    );
 
     it('never moves a VOID invoice', async () => {
       (prisma.tx.invoice.findUnique as jest.Mock).mockResolvedValue({

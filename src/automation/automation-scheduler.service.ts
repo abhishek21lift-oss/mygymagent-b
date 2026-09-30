@@ -97,10 +97,15 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { every: 7 * 24 * 60 * 60 * 1000 },
         { name: JOB_NAMES.ROTATE_QR_TOKENS },
       ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_STATUS,
+        { every: 60 * 60 * 1000 },
+        { name: JOB_NAMES.SCAN_MEMBERSHIP_STATUS },
+      ),
     ]);
 
     this.logger.log(
-      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + QR rotation every 7d`,
+      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + membership status hourly + QR rotation every 7d`,
     );
   }
 }

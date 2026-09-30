@@ -1,18 +1,21 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { PaymentMethod } from '@prisma/client';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class ChangePlanDto {
   @IsString()
   membershipPlanId!: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
   discount?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
   initialPayment?: number;
 
   @IsOptional()
-  @IsString()
-  paymentMethod?: string;
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

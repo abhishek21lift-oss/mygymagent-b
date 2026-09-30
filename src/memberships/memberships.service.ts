@@ -14,13 +14,35 @@ import {
   DomainEvent,
   type MembershipCancelledEvent,
   type MembershipStartedEvent,
+  type PaymentRecordedEvent,
 } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CancelMembershipDto } from './dto/cancel-membership.dto';
 import type { CreateMembershipDto } from './dto/create-membership.dto';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto';
+import { bookedFreezeDays } from './freeze-days';
+import {
+  COLLECTED_PAYMENT_STATUSES,
+  membershipBalances,
+} from './membership-balance';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** A discount is money off the plan price: it can be the whole price, never
+ * more -- a larger one used to save a negative membership price. */
+function discountOff(
+  price: Prisma.Decimal,
+  discount: number | undefined,
+): Prisma.Decimal | null {
+  if (!discount) return null;
+  const off = new Prisma.Decimal(discount);
+  if (off.gt(price)) {
+    throw new BadRequestException(
+      `Discount of ${off.toFixed(2)} is more than the plan price of ${price.toFixed(2)}`,
+    );
+  }
+  return off;
+}
 
 @Injectable()
 export class MembershipsService {
@@ -106,12 +128,13 @@ export class MembershipsService {
     const endDate = new Date(
       startDate.getTime() + plan.durationDays * MS_PER_DAY,
     );
-    const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
+    const discount = discountOff(plan.price, dto.discount);
     const finalPrice = discount ? plan.price.sub(discount) : plan.price;
     const initialPayment = dto.initialPayment
       ? new Prisma.Decimal(dto.initialPayment)
       : null;
 
+    let payment: { id: string; amount: Prisma.Decimal } | null = null;
     const membership = await this.prisma.$transaction(async (tx) => {
       const newMembership = await tx.membership.create({
         data: {
@@ -130,31 +153,85 @@ export class MembershipsService {
       });
 
       if (initialPayment && initialPayment.gt(0)) {
-        await tx.payment.create({
-          data: {
-            organizationId,
-            memberId: member.id,
-            membershipId: newMembership.id,
-            amount: initialPayment,
-            currency: plan.currency,
-            method: dto.paymentMethod ?? 'CASH',
-            status: PaymentStatus.COMPLETED,
-          },
+        payment = await this.recordInitialPayment(tx, newMembership, {
+          amount: initialPayment,
+          method: dto.paymentMethod,
         });
       }
 
       return newMembership;
     });
 
-    const payload: MembershipStartedEvent = {
-      organizationId,
+    this.announceStart(membership, payment);
+    return membership;
+  }
+
+  /**
+   * The payment taken at the desk with a sale, renewal or plan change.
+   * Carries the membership's branch, like every other payment -- without
+   * it the branch's revenue never showed it.
+   */
+  private recordInitialPayment(
+    tx: Prisma.TransactionClient,
+    membership: {
+      id: string;
+      organizationId: string;
+      branchId: string;
+      memberId: string;
+      currency: string;
+    },
+    input: { amount: Prisma.Decimal; method?: PaymentMethod },
+  ) {
+    return tx.payment.create({
+      data: {
+        organizationId: membership.organizationId,
+        branchId: membership.branchId,
+        memberId: membership.memberId,
+        membershipId: membership.id,
+        amount: input.amount,
+        currency: membership.currency,
+        method: input.method ?? PaymentMethod.CASH,
+        status: PaymentStatus.COMPLETED,
+      },
+      select: { id: true, amount: true },
+    });
+  }
+
+  /**
+   * Post-commit: `membership.started` raises the invoice (which settles
+   * against any payment already taken), and a payment taken with it is
+   * announced like any desk payment, so the member gets the receipt.
+   */
+  private announceStart(
+    membership: {
+      id: string;
+      organizationId: string;
+      branchId: string;
+      memberId: string;
+      membershipPlanId: string;
+      currency: string;
+    },
+    payment: { id: string; amount: Prisma.Decimal } | null,
+  ): void {
+    const started: MembershipStartedEvent = {
+      organizationId: membership.organizationId,
       branchId: membership.branchId,
       membershipId: membership.id,
       memberId: membership.memberId,
       membershipPlanId: membership.membershipPlanId,
     };
-    this.events.emit(DomainEvent.MembershipStarted, payload);
-    return membership;
+    this.events.emit(DomainEvent.MembershipStarted, started);
+    if (!payment) return;
+    const recorded: PaymentRecordedEvent = {
+      organizationId: membership.organizationId,
+      branchId: membership.branchId,
+      paymentId: payment.id,
+      memberId: membership.memberId,
+      membershipId: membership.id,
+      amount: payment.amount.toString(),
+      currency: membership.currency,
+    };
+    this.events.emit(DomainEvent.PaymentRecorded, recorded);
   }
 
   async freeze(
@@ -191,9 +268,20 @@ export class MembershipsService {
     const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status !== 'FROZEN' || !membership.freezeStartDate)
       throw new BadRequestException('Membership is not currently frozen');
-    const frozenDays = Math.ceil(
+    // Days actually frozen, never more than were booked: a freeze left
+    // running past its end used to credit every day since.
+    const elapsed = Math.ceil(
       (Date.now() - membership.freezeStartDate.getTime()) / MS_PER_DAY,
     );
+    const frozenDays = membership.freezeEndDate
+      ? Math.min(
+          elapsed,
+          bookedFreezeDays(
+            membership.freezeStartDate,
+            membership.freezeEndDate,
+          ),
+        )
+      : elapsed;
     const extendedEndDate = new Date(
       membership.endDate.getTime() + frozenDays * MS_PER_DAY,
     );
@@ -235,28 +323,29 @@ export class MembershipsService {
     return cancelled;
   }
 
+  /** What a member owes across their memberships -- see
+   * membershipBalances for the one definition every screen uses. */
   async getOutstandingBalance(organizationId: string, memberId: string) {
-    const memberships = await this.prisma.membership.findMany({
-      where: { organizationId, memberId },
-      select: { price: true },
-    });
-    const payments = await this.prisma.payment.findMany({
-      where: { organizationId, memberId, status: 'COMPLETED' },
-      select: { amount: true },
-    });
-    const totalDue = memberships.reduce(
-      (sum, m) => sum.plus(m.price),
-      new Prisma.Decimal(0),
-    );
-    const totalPaid = payments.reduce(
-      (sum, p) => sum.plus(p.amount),
-      new Prisma.Decimal(0),
-    );
-    const outstandingBalance = totalDue.sub(totalPaid);
+    const [memberships, payments] = await Promise.all([
+      this.prisma.membership.findMany({
+        where: { organizationId, memberId },
+        select: { id: true, price: true, status: true },
+      }),
+      this.prisma.payment.findMany({
+        where: { organizationId, memberId },
+        select: {
+          amount: true,
+          status: true,
+          membershipId: true,
+          refunds: { select: { amount: true } },
+        },
+      }),
+    ]);
+    const { total } = membershipBalances(memberships, payments);
     return {
-      totalDue,
-      totalPaid,
-      outstandingBalance,
+      totalDue: total.due,
+      totalPaid: total.paid.minus(total.refunded),
+      outstandingBalance: total.outstanding,
     };
   }
 
@@ -278,45 +367,45 @@ export class MembershipsService {
         'Cannot renew a frozen membership. Please resume it first.',
       );
     }
-    const plan = membership.membershipPlan;
-    if (isExpiredOrCancelled) {
-      const discount = dto.discount ? new Prisma.Decimal(dto.discount) : null;
-      const finalPrice = discount ? plan.price.sub(discount) : plan.price;
-      const newMembership = await this.prisma.membership.create({
-        data: {
-          organizationId,
-          branchId: membership.branchId,
-          memberId: membership.memberId,
-          membershipPlanId: plan.id,
-          status: 'ACTIVE',
-          startDate: new Date(),
-          endDate: new Date(Date.now() + plan.durationDays * MS_PER_DAY),
-          price: finalPrice,
-          discount,
-          currency: plan.currency,
-          autoRenew: membership.autoRenew,
-          previousMembershipId: membership.id,
-        },
-      });
-      // Post-commit like create(): the invoice auto-raise listener treats
-      // every started membership the same, whether first sale or renewal.
-      const payload: MembershipStartedEvent = {
+    const next = await this.prisma.membership.findFirst({
+      where: {
         organizationId,
-        branchId: newMembership.branchId,
-        membershipId: newMembership.id,
-        memberId: newMembership.memberId,
-        membershipPlanId: newMembership.membershipPlanId,
-      };
-      this.events.emit(DomainEvent.MembershipStarted, payload);
-      return newMembership;
-    }
-    const extendedEndDate = new Date(
-      membership.endDate.getTime() + plan.durationDays * MS_PER_DAY,
-    );
-    return this.prisma.membership.update({
-      where: { id: membershipId },
-      data: { endDate: extendedEndDate },
+        previousMembershipId: membership.id,
+        status: { not: 'CANCELLED' },
+      },
+      select: { id: true },
     });
+    if (next) {
+      throw new BadRequestException(
+        'This membership has already been renewed -- renew the newer term instead.',
+      );
+    }
+    const plan = membership.membershipPlan;
+    const discount = discountOff(plan.price, dto.discount);
+    // A closed membership starts a new term today. A running one starts
+    // the next term the day it ends -- that used to only push the end date
+    // out, a whole extra term with no price, no invoice and no payment.
+    const startDate = isExpiredOrCancelled ? new Date() : membership.endDate;
+    const newMembership = await this.prisma.membership.create({
+      data: {
+        organizationId,
+        branchId: membership.branchId,
+        memberId: membership.memberId,
+        membershipPlanId: plan.id,
+        status: 'ACTIVE',
+        startDate,
+        endDate: new Date(startDate.getTime() + plan.durationDays * MS_PER_DAY),
+        price: discount ? plan.price.sub(discount) : plan.price,
+        discount,
+        currency: plan.currency,
+        autoRenew: membership.autoRenew,
+        previousMembershipId: membership.id,
+      },
+    });
+    // Post-commit like create(): the invoice auto-raise listener treats
+    // every started membership the same, whether first sale or renewal.
+    this.announceStart(newMembership, null);
+    return newMembership;
   }
 
   /**
@@ -550,7 +639,7 @@ export class MembershipsService {
       membershipPlanId: string;
       discount?: number;
       initialPayment?: number;
-      paymentMethod?: string;
+      paymentMethod?: PaymentMethod;
     },
     branchScope: string | null = null,
   ) {
@@ -569,18 +658,31 @@ export class MembershipsService {
     const totalMs =
       membership.endDate.getTime() - membership.startDate.getTime();
     const remainingMs = Math.max(0, membership.endDate.getTime() - now);
+    // Credit is the unused share of what was actually paid on the old
+    // term -- crediting an unpaid term's value would hand it out free.
+    const paidOnOld = await this.netPaidOn(organizationId, membership.id);
+    const creditBase = Prisma.Decimal.min(membership.price, paidOnOld);
     const credit =
-      totalMs > 0
-        ? membership.price.mul(remainingMs).div(totalMs)
+      totalMs > 0 && creditBase.gt(0)
+        ? creditBase.mul(remainingMs).div(totalMs).toDecimalPlaces(2)
         : new Prisma.Decimal(0);
-    const discount = dto.discount
-      ? new Prisma.Decimal(dto.discount)
-      : new Prisma.Decimal(0);
+    const discount =
+      discountOff(plan.price, dto.discount) ?? new Prisma.Decimal(0);
     const amountDue = Prisma.Decimal.max(
       plan.price.sub(credit).sub(discount),
       new Prisma.Decimal(0),
     );
+    // The new term is priced at what is actually owed for it. The credit
+    // rides in `discount` (price + discount = plan price, which is what
+    // the auto-raised invoice shows as its line); before, the new row
+    // was priced at the full plan and the credit existed only in this
+    // response, so the member's balance charged them twice.
+    const offPlan = plan.price.sub(amountDue);
+    const initialPayment = dto.initialPayment
+      ? new Prisma.Decimal(dto.initialPayment)
+      : null;
 
+    let payment: { id: string; amount: Prisma.Decimal } | null = null;
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.membership.update({
         where: { id },
@@ -597,36 +699,55 @@ export class MembershipsService {
           memberId: membership.memberId,
           membershipPlanId: plan.id,
           status: 'ACTIVE',
-          startDate: new Date(),
+          startDate: new Date(now),
           endDate: new Date(now + plan.durationDays * MS_PER_DAY),
-          price: plan.price.sub(discount),
-          discount: discount.gt(0) ? discount : null,
+          price: amountDue,
+          discount: offPlan.gt(0) ? offPlan : null,
           currency: plan.currency,
           autoRenew: membership.autoRenew,
           previousMembershipId: membership.id,
         },
       });
-      if (dto.initialPayment && dto.initialPayment > 0) {
-        await tx.payment.create({
-          data: {
-            organizationId,
-            memberId: membership.memberId,
-            membershipId: newMembership.id,
-            amount: new Prisma.Decimal(dto.initialPayment),
-            currency: plan.currency,
-            method: (dto.paymentMethod as PaymentMethod) ?? PaymentMethod.CASH,
-            status: PaymentStatus.COMPLETED,
-          },
+      if (initialPayment && initialPayment.gt(0)) {
+        payment = await this.recordInitialPayment(tx, newMembership, {
+          amount: initialPayment,
+          method: dto.paymentMethod,
         });
       }
       return newMembership;
     });
 
+    // Every started term gets its invoice, a plan change included -- it
+    // used to get none.
+    this.announceStart(result, payment);
     return {
       newMembership: result,
       credit: credit.toFixed(2),
       amountDue: amountDue.toFixed(2),
     };
+  }
+
+  /** Money kept on one membership: collected payments net of refunds. */
+  private async netPaidOn(
+    organizationId: string,
+    membershipId: string,
+  ): Promise<Prisma.Decimal> {
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId,
+        membershipId,
+        status: { in: [...COLLECTED_PAYMENT_STATUSES] },
+      },
+      select: { amount: true, refunds: { select: { amount: true } } },
+    });
+    return payments.reduce(
+      (sum, payment) =>
+        payment.refunds.reduce(
+          (net, refund) => net.minus(refund.amount),
+          sum.plus(payment.amount),
+        ),
+      new Prisma.Decimal(0),
+    );
   }
 
   /**

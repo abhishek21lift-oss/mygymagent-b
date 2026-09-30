@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, StockMovementType } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { organizationCurrency } from '../common/money/organization-currency';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CreateInventorySaleDto,
@@ -635,6 +636,8 @@ export class CompleteInventoryService {
     if (discount.gt(subtotal))
       throw new BadRequestException('Discount cannot exceed subtotal');
     const total = subtotal.sub(discount);
+    const currency =
+      dto.currency ?? (await organizationCurrency(this.prisma, organizationId));
 
     return this.prisma.$transaction(async (tx) => {
       const sale = await tx.inventorySale.create({
@@ -648,7 +651,7 @@ export class CompleteInventoryService {
           subtotal,
           discount,
           total,
-          currency: dto.currency ?? 'USD',
+          currency,
           items: {
             create: dto.items.map((item) => {
               const product = byId.get(item.productId)!;
