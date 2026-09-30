@@ -181,7 +181,9 @@ export class WhatsappWebManager
       responded: false,
     };
     this.entries.set(organizationId, entry);
-    await this.armWatchdog(organizationId, entry);
+    // Listen before awaiting anything: an event WhatsApp sends while this
+    // method is still waiting on the database would otherwise be lost,
+    // and a lost `close` means the gym never reconnects.
     socket.ev.on(
       'connection.update',
       (update) =>
@@ -205,6 +207,7 @@ export class WhatsappWebManager
           this.logger.warn(`Receipt handling failed: ${describe(error)}`),
         ),
     );
+    await this.armWatchdog(organizationId, entry);
   }
 
   /**
@@ -214,7 +217,7 @@ export class WhatsappWebManager
   async disconnect(organizationId: string): Promise<void> {
     this.cancelReconnect(organizationId);
     this.clearWatchdog(organizationId);
-    this.pairingFailures.delete(organizationId);
+    this.forgetRetries(organizationId);
     const entry = this.entries.get(organizationId);
     if (entry) {
       entry.stopping = true;
@@ -308,8 +311,7 @@ export class WhatsappWebManager
 
     if (update.connection === 'open') {
       entry.open = true;
-      this.reconnectAttempts.delete(organizationId);
-      this.pairingFailures.delete(organizationId);
+      this.forgetRetries(organizationId);
       await this.clearCodes(organizationId);
       await this.prisma.whatsappWebSession.update({
         where: { organizationId },
@@ -458,6 +460,11 @@ export class WhatsappWebManager
       select: { status: true },
     });
     if (session?.status !== 'PAIRING') return;
+    // WhatsApp may already have answered, or closed this socket, while
+    // the status was read; a timer armed now would be for nobody, and
+    // clearing first could cancel the timer of the socket that replaced it.
+    if (entry.responded || entry.stopping) return;
+    if (this.entries.get(organizationId) !== entry) return;
     this.clearWatchdog(organizationId);
     const ms = Number(
       this.config.get('WHATSAPP_WEB_PAIRING_TIMEOUT_MS') ?? 45_000,
@@ -491,7 +498,7 @@ export class WhatsappWebManager
       `WhatsApp Web ${organizationId}: gave up linking -- ${reason}`,
     );
     this.cancelReconnect(organizationId);
-    this.pairingFailures.delete(organizationId);
+    this.forgetRetries(organizationId);
     const entry = this.entries.get(organizationId);
     if (entry) {
       entry.stopping = true;
@@ -533,6 +540,14 @@ export class WhatsappWebManager
     }, delay);
     timer.unref();
     this.reconnectTimers.set(organizationId, timer);
+  }
+
+  /** A link that succeeded, was unlinked or was given up on is over: the
+   * next attempt starts with a short retry delay, not one that kept
+   * doubling through the last attempt's failures. */
+  private forgetRetries(organizationId: string) {
+    this.reconnectAttempts.delete(organizationId);
+    this.pairingFailures.delete(organizationId);
   }
 
   private cancelReconnect(organizationId: string) {

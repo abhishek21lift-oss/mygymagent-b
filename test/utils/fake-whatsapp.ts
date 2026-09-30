@@ -75,14 +75,23 @@ export async function eventually<T>(
 /** A factory handing out FakeSockets, with the list of every one made. */
 export function fakeWhatsapp() {
   const sockets: FakeSocket[] = [];
+  let answer: ((socket: FakeSocket) => void) | null = null;
   const factory: WaSocketFactory = {
     create: (organizationId) => {
       const socket = new FakeSocket(organizationId);
       sockets.push(socket);
+      // Plays WhatsApp answering on the next turn of the event loop,
+      // before the server has finished anything else it awaits.
+      const reply = answer;
+      if (reply) setImmediate(() => reply(socket));
       return Promise.resolve(socket);
     },
   };
   const socketFor = (organizationId: string) =>
     [...sockets].reverse().find((s) => s.organizationId === organizationId)!;
-  return { sockets, factory, socketFor };
+  /** Makes every new socket answer at once with `reply`; null stops it. */
+  const answerAtOnce = (reply: ((socket: FakeSocket) => void) | null) => {
+    answer = reply;
+  };
+  return { sockets, factory, socketFor, answerAtOnce };
 }

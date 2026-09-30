@@ -19,7 +19,7 @@ describe('WhatsApp Web (e2e)', () => {
   let prisma: PrismaClient;
   let gym: RegisteredAccount;
   let other: RegisteredAccount;
-  const { sockets, factory, socketFor } = fakeWhatsapp();
+  const { sockets, factory, socketFor, answerAtOnce } = fakeWhatsapp();
 
   const server = () => app.getHttpServer();
   const as = (token: string) => ({
@@ -495,6 +495,95 @@ describe('WhatsApp Web (e2e)', () => {
       expect(last.lastError).toMatch(
         /Couldn't connect to WhatsApp after 3 tries \(code 405: Connection Failure\)/,
       );
+    });
+  });
+
+  describe('when WhatsApp answers at once', () => {
+    const session = () =>
+      prisma.whatsappWebSession.findUniqueOrThrow({
+        where: { organizationId: gym.organizationId },
+      });
+    const failure = () =>
+      Object.assign(new Error('Connection Failure'), {
+        output: { statusCode: 405 },
+      });
+    const failNow = () =>
+      socketFor(gym.organizationId).emit('connection.update', {
+        connection: 'close',
+        lastDisconnect: { error: failure() },
+      });
+    const nextSocket = (count: number, ms: number) =>
+      eventually(
+        async () => sockets.length,
+        (n) => n > count,
+        ms,
+      );
+
+    afterEach(async () => {
+      answerAtOnce(null);
+      await as(gym.accessToken).post('/whatsapp-web/disconnect').expect(201);
+    });
+
+    it('hears it, even while the server is still getting ready', async () => {
+      answerAtOnce((socket) =>
+        socket.emit('connection.update', { qr: 'instant-qr' }),
+      );
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+      const status = await eventually(
+        async () =>
+          (await as(gym.accessToken).get('/whatsapp-web').expect(200)).body
+            .data,
+        (d) => Boolean(d.qrDataUrl),
+        3_000,
+      );
+      expect(status).toMatchObject({ status: 'PAIRING' });
+    });
+
+    it('keeps retrying when the first try fails straight away', async () => {
+      const count = sockets.length;
+      answerAtOnce((socket) =>
+        socket.emit('connection.update', {
+          connection: 'close',
+          lastDisconnect: { error: failure() },
+        }),
+      );
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+      const s = await eventually(session, (x) =>
+        /Retrying/.test(x.lastError ?? ''),
+      );
+      expect(s.status).toBe('PAIRING');
+      answerAtOnce(null);
+      await nextSocket(count + 1, 3_000);
+    });
+
+    it('starts a new link with short retries, not where the last one gave up', async () => {
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+      failNow();
+      for (let attempt = 2; attempt <= 3; attempt++) {
+        await nextSocket(sockets.length, 10_000);
+        failNow();
+      }
+      await eventually(session, (x) => x.status === 'DISCONNECTED');
+
+      // A fresh start: the first retry comes after a second, as it did
+      // the first time -- not after the doubled wait the last link had
+      // built up.
+      await as(gym.accessToken)
+        .post('/whatsapp-web/connect')
+        .send({ acceptRisk: true })
+        .expect(201);
+      const count = sockets.length;
+      failNow();
+      await nextSocket(count, 2_500);
     });
   });
 });
