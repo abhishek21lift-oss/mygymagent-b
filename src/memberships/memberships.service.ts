@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CancelMembershipDto } from './dto/cancel-membership.dto';
 import type { CreateMembershipDto } from './dto/create-membership.dto';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto';
+import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { bookedFreezeDays } from './freeze-days';
 import {
   COLLECTED_PAYMENT_STATUSES,
@@ -124,7 +125,15 @@ export class MembershipsService {
         'Cannot create a membership for a member outside your assigned branch',
       );
     }
-    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    // A bare date is that day in the gym's timezone; read as UTC it began
+    // at 05:30 in India, and the term ended 05:30 into its last day.
+    const startDate = dto.startDate
+      ? zonedBound(
+          dto.startDate,
+          await organizationTimezone(this.prisma, organizationId),
+          'from',
+        )
+      : new Date();
     const endDate = new Date(
       startDate.getTime() + plan.durationDays * MS_PER_DAY,
     );

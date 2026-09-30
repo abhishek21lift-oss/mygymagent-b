@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { paginate } from '../common/dto/pagination-query.dto';
 import { organizationCurrency } from '../common/money/organization-currency';
+import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CreateExpenseDto,
@@ -34,6 +35,7 @@ export class ExpensesService {
     query: ListExpensesQueryDto,
     branchScope: string | null = null,
   ) {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
     const where: Prisma.ExpenseWhereInput = {
       organizationId,
       ...(branchScope || query.branchId
@@ -44,8 +46,12 @@ export class ExpensesService {
       ...(query.from || query.to
         ? {
             expenseDate: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from
+                ? { gte: zonedBound(query.from, timezone, 'from') }
+                : {}),
+              // The whole of the `to` day: `lte` midnight dropped every
+              // expense recorded on it after 00:00.
+              ...(query.to ? { lt: zonedBound(query.to, timezone, 'to') } : {}),
             },
           }
         : {}),
@@ -245,6 +251,7 @@ export class ExpensesService {
     query: ExpenseSummaryQueryDto,
     branchScope: string | null = null,
   ) {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
     const scoped = {
       organizationId,
       ...(branchScope || query.branchId
@@ -253,8 +260,12 @@ export class ExpensesService {
       ...(query.from || query.to
         ? {
             expenseDate: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from
+                ? { gte: zonedBound(query.from, timezone, 'from') }
+                : {}),
+              // The whole of the `to` day: `lte` midnight dropped every
+              // expense recorded on it after 00:00.
+              ...(query.to ? { lt: zonedBound(query.to, timezone, 'to') } : {}),
             },
           }
         : {}),

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
 import { MemberIntelligenceService } from '../analytics/member-intelligence.service';
+import { startOfZonedDay, validTimezone } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface OwnerOsAlert {
@@ -68,9 +69,12 @@ export class OwnerOsService {
     branchScope?: string,
   ): Promise<OwnerOsBriefing> {
     const now = new Date();
-    const startOfToday = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { currency: true, timezone: true },
+    });
+    // The gym's today, not UTC's, which starts at 05:30 in India.
+    const startOfToday = startOfZonedDay(now, validTimezone(org?.timezone));
     const in7Days = new Date(now.getTime() + 7 * MS_PER_DAY);
     const memberWhere = {
       organizationId,
@@ -78,10 +82,6 @@ export class OwnerOsService {
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
     };
 
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { currency: true },
-    });
     const currency = org?.currency ?? 'USD';
 
     const [

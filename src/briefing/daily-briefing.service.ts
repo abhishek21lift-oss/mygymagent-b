@@ -20,6 +20,11 @@ import {
   TrainerIntelligenceService,
   type TrainerWorkload,
 } from '../analytics/trainer-intelligence.service';
+import {
+  organizationTimezone,
+  startOfZonedDay,
+  startOfZonedMonth,
+} from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
 const TOP_N = 5;
@@ -84,12 +89,9 @@ export class DailyBriefingService {
     branchScope: string | null,
   ): Promise<DailyBriefing> {
     const now = new Date();
-    const startOfToday = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
-    const monthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-    );
+    const timezone = await organizationTimezone(this.prisma, organizationId);
+    const startOfToday = startOfZonedDay(now, timezone);
+    const monthStart = startOfZonedMonth(now, timezone);
 
     const [
       checkIns,
