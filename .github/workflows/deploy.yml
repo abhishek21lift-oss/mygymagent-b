@@ -1,0 +1,77 @@
+name: Deploy Backend
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+
+concurrency:
+  group: mygymagent-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Backend to VPS
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_SHA
+          command_timeout: 25m
+          script: |
+            set -eu
+
+            cd /opt/thecultclient/mygymagent-b
+
+            echo "==> Fetching GitHub main"
+            git fetch origin main
+
+            if [ "$(git rev-parse origin/main)" != "$DEPLOY_SHA" ]; then
+              echo "$DEPLOY_SHA is no longer main's latest commit; skipping"
+              exit 0
+            fi
+
+            echo "==> Checking out $DEPLOY_SHA"
+            git reset --hard "$DEPLOY_SHA"
+
+            cd /opt/thecultclient
+
+            echo "==> Building backend"
+            docker compose build backend
+
+            echo "==> Recreating backend"
+            docker compose up -d --no-deps --force-recreate backend
+
+            echo "==> Waiting for backend"
+            healthy=0
+
+            for attempt in $(seq 1 24); do
+              if curl -fsS --max-time 5 http://127.0.0.1:5200/health >/dev/null 2>&1; then
+                healthy=1
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$healthy" != 1 ]; then
+              echo "Backend did not come up; last logs:"
+              docker compose logs --tail=200 backend || true
+              exit 1
+            fi
+
+            echo "==> Backend deployment successful ($DEPLOY_SHA)"
