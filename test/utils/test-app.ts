@@ -51,6 +51,8 @@ export async function createTestApp(
     ).compile();
     app = moduleRef.createNestApplication();
 
+    // As main.ts: `req.ip` is the client the one trusted proxy reports.
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
     app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,6 +21,9 @@ import type { CreateUserDto } from './dto/create-user.dto';
 import type { UpdateUserDto } from './dto/update-user.dto';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The role that owns an organization. */
+const OWNER_ROLE_KEY = 'ORG_OWNER';
 
 @Injectable()
 export class UsersService {
@@ -188,6 +192,7 @@ export class UsersService {
     id: string,
     dto: UpdateUserDto,
     branchScope: string | null = null,
+    actorId: string | null = null,
   ) {
     await this.getOne(organizationId, id, branchScope);
     if (
@@ -198,6 +203,13 @@ export class UsersService {
       throw new BadRequestException(
         'Cannot move a staff member outside your assigned branch',
       );
+    }
+    await this.assertMayManage(organizationId, actorId, id);
+    if (dto.primaryBranchId !== undefined) {
+      await this.assertOwnBranch(organizationId, dto.primaryBranchId);
+    }
+    if (dto.status !== undefined && dto.status !== 'ACTIVE') {
+      await this.assertNotLastOwner(organizationId, id);
     }
     const { jobTitle, isTrainer, specializations, bio, ...userFields } = dto;
 
@@ -215,8 +227,11 @@ export class UsersService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    actorId: string | null = null,
   ) {
     await this.getOne(organizationId, id, branchScope);
+    await this.assertMayManage(organizationId, actorId, id);
+    await this.assertNotLastOwner(organizationId, id);
     return this.prisma.user.update({
       where: { id },
       data: { status: 'DISABLED', deletedAt: new Date() },
@@ -228,6 +243,7 @@ export class UsersService {
     userId: string,
     dto: AssignRoleDto,
     branchScope: string | null = null,
+    actorId: string | null = null,
   ) {
     await this.getOne(organizationId, userId, branchScope);
     // Same escalation guard as invite(): a branch-scoped grantor can only
@@ -240,6 +256,13 @@ export class UsersService {
     }
     const role = await this.resolveRole(organizationId, dto.roleKey);
     if (!role) throw new BadRequestException(`Unknown role: ${dto.roleKey}`);
+    await this.assertMayManage(organizationId, actorId, userId);
+    // Ownership is handed on only by an owner: an admin could otherwise
+    // make themselves one, then remove the real owner.
+    if (role.key === OWNER_ROLE_KEY && !(await this.isOwner(actorId))) {
+      throw new ForbiddenException('Only an owner can make someone an owner');
+    }
+    if (dto.branchId) await this.assertOwnBranch(organizationId, dto.branchId);
 
     // Prisma rejects an explicit null inside a compound-unique `where`
     // selector, so a nullable branchId (org-wide grant) can't use upsert's
@@ -256,7 +279,8 @@ export class UsersService {
 
     await this.audit.record({
       organizationId,
-      actorUserId: userId,
+      // The person who did it, not the person it was done to.
+      actorUserId: actorId ?? userId,
       action: 'assign_role',
       resource: 'user',
       resourceId: userId,
@@ -271,10 +295,13 @@ export class UsersService {
     userId: string,
     userRoleId: string,
     branchScope: string | null = null,
+    actorId: string | null = null,
   ) {
     await this.getOne(organizationId, userId, branchScope);
+    await this.assertMayManage(organizationId, actorId, userId);
     const userRole = await this.prisma.userRole.findFirst({
       where: { id: userRoleId, userId, organizationId },
+      include: { role: { select: { key: true } } },
     });
     if (!userRole) throw new NotFoundException('Role assignment not found');
     // A branch-scoped revoker can only touch grants scoped to their own
@@ -282,15 +309,91 @@ export class UsersService {
     if (branchScope && userRole.branchId !== branchScope) {
       throw new NotFoundException('Role assignment not found');
     }
+    if (userRole.role.key === OWNER_ROLE_KEY) {
+      await this.assertNotLastOwner(organizationId, userId);
+    }
     await this.prisma.userRole.delete({ where: { id: userRoleId } });
     await this.audit.record({
       organizationId,
-      actorUserId: userId,
+      actorUserId: actorId ?? userId,
       action: 'revoke_role',
       resource: 'user',
       resourceId: userId,
       beforeState: { userRoleId },
     });
+  }
+
+  /** Whether this user holds the owner role. */
+  private async isOwner(userId: string | null): Promise<boolean> {
+    if (!userId) return false;
+    const grant = await this.prisma.userRole.findFirst({
+      where: { userId, role: { key: OWNER_ROLE_KEY } },
+      select: { id: true },
+    });
+    return grant !== null;
+  }
+
+  /**
+   * An owner's account is changed only by an owner.
+   *
+   * `users.update`, `users.delete` and `users.manage_roles` are all held
+   * by ORG_ADMIN, so an admin could suspend the owner, strip their role or
+   * point their account at another branch -- taking the gym from the
+   * person who owns it. A user may still edit their own account.
+   */
+  private async assertMayManage(
+    organizationId: string,
+    actorId: string | null,
+    targetId: string,
+  ): Promise<void> {
+    if (!actorId || actorId === targetId) return;
+    const targetIsOwner = await this.prisma.userRole.findFirst({
+      where: {
+        userId: targetId,
+        organizationId,
+        role: { key: OWNER_ROLE_KEY },
+      },
+      select: { id: true },
+    });
+    if (targetIsOwner && !(await this.isOwner(actorId))) {
+      throw new ForbiddenException(
+        "Only an owner can change an owner's account",
+      );
+    }
+  }
+
+  /** An organization always keeps one active owner: without one nobody can
+   * manage billing, roles or the account itself. */
+  private async assertNotLastOwner(
+    organizationId: string,
+    userId: string,
+  ): Promise<void> {
+    const owners = await this.prisma.userRole.findMany({
+      where: {
+        organizationId,
+        role: { key: OWNER_ROLE_KEY },
+        user: { status: 'ACTIVE', deletedAt: null },
+      },
+      select: { userId: true },
+    });
+    const ownerIds = new Set(owners.map((o) => o.userId));
+    if (ownerIds.has(userId) && ownerIds.size === 1) {
+      throw new BadRequestException(
+        'This is the only owner. Make someone else an owner first.',
+      );
+    }
+  }
+
+  /** A branch id from the request must be one of this organization's. */
+  private async assertOwnBranch(
+    organizationId: string,
+    branchId: string,
+  ): Promise<void> {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!branch) throw new BadRequestException('Branch not found');
   }
 
   private async resolveRole(organizationId: string, roleKey: string) {

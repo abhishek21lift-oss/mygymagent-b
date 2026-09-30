@@ -310,4 +310,36 @@ describe('Auth / member OTP via the mock provider (e2e)', () => {
 
     expect(after).toBe(before);
   });
+  it('lets two requests racing with one code start one session', async () => {
+    await clearCooldown(PHONE);
+    await requestCode(PHONE).expect(201);
+
+    const results = await Promise.all([
+      verifyCode(PHONE, MOCK_OTP_CODE),
+      verifyCode(PHONE, MOCK_OTP_CODE),
+      verifyCode(PHONE, MOCK_OTP_CODE),
+    ]);
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses.filter((s) => s < 300)).toHaveLength(1);
+    expect(statuses.filter((s) => s === 401)).toHaveLength(2);
+  });
+
+  it('refuses even the right code once the guess budget is spent', async () => {
+    await clearCooldown(PHONE);
+    await requestCode(PHONE).expect(201);
+    // Two waves of four: the second races for the one guess left, which
+    // a read-then-increment let all four take.
+    const wave = () =>
+      Promise.all(Array.from({ length: 4 }, () => verifyCode(PHONE, '000001')));
+    const results = [...(await wave()), ...(await wave())];
+    expect(results.every((r) => r.status === 401)).toBe(true);
+    const row = await prisma.memberOtpChallenge.findFirstOrThrow({
+      where: { phone: PHONE, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    // Eight parallel guesses, five counted: the budget is checked and
+    // spent in one write.
+    expect(row.attempts).toBe(5);
+    await verifyCode(PHONE, MOCK_OTP_CODE).expect(401);
+  });
 });

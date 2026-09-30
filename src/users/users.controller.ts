@@ -63,7 +63,13 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.usersService.update(user.organizationId!, id, dto, branchScope);
+    return this.usersService.update(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+      user.id,
+    );
   }
 
   @Delete(':id')
@@ -74,7 +80,12 @@ export class UsersController {
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.usersService.deactivate(user.organizationId!, id, branchScope);
+    return this.usersService.deactivate(
+      user.organizationId!,
+      id,
+      branchScope,
+      user.id,
+    );
   }
 
   @Post(':id/roles')
@@ -91,6 +102,7 @@ export class UsersController {
       id,
       dto,
       branchScope,
+      user.id,
     );
   }
 
@@ -108,6 +120,7 @@ export class UsersController {
       id,
       userRoleId,
       branchScope,
+      user.id,
     );
   }
 }

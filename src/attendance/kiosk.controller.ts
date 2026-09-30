@@ -35,11 +35,11 @@ export class KioskController {
   @HttpCode(200)
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   checkIn(@Body() dto: KioskCheckInDto, @Req() req: Request) {
-    const forwarded = req.headers['x-forwarded-for'];
-    const clientKey =
-      (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) ||
-      req.ip ||
-      'unknown';
+    // `req.ip`, which Express resolves through the one trusted proxy hop
+    // (main.ts). The first X-Forwarded-For entry is whatever the caller
+    // wrote there, so keying the limit on it let anyone reset their own
+    // budget with every request.
+    const clientKey = req.ip || 'unknown';
     return this.attendance.kioskCheckIn({
       deviceKey: dto.deviceKey,
       memberId: dto.memberId,

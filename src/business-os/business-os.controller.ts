@@ -232,11 +232,11 @@ export class BusinessOsController {
     @Param('token') token: string,
     @Req() req: Request,
   ) {
-    const forwarded = req.headers['x-forwarded-for'];
-    const clientKey =
-      (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) ||
-      req.ip ||
-      'unknown';
+    // `req.ip`, which Express resolves through the one trusted proxy hop
+    // (main.ts). The first X-Forwarded-For entry is whatever the caller
+    // wrote there, so keying the limit on it let anyone reset their own
+    // budget with every request.
+    const clientKey = req.ip || 'unknown';
     return this.s.portalBootstrap(token, clientKey);
   }
 }
