@@ -5,6 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import * as argon2 from 'argon2';
 import { AuditService } from '../audit/audit.service';
 import {
   PaginationQueryDto,
@@ -15,9 +17,16 @@ import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
+import { assertPayrollSettings } from '../hr-payroll/hr-payroll.service';
+import { PermissionsService } from '../rbac/permissions.service';
 import { PLATFORM_ONLY_ROLE_KEYS } from '../rbac/roles.catalog';
 import type { AssignRoleDto } from './dto/assign-role.dto';
-import type { CreateUserDto } from './dto/create-user.dto';
+import type {
+  CreateUserDto,
+  StaffAccess,
+  StaffPayDto,
+} from './dto/create-user.dto';
+import type { GrantAccessDto } from './dto/grant-access.dto';
 import type { UpdateUserDto } from './dto/update-user.dto';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -32,6 +41,7 @@ export class UsersService {
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
     private readonly billing: PlatformBillingService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async list(
@@ -63,6 +73,7 @@ export class UsersService {
               {
                 email: { contains: query.search, mode: 'insensitive' as const },
               },
+              { phone: { contains: query.search } },
             ],
           }
         : {}),
@@ -97,11 +108,26 @@ export class UsersService {
     return sanitize(user);
   }
 
+  /**
+   * Adds a staff member. `access` decides how they get into the app -- see
+   * STAFF_ACCESS. The method keeps its old name: `POST /users` without
+   * `access` is still exactly the email invite it always was.
+   */
   async invite(
     organizationId: string,
     dto: CreateUserDto,
     branchScope: string | null = null,
+    actorId: string | null = null,
   ) {
+    const access: StaffAccess = dto.access ?? 'INVITE';
+    if (access === 'NONE' && dto.email) {
+      throw new BadRequestException(
+        'Leave the email out for staff without app access -- add it when you give them access',
+      );
+    }
+    if (access !== 'NONE' && !dto.email) {
+      throw new BadRequestException('An email is needed to sign in');
+    }
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
         'Cannot invite a staff member outside your assigned branch',
@@ -115,28 +141,57 @@ export class UsersService {
         'Cannot grant a role outside your assigned branch',
       );
     }
+    // Both ids come from the request: without this, another gym's branch
+    // could be written onto the staff member and their grant.
+    if (dto.primaryBranchId) {
+      await this.assertOwnBranch(organizationId, dto.primaryBranchId);
+    }
+    if (dto.roleBranchId) {
+      await this.assertOwnBranch(organizationId, dto.roleBranchId);
+    }
 
     await this.billing.assertUnder(organizationId, 'staff');
 
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existing)
-      throw new ConflictException('An account with this email already exists');
+    if (dto.email) {
+      const existing = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+      });
+      if (existing)
+        throw new ConflictException(
+          'An account with this email already exists',
+        );
+    }
 
     const role = await this.resolveRole(organizationId, dto.roleKey);
     if (!role) throw new BadRequestException(`Unknown role: ${dto.roleKey}`);
+    // The same rule as assignRole(): only an owner makes an owner.
+    if (role.key === OWNER_ROLE_KEY && !(await this.isOwner(actorId))) {
+      throw new ForbiddenException('Only an owner can make someone an owner');
+    }
+
+    const pay = await this.resolvePay(
+      organizationId,
+      dto.pay,
+      actorId,
+      dto.primaryBranchId,
+    );
+    const passwordHash =
+      access === 'PASSWORD' ? await argon2.hash(dto.password!) : null;
 
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
           organizationId,
-          email: dto.email,
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          phone: dto.phone,
+          email: dto.email ?? null,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          phone: dto.phone?.trim() || null,
           primaryBranchId: dto.primaryBranchId,
-          status: 'INVITED',
+          // Only an emailed invite waits on the staff member. The others
+          // are on the team from now: payroll, attendance and PT all see
+          // them straight away.
+          status: access === 'INVITE' ? 'INVITED' : 'ACTIVE',
+          passwordHash,
         },
       });
 
@@ -145,13 +200,14 @@ export class UsersService {
           userId: created.id,
           organizationId,
           branchId: dto.primaryBranchId,
-          jobTitle: dto.jobTitle,
+          jobTitle: dto.jobTitle?.trim() || null,
           isTrainer: dto.isTrainer ?? false,
           specializations: dto.specializations ?? [],
           bio: dto.bio,
           commissionRate: dto.commissionRate,
-          employeeCode: dto.employeeCode,
+          employeeCode: dto.employeeCode?.trim() || null,
           hireDate: dto.hireDate ? new Date(dto.hireDate) : undefined,
+          ...pay,
         },
       });
 
@@ -167,6 +223,119 @@ export class UsersService {
       return created;
     });
 
+    if (access === 'INVITE') await this.sendInvite(organizationId, user);
+
+    return this.getOne(organizationId, user.id);
+  }
+
+  /**
+   * Emails a staff member the link to set their password: a first invite
+   * for someone added without app access, or a fresh one when the last
+   * expired or went astray. Earlier unused links stop working.
+   */
+  async grantAccess(
+    organizationId: string,
+    id: string,
+    dto: GrantAccessDto,
+    branchScope: string | null = null,
+    actorId: string | null = null,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id,
+        organizationId,
+        deletedAt: null,
+        member: { is: null },
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        status: true,
+        passwordHash: true,
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    await this.assertMayManage(organizationId, actorId, id);
+    if (user.status !== 'INVITED' && user.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        'This account is switched off. Reactivate it first.',
+      );
+    }
+    if (user.passwordHash) {
+      throw new ConflictException(
+        'This staff member can already sign in. They can use "Forgot password" if they need a new one.',
+      );
+    }
+
+    const email = dto.email ?? user.email;
+    if (!email) {
+      throw new BadRequestException('Add an email to send the invite to');
+    }
+    if (email !== user.email) {
+      const taken = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (taken) {
+        throw new ConflictException(
+          'An account with this email already exists',
+        );
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { email } }),
+      this.prisma.passwordResetToken.deleteMany({
+        where: { userId: id, usedAt: null },
+      }),
+    ]);
+    await this.sendInvite(organizationId, {
+      id,
+      email,
+      firstName: user.firstName,
+    });
+    return this.getOne(organizationId, id);
+  }
+
+  /** Head counts for the staff page, within the caller's branch. */
+  async stats(organizationId: string, branchScope: string | null = null) {
+    const where: Prisma.UserWhereInput = {
+      organizationId,
+      deletedAt: null,
+      member: { is: null },
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
+    const [total, active, invited, noAccess, trainers] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.count({
+        where: { ...where, status: 'ACTIVE', passwordHash: { not: null } },
+      }),
+      this.prisma.user.count({
+        where: {
+          ...where,
+          OR: [
+            { status: 'INVITED' },
+            { status: 'ACTIVE', passwordHash: null, email: { not: null } },
+          ],
+        },
+      }),
+      this.prisma.user.count({
+        where: { ...where, status: 'ACTIVE', email: null },
+      }),
+      this.prisma.user.count({
+        where: { ...where, staffProfile: { is: { isTrainer: true } } },
+      }),
+    ]);
+    return { total, active, invited, noAccess, trainers };
+  }
+
+  /** A single-use link to set a password, valid for a week. */
+  private async sendInvite(
+    organizationId: string,
+    user: { id: string; email: string | null; firstName: string },
+  ) {
     const inviteToken = generateOpaqueToken();
     await this.prisma.passwordResetToken.create({
       data: {
@@ -175,8 +344,6 @@ export class UsersService {
         expiresAt: new Date(Date.now() + INVITE_TTL_MS),
       },
     });
-    // Staff are always created with an email -- `User.email` is nullable
-    // only for SMS-login members, who are never invited through here.
     await this.communications
       .sendStaffInvite(
         organizationId,
@@ -185,8 +352,45 @@ export class UsersService {
         inviteToken,
       )
       .catch(() => undefined); // best-effort, matches the old MailerService's fire-and-forget shape -- see CommunicationsService's class comment
+  }
 
-    return this.getOne(organizationId, user.id);
+  /**
+   * Pay settings given with a new staff member. Salaries are `hr.manage`'s
+   * (see HrPayrollController), not `users.create`'s, so a caller without it
+   * is refused rather than having the pay silently dropped.
+   */
+  private async resolvePay(
+    organizationId: string,
+    pay: StaffPayDto | undefined,
+    actorId: string | null,
+    branchId: string | undefined,
+  ) {
+    if (!pay) return {};
+    const allowed =
+      actorId !== null &&
+      (await this.permissions.hasPermission(
+        actorId,
+        organizationId,
+        'hr.manage',
+        branchId,
+      ));
+    if (!allowed) {
+      throw new ForbiddenException('You do not have permission to set pay');
+    }
+    const settings = {
+      payrollEnabled: pay.payrollEnabled ?? true,
+      salaryType: pay.salaryType,
+      baseSalary:
+        pay.baseSalary !== undefined
+          ? new Prisma.Decimal(pay.baseSalary)
+          : null,
+      hourlyRate:
+        pay.hourlyRate !== undefined
+          ? new Prisma.Decimal(pay.hourlyRate)
+          : null,
+    };
+    assertPayrollSettings(settings);
+    return settings;
   }
 
   async update(
@@ -213,13 +417,31 @@ export class UsersService {
     if (dto.status !== undefined && dto.status !== 'ACTIVE') {
       await this.assertNotLastOwner(organizationId, id);
     }
-    const { jobTitle, isTrainer, specializations, bio, ...userFields } = dto;
+    const {
+      jobTitle,
+      isTrainer,
+      specializations,
+      bio,
+      commissionRate,
+      ...userFields
+    } = dto;
 
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id }, data: userFields }),
       this.prisma.staffProfile.updateMany({
         where: { userId: id },
-        data: { jobTitle, isTrainer, specializations, bio },
+        data: {
+          jobTitle,
+          isTrainer,
+          specializations,
+          bio,
+          commissionRate,
+          // The profile's branch is the one payroll and HR filter by; it
+          // stayed behind when the staff member moved.
+          ...(dto.primaryBranchId !== undefined
+            ? { branchId: dto.primaryBranchId }
+            : {}),
+        },
       }),
     ]);
     return this.getOne(organizationId, id);
@@ -419,9 +641,11 @@ export class UsersService {
   }
 }
 
+/** Drops the hash; says only whether there is one, which is what tells
+ * a staff member who can sign in from one who hasn't set a password. */
 function sanitize<T extends { passwordHash?: string | null }>(
   user: T,
-): Omit<T, 'passwordHash'> {
-  const { passwordHash: _passwordHash, ...rest } = user;
-  return rest;
+): Omit<T, 'passwordHash'> & { hasPassword: boolean } {
+  const { passwordHash, ...rest } = user;
+  return { ...rest, hasPassword: Boolean(passwordHash) };
 }

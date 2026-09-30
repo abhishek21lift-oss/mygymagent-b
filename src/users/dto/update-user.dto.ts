@@ -2,8 +2,12 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -20,6 +24,7 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   phone?: string;
 
   @IsOptional()
@@ -45,5 +50,12 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   bio?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  commissionRate?: number;
 }
