@@ -53,8 +53,12 @@
   on (what the portal shows), `push: false` mutes. A member is not
   pushed about something they did themselves in the portal. Not pushed:
   workout sessions and PT completions -- the member was there.
-- **Not yet:** `POST /members/:id/messages` with channel PUSH still
-  addresses a phone number rather than the member's devices.
+- **Staff message, channel PUSH** -- `MemberDirectPushService`. A push a
+  member of staff writes on the member profile goes to that member's own
+  app devices, synchronously, one `MessageLog` row per device. It used to
+  go through `CommunicationsService` with the member's *phone number* as
+  the FCM token, so it could only fail. No app login, no active device,
+  or push unconfigured each answer with a plain message instead.
 
 ## What's still a stub
 

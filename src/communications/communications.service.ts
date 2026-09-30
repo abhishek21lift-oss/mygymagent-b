@@ -196,6 +196,26 @@ export class CommunicationsService {
     }
   }
 
+  /**
+   * Renders staff-written text the way `sendAdHoc` does -- `{{organizationName}}`
+   * plus the caller's variables -- for channels that deliver outside this
+   * service (push goes device by device, not to one recipient address).
+   */
+  async renderForOrganization(
+    organizationId: string,
+    text: string,
+    variables: Record<string, string> = {},
+  ): Promise<string> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
+    return this.templates.render(text, {
+      organizationName: organization?.name ?? '',
+      ...variables,
+    });
+  }
+
   private frontendUrl(): string {
     return this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }

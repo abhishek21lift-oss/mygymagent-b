@@ -634,6 +634,101 @@ describe('Push notifications over FCM (e2e)', () => {
       ).toBe(false);
     });
 
+    describe('a message staff write to one member, channel PUSH', () => {
+      const send = (id: string, body: object) =>
+        as(ownerToken)(
+          request(app.getHttpServer())
+            .post(`/members/${id}/communications/send`)
+            .send(body),
+        );
+
+      it("reaches the member's app, not their phone number", async () => {
+        await prisma.member.update({
+          where: { id: memberId },
+          data: { phone: '+919800000001' },
+        });
+        const before = received.length;
+        const res = await send(memberId, {
+          channel: 'PUSH',
+          customBody: 'Your locker key is at the front desk.',
+        }).expect(201);
+        expect(res.body.data.status).toBe('SENT');
+        expect(res.body.data.recipient).toMatch(/^device:/);
+
+        const push = await pushTo('member-phone', before);
+        // No title given: the gym's own name.
+        expect(push.title).toBe('Push Test Gym');
+        expect(push.body).toBe('Your locker key is at the front desk.');
+        // The bug: the phone number went to FCM as if it were a token.
+        expect(received.some((p) => p.token === '+919800000001')).toBe(false);
+
+        const history = await as(ownerToken)(
+          request(app.getHttpServer()).get(
+            `/members/${memberId}/communications`,
+          ),
+        ).expect(200);
+        const rows = history.body.data.items ?? history.body.data;
+        expect(
+          rows.some(
+            (r: { channel: string; status: string; templateKey: string }) =>
+              r.channel === 'PUSH' &&
+              r.status === 'SENT' &&
+              r.templateKey === 'ad_hoc',
+          ),
+        ).toBe(true);
+      });
+
+      it('uses the title staff give it', async () => {
+        const before = received.length;
+        await send(memberId, {
+          channel: 'PUSH',
+          customSubject: 'Class moved',
+          customBody: 'Tonight’s HIIT starts at 7:30.',
+        }).expect(201);
+        const push = await pushTo('member-phone', before);
+        expect(push.title).toBe('Class moved');
+      });
+
+      it('says so plainly when the member has no app login', async () => {
+        const noLogin = await as(ownerToken)(
+          request(app.getHttpServer()).post('/members').send({
+            primaryBranchId: branchId,
+            firstName: 'No',
+            lastName: 'App',
+            phone: '+919800000002',
+          }),
+        ).expect(201);
+        const res = await send(noLogin.body.data.id, {
+          channel: 'PUSH',
+          customBody: 'Hello',
+        }).expect(400);
+        expect(res.body.error.message).toMatch(/doesn't use the app yet/);
+      });
+
+      it('says so plainly when the member turned notifications on nowhere', async () => {
+        await prisma.notificationDevice.updateMany({
+          where: { userId: memberUserId },
+          data: { active: false },
+        });
+        const res = await send(memberId, {
+          channel: 'PUSH',
+          customBody: 'Hello',
+        }).expect(400);
+        expect(res.body.error.message).toMatch(/turned on notifications/);
+        await prisma.notificationDevice.updateMany({
+          where: { userId: memberUserId, address: 'member-phone' },
+          data: { active: true },
+        });
+      });
+
+      it('refuses a template key, since there are no push templates', async () => {
+        await send(memberId, {
+          channel: 'PUSH',
+          templateKey: 'welcome_email',
+        }).expect(400);
+      });
+    });
+
     it('reminds a member with no email address that their membership is ending', async () => {
       // SMS-login members have no email; the renewal email skips them, so
       // until push they were never reminded at all.

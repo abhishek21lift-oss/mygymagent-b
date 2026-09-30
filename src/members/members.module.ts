@@ -15,6 +15,7 @@ import {
 import { MemberTagsService } from './member-tags.service';
 import { MemberCommunicationsController } from './member-communications.controller';
 import { MemberCommunicationsService } from './member-communications.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { Member360Controller } from './member-360.controller';
 import { Member360Service } from './member-360.service';
 import { MemberAssessmentsController } from './member-assessments.controller';
@@ -29,7 +30,7 @@ import { MembersController } from './members.controller';
 import { MembersService } from './members.service';
 
 @Module({
-  imports: [CommunicationsModule, PlatformBillingModule],
+  imports: [CommunicationsModule, PlatformBillingModule, NotificationsModule],
   controllers: [
     // Static/nested member routes first: Express matches in registration
     // order, so Member360Controller ('overview'/'timeline') and

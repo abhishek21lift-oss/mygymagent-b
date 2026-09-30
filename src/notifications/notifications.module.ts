@@ -13,6 +13,7 @@ import { PushDevicesService } from './push/push-devices.service';
 import { PushDispatchService } from './push/push-dispatch.service';
 import { MemberPushListener } from './push/member-push.listener';
 import { MemberPushService } from './push/member-push.service';
+import { MemberDirectPushService } from './push/member-direct-push.service';
 
 @Module({
   imports: [
@@ -33,7 +34,8 @@ import { MemberPushService } from './push/member-push.service';
     PushDeliveryProcessor,
     MemberPushService,
     MemberPushListener,
+    MemberDirectPushService,
   ],
-  exports: [NotificationsService, MemberPushService],
+  exports: [NotificationsService, MemberPushService, MemberDirectPushService],
 })
 export class NotificationsModule {}

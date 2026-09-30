@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CommunicationsService } from '../communications/communications.service';
+import { MemberDirectPushService } from '../notifications/push/member-direct-push.service';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SendMemberMessageDto } from './dto/send-member-message.dto';
@@ -13,15 +14,15 @@ import type { SendMemberMessageDto } from './dto/send-member-message.dto';
  * straight from MessageLog (the same audit record every send path
  * writes); sends go through CommunicationsService.sendAdHoc so consent
  * gating and provider dispatch behave exactly like every other send.
- * EMAIL delivers for real today; WHATSAPP/SMS/PUSH record a FAILED log
- * row with the provider's clear "not configured" error instead of
- * pretending to deliver.
+ * PUSH is the exception: it goes to the member's own app devices through
+ * MemberDirectPushService, not to an address -- see that class.
  */
 @Injectable()
 export class MemberCommunicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
+    private readonly directPush: MemberDirectPushService,
   ) {}
 
   private async requireMember(
@@ -90,6 +91,34 @@ export class MemberCommunicationsService {
       throw new BadRequestException(
         'Provide either templateKey or customBody, not both',
       );
+
+    if (dto.channel === 'PUSH') {
+      // No push templates exist; a template key here would resolve to
+      // nothing and fail somewhere less clear.
+      if (dto.templateKey)
+        throw new BadRequestException(
+          'Push messages are written directly; templates are for email, WhatsApp and SMS',
+        );
+      const rendered = await this.communications.renderForOrganization(
+        organizationId,
+        body,
+        dto.variables,
+      );
+      const title = dto.customSubject?.trim()
+        ? await this.communications.renderForOrganization(
+            organizationId,
+            dto.customSubject.trim(),
+            dto.variables,
+          )
+        : await this.communications.renderForOrganization(
+            organizationId,
+            '{{organizationName}}',
+          );
+      return this.directPush.send(organizationId, member, {
+        title: title || 'THE CULT CLIENT',
+        body: rendered,
+      });
+    }
 
     const recipient =
       dto.channel === 'EMAIL' ? (member.email ?? '') : (member.phone ?? '');
