@@ -226,6 +226,42 @@ export class CommunicationsService {
     });
   }
 
+  /**
+   * Whether this gym's automated messages can go on WhatsApp: its own
+   * number is linked through WhatsApp Web and sending through it is on.
+   * The Meta Cloud API is deliberately not counted -- it only delivers
+   * business-initiated messages as pre-approved templates, and automations
+   * send text. See src/automation/member-messenger.service.ts.
+   */
+  async organizationName(organizationId: string): Promise<string> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
+    return organization?.name ?? '';
+  }
+
+  /** Whether any WhatsApp sending works for this gym: its own linked
+   * number, or a connected Meta Cloud API number. */
+  async whatsappReadiness(organizationId: string): Promise<boolean> {
+    if (await this.ownWhatsappNumberReady(organizationId)) return true;
+    const integration = await this.prisma.whatsappIntegration.findUnique({
+      where: { organizationId },
+      select: { status: true },
+    });
+    return integration?.status === 'CONNECTED';
+  }
+
+  async ownWhatsappNumberReady(organizationId: string): Promise<boolean> {
+    if (this.config.get<string>('WHATSAPP_WEB_ENABLED') !== 'true')
+      return false;
+    const session = await this.prisma.whatsappWebSession.findUnique({
+      where: { organizationId },
+      select: { status: true, useForSending: true },
+    });
+    return session?.status === 'CONNECTED' && session.useForSending;
+  }
+
   private frontendUrl(): string {
     return this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }

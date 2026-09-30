@@ -127,17 +127,18 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
   {
     key: 'renewal.t7',
     channel: 'WHATSAPP',
-    body: 'Hi {{1}}, your {{2}} membership expires on {{3}} (7 days left). Renew now to keep training without a break.',
+    body: 'Hi {{1}}, your {{2}} membership ends on {{3}}, about a week from now. Renew now to keep training without a break.',
   },
   {
     key: 'renewal.t3',
     channel: 'WHATSAPP',
-    body: 'Hi {{1}}, your {{2}} membership expires in 3 days ({{3}}). Renew today to avoid losing access.',
+    body: 'Hi {{1}}, just a few days left: your {{2}} membership ends on {{3}}. Renew today to avoid losing access.',
   },
   {
     key: 'renewal.t0',
     channel: 'WHATSAPP',
-    body: 'Hi {{1}}, your {{2}} membership expires today ({{3}}). Renew now to continue without interruption.',
+    // Sent when a day or less is left: 'today' was wrong half the time.
+    body: 'Hi {{1}}, your {{2}} membership ends on {{3}}. Renew now to continue without interruption.',
   },
   {
     key: 'pt_expiry_reminder',
@@ -145,6 +146,21 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     subject:
       'Your PT package "{{packageName}}" expires in {{daysUntilExpiry}} day(s)',
     body: 'Hi {{firstName}},\n\nYour PT package "{{packageName}}" has {{remainingSessions}} session(s) remaining and expires on {{expiryDate}} (in {{daysUntilExpiry}} day(s)).\n\nPlease book your remaining sessions before the package expires to avoid losing them.\n\n---\nTHE CULT CLIENT',
+  },
+  {
+    key: 'payment.received',
+    channel: 'WHATSAPP',
+    body: 'Hi {{firstName}}, we received your payment of {{amount}} at {{organizationName}}. Thank you!',
+  },
+  {
+    key: 'payment.overdue',
+    channel: 'WHATSAPP',
+    body: 'Hi {{firstName}}, a payment of {{amount}} is still pending on your {{organizationName}} membership. Please clear it at the front desk, or reply here if you need help.',
+  },
+  {
+    key: 'pt.expiry',
+    channel: 'WHATSAPP',
+    body: 'Hi {{firstName}}, your PT package "{{packageName}}" has {{remainingSessions}} session(s) left and ends on {{expiryDate}}. Book them before they expire!',
   },
   {
     key: 'lead.first_touch',

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AutomationRunService } from '../automation-run.service';
+import { runningOrganization } from '../automation-scope';
 
 const COOLDOWN_DAYS = 1;
 
@@ -33,6 +34,7 @@ export class LeadFollowupScanner {
         completedAt: null,
         dueAt: { lte: now },
         lead: { assignedToUserId: { not: null } },
+        organization: runningOrganization,
       },
       include: {
         lead: {

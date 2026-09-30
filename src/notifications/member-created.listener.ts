@@ -37,12 +37,14 @@ export class MemberCreatedListener {
 
   @OnEvent(DomainEvent.MemberCreated)
   async handleMemberCreated(event: MemberCreatedEvent): Promise<void> {
-    if (!event.email) return;
+    // A phone alone is enough now: the welcome can go on WhatsApp.
+    if (!event.email && !event.phone) return;
     try {
       await this.queue.add(JOB_NAMES.SEND_WELCOME_EMAIL, {
         organizationId: event.organizationId,
         memberId: event.memberId,
         email: event.email,
+        phone: event.phone,
         firstName: event.firstName,
       });
     } catch (error) {

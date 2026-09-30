@@ -3,13 +3,26 @@ import { Prisma } from '@prisma/client';
 import { CommunicationsService } from '../../communications/communications.service';
 import { OVERDUE_GRACE_DAYS } from '../../invoices/invoices.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AutomationRunService } from '../automation-run.service';
+import { readableDate, runningOrganization } from '../automation-scope';
+import { MemberMessenger } from '../member-messenger.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** Days relative to dueAt on which a nudge goes out: 3 days before, the
  * day itself, 3 days after, and 7 days after (which also flips OVERDUE). */
 const DUNNING_WINDOWS = [-3, 0, 3, 7] as const;
+
+/** A scan that misses a window's day (a deploy at 08:00, an outage)
+ * still sends it on one of the next few days, instead of never. */
+const CATCH_UP_DAYS = 3;
+
+/** The latest window at or before `daysPast`, if it is recent enough. */
+export function dunningWindowFor(daysPast: number): number | null {
+  const reached = DUNNING_WINDOWS.filter((w) => w <= daysPast);
+  if (!reached.length) return null;
+  const window = reached[reached.length - 1];
+  return daysPast - window <= CATCH_UP_DAYS ? window : null;
+}
 
 function dueStateFor(window: number): string {
   if (window < 0) return `due in ${-window} days`;
@@ -35,15 +48,25 @@ export class InvoiceDunningScanner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
-    private readonly runs: AutomationRunService,
+    private readonly messenger: MemberMessenger,
   ) {}
 
   async scan(): Promise<{ checked: number; sent: number }> {
     const now = new Date();
     const invoices = await this.prisma.invoice.findMany({
-      where: { status: { in: ['ISSUED', 'PART_PAID'] }, dueAt: { not: null } },
+      where: {
+        // OVERDUE too: the last reminder falls on the day the invoice
+        // turns overdue, and a scan that missed that day must still send it.
+        status: { in: ['ISSUED', 'PART_PAID', 'OVERDUE'] },
+        dueAt: { not: null },
+        member: { deletedAt: null },
+        organization: runningOrganization,
+      },
       include: {
-        member: { select: { id: true, email: true, firstName: true } },
+        member: {
+          select: { id: true, email: true, phone: true, firstName: true },
+        },
+        organization: { select: { timezone: true } },
         paymentLinks: {
           select: {
             amount: true,
@@ -55,20 +78,11 @@ export class InvoiceDunningScanner {
 
     let sent = 0;
     for (const invoice of invoices) {
+      const dueAt = invoice.dueAt as Date;
       const daysPast = Math.floor(
-        (now.getTime() - (invoice.dueAt as Date).getTime()) / MS_PER_DAY,
+        (now.getTime() - dueAt.getTime()) / MS_PER_DAY,
       );
-      const window = (DUNNING_WINDOWS as readonly number[]).includes(daysPast)
-        ? (daysPast as (typeof DUNNING_WINDOWS)[number])
-        : null;
-      const reachedGrace = daysPast >= OVERDUE_GRACE_DAYS;
-      if (window === null && !reachedGrace) continue;
-      if (!invoice.member.email) {
-        // Still flip an emailed-less invoice that's past grace -- the
-        // reminder can't go out, but the books shouldn't lie either.
-        if (reachedGrace) await this.flipOverdue(invoice.id);
-        continue;
-      }
+      const window = dunningWindowFor(daysPast);
 
       if (window !== null) {
         const paid = invoice.paymentLinks.reduce(
@@ -77,16 +91,33 @@ export class InvoiceDunningScanner {
           new Prisma.Decimal(0),
         );
         const outstanding = new Prisma.Decimal(invoice.grandTotal).minus(paid);
-        if (outstanding.lte(0)) continue;
-        const dueState = dueStateFor(window);
-        const outcome = await this.runs.attempt(
-          invoice.organizationId,
-          'INVOICE_DUE_REMINDER',
-          invoice.id,
-          1,
-          async () => {
-            try {
-              const log = await this.communications.sendInvoiceDueReminder(
+        if (outstanding.gt(0)) {
+          const dueState = dueStateFor(window);
+          const whatsappTemplate =
+            window <= 0
+              ? 'invoice.due_soon'
+              : window < OVERDUE_GRACE_DAYS
+                ? 'invoice.overdue'
+                : 'invoice.final_notice';
+          const { outcome, channel } = await this.messenger.deliver({
+            organizationId: invoice.organizationId,
+            key: 'INVOICE_DUE_REMINDER',
+            // One reminder per window, however many scans land in it.
+            subjectId: `${invoice.id}:w${window}`,
+            cooldownDays: 60,
+            member: invoice.member,
+            whatsapp: {
+              templateKey: whatsappTemplate,
+              variables: {
+                '1': invoice.member.firstName,
+                '2': invoice.number,
+                '3': outstanding.toFixed(2),
+                '4': invoice.currency,
+                '5': readableDate(dueAt, invoice.organization.timezone),
+              },
+            },
+            email: () =>
+              this.communications.sendInvoiceDueReminder(
                 invoice.organizationId,
                 invoice.member.id,
                 invoice.member.email as string,
@@ -97,40 +128,43 @@ export class InvoiceDunningScanner {
                   currency: invoice.currency,
                   dueState,
                 },
-              );
-              await this.prisma.dunningAttempt.create({
-                data: {
-                  invoiceId: invoice.id,
-                  channel: 'EMAIL',
-                  templateKey: 'invoice_due_reminder',
-                  status: log.status,
-                  sentAt: log.sentAt,
-                },
-              });
-              return log;
-            } catch (error) {
-              await this.prisma.dunningAttempt.create({
-                data: {
-                  invoiceId: invoice.id,
-                  channel: 'EMAIL',
-                  templateKey: 'invoice_due_reminder',
-                  status: 'FAILED',
-                },
-              });
-              throw error;
-            }
-          },
-          {
-            window,
-            dueState,
-            outstanding: outstanding.toFixed(2),
-            currency: invoice.currency,
-          },
-        );
-        if (outcome === 'SENT') sent++;
+              ),
+            detail: {
+              window,
+              dueState,
+              outstanding: outstanding.toFixed(2),
+              currency: invoice.currency,
+            },
+          });
+          if (channel && (outcome === 'SENT' || outcome === 'FAILED')) {
+            await this.prisma.dunningAttempt.create({
+              data: {
+                invoiceId: invoice.id,
+                channel,
+                templateKey:
+                  channel === 'WHATSAPP'
+                    ? whatsappTemplate
+                    : 'invoice_due_reminder',
+                // A WhatsApp message is queued, not yet delivered.
+                status:
+                  outcome === 'FAILED'
+                    ? 'FAILED'
+                    : channel === 'WHATSAPP'
+                      ? 'PENDING'
+                      : 'SENT',
+                sentAt:
+                  outcome === 'SENT' && channel === 'EMAIL' ? new Date() : null,
+              },
+            });
+          }
+          if (outcome === 'SENT') sent++;
+        }
       }
 
-      if (reachedGrace) await this.flipOverdue(invoice.id);
+      if (daysPast >= OVERDUE_GRACE_DAYS && invoice.status !== 'OVERDUE') {
+        // With or without a reminder -- the books shouldn't lie.
+        await this.flipOverdue(invoice.id);
+      }
     }
 
     this.logger.log(

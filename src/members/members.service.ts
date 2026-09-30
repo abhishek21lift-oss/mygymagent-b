@@ -260,6 +260,7 @@ export class MembersService {
       branchId: member.primaryBranchId,
       memberId: member.id,
       email: member.email ?? undefined,
+      phone: member.phone ?? undefined,
       firstName: member.firstName,
     };
     this.events.emit(DomainEvent.MemberCreated, payload);

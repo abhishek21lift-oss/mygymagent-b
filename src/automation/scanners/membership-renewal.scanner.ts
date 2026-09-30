@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { MemberPushService } from '../../notifications/push/member-push.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AutomationRunService } from '../automation-run.service';
+import { runningOrganization, readableDate } from '../automation-scope';
+import { MemberMessenger } from '../member-messenger.service';
 
 const REMINDER_WINDOW_DAYS = 7;
 const COOLDOWN_DAYS = 3;
@@ -26,7 +27,7 @@ export class MembershipRenewalScanner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
-    private readonly runs: AutomationRunService,
+    private readonly messenger: MemberMessenger,
     private readonly memberPush: MemberPushService,
   ) {}
 
@@ -37,15 +38,41 @@ export class MembershipRenewalScanner {
     );
 
     const memberships = await this.prisma.membership.findMany({
-      where: { status: 'ACTIVE', endDate: { gte: now, lte: windowEnd } },
+      where: {
+        status: 'ACTIVE',
+        endDate: { gte: now, lte: windowEnd },
+        member: { deletedAt: null },
+        organization: runningOrganization,
+      },
       include: {
-        member: { select: { id: true, email: true, firstName: true } },
+        member: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            // A membership that ends while a later one is already sold
+            // is not lapsing: the member has renewed.
+            memberships: {
+              where: { status: { in: ['ACTIVE', 'PENDING', 'FROZEN'] } },
+              select: { id: true, endDate: true },
+            },
+          },
+        },
         membershipPlan: { select: { name: true } },
+        organization: { select: { timezone: true } },
       },
     });
 
     let sent = 0;
+    let checked = 0;
     for (const membership of memberships) {
+      const renewed = membership.member.memberships.some(
+        (other) =>
+          other.id !== membership.id && other.endDate > membership.endDate,
+      );
+      if (renewed) continue;
+      checked++;
       const daysUntilExpiry = Math.ceil(
         (membership.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
@@ -68,13 +95,31 @@ export class MembershipRenewalScanner {
           },
         );
       }
-      if (!membership.member.email) continue;
-      const outcome = await this.runs.attempt(
-        membership.organizationId,
-        'MEMBERSHIP_RENEWAL_REMINDER',
-        membership.id,
-        COOLDOWN_DAYS,
-        () =>
+      const expiryDate = readableDate(
+        membership.endDate,
+        membership.organization.timezone,
+      );
+      // WhatsApp goes three times -- a week out, three days out, the last
+      // day -- each once; email keeps its 3-day cooldown.
+      const stage =
+        daysUntilExpiry > 3 ? 't7' : daysUntilExpiry > 1 ? 't3' : 't0';
+      const { outcome } = await this.messenger.deliver({
+        organizationId: membership.organizationId,
+        key: 'MEMBERSHIP_RENEWAL_REMINDER',
+        subjectId: membership.id,
+        cooldownDays: COOLDOWN_DAYS,
+        member: membership.member,
+        whatsapp: {
+          templateKey: `renewal.${stage}`,
+          stage,
+          cooldownDays: 30,
+          variables: {
+            '1': membership.member.firstName,
+            '2': membership.membershipPlan.name,
+            '3': expiryDate,
+          },
+        },
+        email: () =>
           this.communications.sendMembershipRenewalReminder(
             membership.organizationId,
             membership.member.id,
@@ -82,17 +127,17 @@ export class MembershipRenewalScanner {
             {
               firstName: membership.member.firstName,
               planName: membership.membershipPlan.name,
-              expiryDate: membership.endDate.toISOString().slice(0, 10),
+              expiryDate,
             },
           ),
-        { daysUntilExpiry },
-      );
+        detail: { daysUntilExpiry },
+      });
       if (outcome === 'SENT') sent++;
     }
 
     this.logger.log(
-      `Membership renewal scan: ${memberships.length} expiring in window, ${sent} reminders sent`,
+      `Membership renewal scan: ${checked} lapsing in window, ${sent} reminders sent`,
     );
-    return { checked: memberships.length, sent };
+    return { checked, sent };
   }
 }

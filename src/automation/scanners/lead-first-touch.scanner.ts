@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AutomationRunService } from '../automation-run.service';
+import { runningOrganization } from '../automation-scope';
 
 const FIRST_TOUCH_WINDOW_MIN = 30;
 const FOLLOWUP_DUE_HOURS = 4;
@@ -38,6 +39,7 @@ export class LeadFirstTouchScanner {
     const candidates = await this.prisma.lead.findMany({
       where: {
         status: 'NEW',
+        organization: runningOrganization,
         createdAt: { gte: windowStart, lte: now },
         phone: { not: null },
       },

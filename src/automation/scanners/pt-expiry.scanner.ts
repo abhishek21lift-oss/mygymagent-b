@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AutomationRunService } from '../automation-run.service';
+import { readableDate, runningOrganization } from '../automation-scope';
+import { MemberMessenger } from '../member-messenger.service';
 
 const REMINDER_WINDOW_DAYS = 7;
 const COOLDOWN_DAYS = 3;
@@ -28,7 +29,7 @@ export class PtExpiryScanner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
-    private readonly runs: AutomationRunService,
+    private readonly messenger: MemberMessenger,
   ) {}
 
   async scan(
@@ -44,11 +45,20 @@ export class PtExpiryScanner {
         ...(organizationId ? { organizationId } : {}),
         status: 'ACTIVE',
         endDate: { gte: now, lte: windowEnd },
+        member: { deletedAt: null },
+        organization: runningOrganization,
       },
       include: {
         member: {
-          select: { id: true, email: true, firstName: true, lastName: true },
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+          },
         },
+        organization: { select: { timezone: true } },
       },
     });
 
@@ -58,16 +68,27 @@ export class PtExpiryScanner {
 
     let sent = 0;
     for (const pkg of expiring) {
-      if (!pkg.member.email) continue;
       const daysUntilExpiry = Math.ceil(
         (pkg.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
-      const outcome = await this.runs.attempt(
-        pkg.organizationId,
-        'PT_EXPIRY_REMINDER',
-        pkg.id,
-        COOLDOWN_DAYS,
-        () =>
+      const expiryDate = readableDate(pkg.endDate, pkg.organization.timezone);
+      const remainingSessions = String(pkg.totalSessions - pkg.usedSessions);
+      const { outcome } = await this.messenger.deliver({
+        organizationId: pkg.organizationId,
+        key: 'PT_EXPIRY_REMINDER',
+        subjectId: pkg.id,
+        cooldownDays: COOLDOWN_DAYS,
+        member: pkg.member,
+        whatsapp: {
+          templateKey: 'pt.expiry',
+          variables: {
+            firstName: pkg.member.firstName,
+            packageName: pkg.name,
+            remainingSessions,
+            expiryDate,
+          },
+        },
+        email: () =>
           this.communications.send({
             organizationId: pkg.organizationId,
             channel: 'EMAIL',
@@ -78,13 +99,13 @@ export class PtExpiryScanner {
             variables: {
               firstName: pkg.member.firstName,
               packageName: pkg.name,
-              expiryDate: pkg.endDate.toISOString().slice(0, 10),
-              remainingSessions: String(pkg.totalSessions - pkg.usedSessions),
+              expiryDate,
+              remainingSessions,
               daysUntilExpiry: String(daysUntilExpiry),
             },
           }),
-        { daysUntilExpiry: String(daysUntilExpiry) },
-      );
+        detail: { daysUntilExpiry: String(daysUntilExpiry) },
+      });
       if (outcome === 'SENT') sent++;
     }
 

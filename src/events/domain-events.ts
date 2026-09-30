@@ -27,6 +27,8 @@ export interface MemberCreatedEvent {
   branchId: string;
   memberId: string;
   email?: string;
+  /** For the WhatsApp welcome, when the gym sends from its own number. */
+  phone?: string;
   firstName?: string;
 }
 
