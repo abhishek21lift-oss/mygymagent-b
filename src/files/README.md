@@ -27,6 +27,12 @@ the same `members.read`/`members.read_assigned`/`members.update` permissions as 
 doesn't exist and isn't needed until a non-member-scoped upload use case (org logo, invoices) shows
 up, at which point it gets its own gating decision, not a retrofit of this one.
 
+**The gym's logo** (`POST`/`DELETE /organizations/current/logo`) is the first such use case, and got
+its own decision: `organizations.update`, like the rest of the gym's profile. PNG, JPEG or WebP up
+to 2 MB, type sniffed from the bytes. The key lives on `Organization.logoKey` (no `File` row: one
+current logo per gym, the replaced object deleted), and `GET /organizations/current` returns only a
+signed `logoUrl`, never the key.
+
 ## Deliberate scope limits (read before extending this)
 
 - **No image processing.** Uploads are stored as-is — no resizing, thumbnailing, or EXIF stripping.

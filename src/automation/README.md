@@ -85,9 +85,9 @@ linked number, while `WhatsappWebSession.autoReply` is on (default; Settings →
 welcome message invites replies; before this, nobody answered them until staff looked.
 
 Keywords (English and Hinglish, `whatsapp-auto-reply.intents.ts`) pick the answer, built from the
-gym's own data: **PLANS** (active plans and prices), **CLASSES** (next 7 days), **MY PLAN** (the
-member's own membership and renew link), **CONTACT** (branch address and phone), **HI/HELP** (the
-menu). Anything else gets "our team will reply soon" once in 12 hours; "thanks"/"ok" gets nothing.
+gym's own data: **PLANS** (active plans and prices), **TIMINGS** (each branch's opening hours from
+Settings → Gym profile), **CLASSES** (next 7 days), **MY PLAN** (the member's own membership and
+renew link), **CONTACT** (branch address, phone and directions link), **HI/HELP** (the menu). Anything else gets "our team will reply soon" once in 12 hours; "thanks"/"ok" gets nothing.
 
 Guards: at most 6 answers an hour to one number, the same answer not twice within 2 minutes, and no
 "we'll reply" while staff wrote to that person from the app in the last 30 minutes. Answers are

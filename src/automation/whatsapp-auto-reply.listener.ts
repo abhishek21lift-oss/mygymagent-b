@@ -12,6 +12,7 @@ import {
   readableMoney,
   runningOrganization,
 } from './automation-scope';
+import { parseOpeningHours, readableWeek } from '../branches/opening-hours';
 import {
   type AutoReplyIntent,
   detectIntent,
@@ -199,13 +200,15 @@ export class WhatsappAutoReplyListener {
         return this.myPlan(gym, member);
       case 'CONTACT':
         return this.contact(gym);
+      case 'HOURS':
+        return this.hours(gym);
       case 'MENU':
         return this.menu(gym, member);
       case 'UNKNOWN':
         return [
           `Thanks for your message! The ${gym.name} team will reply soon.`,
           '',
-          'Meanwhile, reply *PLANS*, *CLASSES* or *MY PLAN* for an instant answer.',
+          'Meanwhile, reply *PLANS*, *TIMINGS*, *CLASSES* or *MY PLAN* for an instant answer.',
         ].join('\n');
       default:
         return null;
@@ -218,9 +221,10 @@ export class WhatsappAutoReplyListener {
       '',
       'Reply with:',
       '• *PLANS* – membership plans and prices',
+      '• *TIMINGS* – when the gym is open',
       '• *CLASSES* – this week’s class schedule',
       '• *MY PLAN* – your membership and renewal',
-      '• *CONTACT* – address and phone',
+      '• *CONTACT* – address, directions and phone',
       '',
       'Or just type your question and our team will reply.',
     ].join('\n');
@@ -330,8 +334,62 @@ export class WhatsappAutoReplyListener {
     ].join('\n');
   }
 
-  private async contact(gym: Gym): Promise<string | null> {
-    const branches = await this.prisma.branch.findMany({
+  private async contact(gym: Gym): Promise<string> {
+    const [branches, organization] = await Promise.all([
+      this.activeBranches(gym),
+      this.prisma.organization.findUnique({
+        where: { id: gym.id },
+        select: { contactPhone: true, contactEmail: true },
+      }),
+    ]);
+    const lines = branches.flatMap((branch) => {
+      const address = [branch.addressLine1, branch.addressLine2, branch.city]
+        .filter(Boolean)
+        .join(', ');
+      const parts = [address, branch.phone].filter(Boolean);
+      if (parts.length === 0 && !branch.mapsUrl) return [];
+      return [
+        `• ${branch.name}${parts.length ? ` – ${parts.join(' · ')}` : ''}`,
+        ...(branch.mapsUrl ? [`  Directions: ${branch.mapsUrl}`] : []),
+      ];
+    });
+    // The gym's own number and email, for a gym whose branches have none.
+    const reach = [organization?.contactPhone, organization?.contactEmail]
+      .filter(Boolean)
+      .join(' · ');
+    if (lines.length === 0 && !reach) {
+      return `Thanks for asking! The ${gym.name} team will share our address and phone number with you shortly.`;
+    }
+    return [
+      `*${gym.name}*`,
+      ...lines,
+      ...(reach && !branches.some((b) => b.phone)
+        ? [`Call or write: ${reach}`]
+        : []),
+    ].join('\n');
+  }
+
+  private async hours(gym: Gym): Promise<string> {
+    const branches = (await this.activeBranches(gym))
+      .map((branch) => ({
+        name: branch.name,
+        week: readableWeek(parseOpeningHours(branch.openingHours)),
+      }))
+      .filter((branch) => branch.week.length > 0);
+    if (branches.length === 0) {
+      return `Thanks for asking! The ${gym.name} team will share our timings with you shortly.`;
+    }
+    if (branches.length === 1) {
+      return [`*${gym.name} timings*`, ...branches[0].week].join('\n');
+    }
+    return [
+      `*${gym.name} timings*`,
+      ...branches.flatMap((branch) => ['', `*${branch.name}*`, ...branch.week]),
+    ].join('\n');
+  }
+
+  private activeBranches(gym: Gym) {
+    return this.prisma.branch.findMany({
       where: { organizationId: gym.id, deletedAt: null, status: 'ACTIVE' },
       orderBy: { createdAt: 'asc' },
       take: LIST_LIMIT,
@@ -341,21 +399,10 @@ export class WhatsappAutoReplyListener {
         addressLine1: true,
         addressLine2: true,
         city: true,
+        mapsUrl: true,
+        openingHours: true,
       },
     });
-    const lines = branches
-      .map((branch) => {
-        const address = [branch.addressLine1, branch.addressLine2, branch.city]
-          .filter(Boolean)
-          .join(', ');
-        const parts = [address, branch.phone].filter(Boolean);
-        return parts.length ? `• ${branch.name} – ${parts.join(' · ')}` : null;
-      })
-      .filter((line): line is string => line !== null);
-    if (lines.length === 0) {
-      return `Thanks for asking! The ${gym.name} team will share our address and phone number with you shortly.`;
-    }
-    return [`*${gym.name}*`, ...lines].join('\n');
   }
 }
 

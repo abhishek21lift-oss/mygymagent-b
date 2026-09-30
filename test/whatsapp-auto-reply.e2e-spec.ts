@@ -134,14 +134,21 @@ describe('WhatsApp auto-replies (e2e)', () => {
       where: { id: gym.organizationId },
       data: { currency: 'INR', timezone: 'Asia/Kolkata' },
     });
-    await prisma.branch.update({
-      where: { id: gym.branchId },
-      data: {
+    // Set the way the Gym profile page does: address, directions and
+    // morning/evening hours six days a week.
+    await as(gym.accessToken)
+      .patch(`/branches/${gym.branchId}`)
+      .send({
         addressLine1: '12 MG Road',
         city: 'Pune',
         phone: '020 5555 1234',
-      },
-    });
+        mapsUrl: 'https://maps.app.goo.gl/abc123',
+        openingHours: [0, 1, 2, 3, 4, 5].flatMap((day) => [
+          { day, open: '16:00', close: '22:00' },
+          { day, open: '05:00', close: '11:00' },
+        ]),
+      })
+      .expect(200);
 
     await as(gym.accessToken)
       .post('/whatsapp-web/connect')
@@ -255,6 +262,19 @@ describe('WhatsApp auto-replies (e2e)', () => {
     const m = await member();
     const reply = await ask(m.digits, 'gym kahan hai');
     expect(reply).toContain('12 MG Road, Pune · 020 5555 1234');
+    expect(reply).toContain('Directions: https://maps.app.goo.gl/abc123');
+  });
+
+  it('gives the opening hours, and "class timings" still gives classes', async () => {
+    const m = await member();
+    const reply = await ask(m.digits, 'gym timing kya hai?');
+    expect(reply).toBe(
+      [
+        '*Auto Reply Fitness timings*',
+        'Mon–Sat: 5:00 am – 11:00 am, 4:00 pm – 10:00 pm',
+        'Sun: Closed',
+      ].join('\n'),
+    );
   });
 
   it('greets with the menu', async () => {

@@ -7,7 +7,14 @@
  * at. Hinglish spellings members actually type are included.
  */
 export type AutoReplyIntent =
-  'MENU' | 'PLANS' | 'CLASSES' | 'MY_PLAN' | 'CONTACT' | 'THANKS' | 'UNKNOWN';
+  | 'MENU'
+  | 'PLANS'
+  | 'CLASSES'
+  | 'HOURS'
+  | 'MY_PLAN'
+  | 'CONTACT'
+  | 'THANKS'
+  | 'UNKNOWN';
 
 const WORDS: Array<[Exclude<AutoReplyIntent, 'UNKNOWN'>, string[]]> = [
   // Asked about their own membership: checked before PLANS, since "my
@@ -30,6 +37,45 @@ const WORDS: Array<[Exclude<AutoReplyIntent, 'UNKNOWN'>, string[]]> = [
       'kab tak',
       'khatam',
       'status',
+    ],
+  ],
+  [
+    'CLASSES',
+    [
+      'class',
+      'classes',
+      'schedule',
+      'schedules',
+      'timetable',
+      'batch',
+      'batches',
+      'session',
+      'sessions',
+      'yoga',
+      'zumba',
+      'aerobics',
+    ],
+  ],
+  // The gym's own hours. After CLASSES, so "class timings" is about
+  // classes; before PLANS, so "kitne baje khulta hai" is not about price.
+  [
+    'HOURS',
+    [
+      'timing',
+      'timings',
+      'hours',
+      'open',
+      'opens',
+      'opening',
+      'close',
+      'closes',
+      'closing',
+      'closed',
+      'khulta',
+      'khulti',
+      'khulega',
+      'khulte',
+      'baje',
     ],
   ],
   [
@@ -56,25 +102,6 @@ const WORDS: Array<[Exclude<AutoReplyIntent, 'UNKNOWN'>, string[]]> = [
       'paise',
       'join',
       'joining',
-    ],
-  ],
-  [
-    'CLASSES',
-    [
-      'class',
-      'classes',
-      'schedule',
-      'schedules',
-      'timetable',
-      'timing',
-      'timings',
-      'batch',
-      'batches',
-      'session',
-      'sessions',
-      'yoga',
-      'zumba',
-      'aerobics',
     ],
   ],
   [

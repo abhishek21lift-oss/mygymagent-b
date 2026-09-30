@@ -97,6 +97,16 @@ model Organization {
   emailFromName String?
   emailReplyTo  String?
 
+  /// The gym's public face, edited on Settings → Gym profile. The logo is
+  /// an object-storage key, never returned to a client: reads get a
+  /// short-lived signed URL (src/files/README.md).
+  logoKey      String?
+  contactPhone String?
+  contactEmail String?
+  website      String?
+  /// Instagram handle without the "@".
+  instagram    String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -229,6 +239,12 @@ model Branch {
   state        String?
   postalCode   String?
   country      String?
+  /// A Google Maps (or any https) link members can open for directions.
+  mapsUrl      String?
+  /// Weekly opening hours: [{ day: 0 (Mon)..6 (Sun), open: "HH:MM",
+  /// close: "HH:MM" }], several slots a day allowed (morning and evening
+  /// shifts); a day with no slot is closed. Null: not set.
+  openingHours Json?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
