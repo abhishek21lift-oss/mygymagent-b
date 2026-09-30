@@ -19,6 +19,9 @@ const IV_BYTES = 12;
  * endpoints surface when WhatsApp sending isn't configured -- missing,
  * blank, or not exactly 32 bytes of hex. Never logs the key material. */
 export function parseWhatsappVaultKey(keyHex: string | undefined): Buffer {
+  // Trimmed: a value pasted into a hosting dashboard often carries a
+  // trailing newline, which is not part of the key.
+  keyHex = keyHex?.trim();
   if (!keyHex || !/^[0-9a-fA-F]{64}$/.test(keyHex)) {
     throw new ServiceUnavailableException("WhatsApp sending isn't configured");
   }

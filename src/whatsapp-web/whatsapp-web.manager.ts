@@ -36,6 +36,8 @@ interface Entry {
   stopping: boolean;
   pairingPhone?: string;
   pairingRequested: boolean;
+  /** WhatsApp has answered at least once (a QR or an open session). */
+  responded: boolean;
 }
 
 const LOCK_TTL_MS = 60_000;
@@ -43,6 +45,8 @@ const LOCK_RENEW_MS = 20_000;
 const QR_TTL_S = 60;
 const PAIRING_CODE_TTL_S = 180;
 const MAX_RECONNECT_DELAY_MS = 60_000;
+/** Failed attempts while linking before we stop and say why. */
+const MAX_PAIRING_FAILURES = 3;
 
 /**
  * Owns the live WhatsApp Web connections: one socket per gym that has
@@ -74,6 +78,8 @@ export class WhatsappWebManager
   private readonly entries = new Map<string, Entry>();
   private readonly reconnectAttempts = new Map<string, number>();
   private readonly reconnectTimers = new Map<string, NodeJS.Timeout>();
+  private readonly watchdogs = new Map<string, NodeJS.Timeout>();
+  private readonly pairingFailures = new Map<string, number>();
   private readonly instanceId = randomUUID();
   private readonly prefix: string;
   private renewTimer?: NodeJS.Timeout;
@@ -123,6 +129,7 @@ export class WhatsappWebManager
     this.shuttingDown = true;
     if (this.renewTimer) clearInterval(this.renewTimer);
     for (const timer of this.reconnectTimers.values()) clearTimeout(timer);
+    for (const timer of this.watchdogs.values()) clearTimeout(timer);
     for (const [organizationId, entry] of this.entries) {
       entry.stopping = true;
       // end(), never logout(): a deploy must not unlink the gym's phone.
@@ -171,8 +178,10 @@ export class WhatsappWebManager
       stopping: false,
       pairingPhone: options.pairingPhone,
       pairingRequested: false,
+      responded: false,
     };
     this.entries.set(organizationId, entry);
+    await this.armWatchdog(organizationId, entry);
     socket.ev.on(
       'connection.update',
       (update) =>
@@ -204,6 +213,8 @@ export class WhatsappWebManager
    */
   async disconnect(organizationId: string): Promise<void> {
     this.cancelReconnect(organizationId);
+    this.clearWatchdog(organizationId);
+    this.pairingFailures.delete(organizationId);
     const entry = this.entries.get(organizationId);
     if (entry) {
       entry.stopping = true;
@@ -264,6 +275,18 @@ export class WhatsappWebManager
     entry: Entry,
     update: WaConnectionUpdate,
   ): Promise<void> {
+    // Every step, so a link that never shows a QR can be diagnosed from
+    // the server logs.
+    if (update.connection || update.lastDisconnect) {
+      const reason = describeDisconnect(update.lastDisconnect?.error);
+      this.logger.log(
+        `WhatsApp Web ${organizationId}: ${update.connection ?? 'update'}${reason ? ` (${reason})` : ''}`,
+      );
+    }
+    if (update.qr || update.connection === 'open') {
+      entry.responded = true;
+      this.clearWatchdog(organizationId);
+    }
     if (update.qr) {
       await this.redis.set(
         this.key(organizationId, 'qr'),
@@ -286,6 +309,7 @@ export class WhatsappWebManager
     if (update.connection === 'open') {
       entry.open = true;
       this.reconnectAttempts.delete(organizationId);
+      this.pairingFailures.delete(organizationId);
       await this.clearCodes(organizationId);
       await this.prisma.whatsappWebSession.update({
         where: { organizationId },
@@ -301,6 +325,7 @@ export class WhatsappWebManager
 
     if (update.connection !== 'close') return;
     entry.open = false;
+    this.clearWatchdog(organizationId);
     if (entry.stopping || this.shuttingDown) return;
     this.entries.delete(organizationId);
     const code = statusCode(update.lastDisconnect?.error);
@@ -349,6 +374,30 @@ export class WhatsappWebManager
       await this.releaseLock(organizationId);
       return;
     }
+    if (
+      session.status === 'PAIRING' &&
+      code !== WA_DISCONNECT.RESTART_REQUIRED
+    ) {
+      // Failing while linking: say why on the settings page as it
+      // happens, and stop after a few tries instead of spinning forever.
+      const failures = (this.pairingFailures.get(organizationId) ?? 0) + 1;
+      this.pairingFailures.set(organizationId, failures);
+      const reason =
+        describeDisconnect(update.lastDisconnect?.error) || 'no reason given';
+      if (failures >= MAX_PAIRING_FAILURES) {
+        await this.abandonPairing(
+          organizationId,
+          `Couldn't connect to WhatsApp after ${failures} tries (${reason}).`,
+        );
+        return;
+      }
+      await this.prisma.whatsappWebSession.update({
+        where: { organizationId },
+        data: {
+          lastError: `Connecting to WhatsApp failed (${reason}). Retrying…`,
+        },
+      });
+    }
     // A dropped connection, or WhatsApp asking for a restart after
     // pairing: reconnect with the same keys, backing off if it keeps
     // failing. The lock is kept, so no other server takes over meanwhile.
@@ -392,6 +441,74 @@ export class WhatsappWebManager
         data: { status },
       });
     }
+  }
+
+  // -- linking watchdog ----------------------------------------------------
+
+  /**
+   * While linking a number, WhatsApp should answer with a QR within
+   * seconds. If it says nothing at all -- the server cannot reach
+   * web.whatsapp.com, or the connection is silently dropped -- stop and
+   * say so, rather than leave the settings page on a spinner forever.
+   * Not armed when resuming a linked number: that has its own reconnects.
+   */
+  private async armWatchdog(organizationId: string, entry: Entry) {
+    const session = await this.prisma.whatsappWebSession.findUnique({
+      where: { organizationId },
+      select: { status: true },
+    });
+    if (session?.status !== 'PAIRING') return;
+    this.clearWatchdog(organizationId);
+    const ms = Number(
+      this.config.get('WHATSAPP_WEB_PAIRING_TIMEOUT_MS') ?? 45_000,
+    );
+    const timer = setTimeout(() => {
+      this.watchdogs.delete(organizationId);
+      // Only the attempt this timer was set for: a socket that has already
+      // closed (and maybe been replaced by a reconnect) is not waiting.
+      if (entry.responded || entry.stopping) return;
+      if (this.entries.get(organizationId) !== entry) return;
+      void this.abandonPairing(
+        organizationId,
+        `WhatsApp didn't answer the server within ${Math.round(ms / 1000)} seconds, so no QR code could be shown. The server may be unable to reach web.whatsapp.com (check its outbound network or firewall). Try again; if it repeats, check the server logs for "WhatsApp Web".`,
+      ).catch((error: unknown) =>
+        this.logger.error(`Abandoning pairing failed: ${describe(error)}`),
+      );
+    }, ms);
+    timer.unref();
+    this.watchdogs.set(organizationId, timer);
+  }
+
+  private clearWatchdog(organizationId: string) {
+    const timer = this.watchdogs.get(organizationId);
+    if (timer) clearTimeout(timer);
+    this.watchdogs.delete(organizationId);
+  }
+
+  /** Stops a link attempt and records why, for the settings page. */
+  private async abandonPairing(organizationId: string, reason: string) {
+    this.logger.warn(
+      `WhatsApp Web ${organizationId}: gave up linking -- ${reason}`,
+    );
+    this.cancelReconnect(organizationId);
+    this.pairingFailures.delete(organizationId);
+    const entry = this.entries.get(organizationId);
+    if (entry) {
+      entry.stopping = true;
+      try {
+        entry.socket.end(undefined);
+      } catch {
+        // already closed
+      }
+      this.entries.delete(organizationId);
+    }
+    await this.clearCodes(organizationId);
+    await WhatsappWebAuthStore.clear(this.prisma, organizationId);
+    await this.releaseLock(organizationId);
+    await this.prisma.whatsappWebSession.updateMany({
+      where: { organizationId, status: 'PAIRING' },
+      data: { status: 'DISCONNECTED', lastError: reason },
+    });
   }
 
   // -- reconnects and the lock ---------------------------------------------
@@ -517,4 +634,12 @@ function jidDigits(jid: string | null | undefined): string | null {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** "code 405: Connection Failure", from a Baileys (Boom) disconnect error. */
+function describeDisconnect(error: unknown): string {
+  if (!error) return '';
+  const code = statusCode(error);
+  const message = error instanceof Error ? error.message : '';
+  return [code ? `code ${code}` : '', message].filter(Boolean).join(': ');
 }

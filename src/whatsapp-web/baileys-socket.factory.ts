@@ -52,6 +52,9 @@ export class BaileysSocketFactory implements WaSocketFactory {
       // Named honestly: this is what the gym sees under Linked devices.
       browser: ['THE CULT CLIENT', 'Chrome', '1.0'],
       markOnlineOnConnect: false,
+      // Fail a connection attempt that gets no answer, so it is reported
+      // instead of hanging.
+      connectTimeoutMs: 20_000,
       syncFullHistory: false,
       ...(latest?.version ? { version: latest.version } : {}),
     });

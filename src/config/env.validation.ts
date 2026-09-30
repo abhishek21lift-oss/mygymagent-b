@@ -164,6 +164,12 @@ export const envSchema = z
     WHATSAPP_WEB_ENABLED: z.enum(['true', 'false']).default('false'),
     WHATSAPP_WEB_MIN_GAP_MS: z.coerce.number().int().min(0).default(8_000),
     WHATSAPP_WEB_JITTER_MS: z.coerce.number().int().min(0).default(7_000),
+    // How long to wait for WhatsApp's first answer (a QR) when linking.
+    WHATSAPP_WEB_PAIRING_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .default(45_000),
 
     // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
     // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a
