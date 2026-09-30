@@ -102,7 +102,7 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
   {
     key: 'welcome',
     channel: 'WHATSAPP',
-    body: 'Hello {{1}}, welcome to {{2}}! Reply to this chat for help with classes, schedules, and memberships.',
+    body: 'Hello {{1}}, welcome to {{2}}! Reply PLANS, CLASSES or MY PLAN here any time for an instant answer, or just send us your question.',
   },
   {
     key: 'payment.receipt',

@@ -72,6 +72,7 @@ export class WhatsappWebService {
       status: session?.status ?? 'DISCONNECTED',
       phoneNumber: session?.phoneNumber ?? null,
       useForSending: session?.useForSending ?? false,
+      autoReply: session?.autoReply ?? true,
       dailyLimit: session?.dailyLimit ?? 200,
       sentLast24h,
       riskAcceptedAt: session?.riskAcceptedAt ?? null,
@@ -169,6 +170,7 @@ export class WhatsappWebService {
         ...(dto.useForSending !== undefined
           ? { useForSending: dto.useForSending }
           : {}),
+        ...(dto.autoReply !== undefined ? { autoReply: dto.autoReply } : {}),
         ...(dto.dailyLimit !== undefined ? { dailyLimit: dto.dailyLimit } : {}),
       },
     });
