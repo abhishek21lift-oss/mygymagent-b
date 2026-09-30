@@ -686,6 +686,145 @@ export class InvoicesService {
     }
   }
 
+  // -- linking an existing payment -----------------------------------------
+
+  /** What of a payment is not yet on any invoice. */
+  private unallocatedOf(payment: {
+    amount: Prisma.Decimal;
+    invoiceLinks: { amount: Prisma.Decimal }[];
+  }): Prisma.Decimal {
+    return payment.invoiceLinks.reduce(
+      (left, link) => left.minus(link.amount),
+      new Prisma.Decimal(payment.amount),
+    );
+  }
+
+  /**
+   * The member's payments that could still go towards this invoice: money
+   * that came in (not FAILED or fully refunded) and is not all on other
+   * invoices yet. A desk payment recorded without its membership lands
+   * here -- nothing else ever connects it to the invoice it was for.
+   */
+  async linkablePayments(
+    organizationId: string,
+    invoiceId: string,
+    branchScope: string | null = null,
+  ) {
+    const invoice = await this.getOne(organizationId, invoiceId, branchScope);
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId,
+        memberId: invoice.memberId,
+        status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+        invoiceLinks: { none: { invoiceId } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        method: true,
+        status: true,
+        note: true,
+        membershipId: true,
+        createdAt: true,
+        invoiceLinks: { select: { amount: true } },
+      },
+    });
+    return payments
+      .map(({ invoiceLinks, ...payment }) => ({
+        ...payment,
+        unallocated: this.unallocatedOf({
+          amount: payment.amount,
+          invoiceLinks,
+        }).toFixed(2),
+      }))
+      .filter((payment) => new Prisma.Decimal(payment.unallocated).gt(0));
+  }
+
+  /**
+   * Puts an existing payment towards this invoice: as much of it as is
+   * unallocated, up to what the invoice still owes. A payment that named
+   * no membership takes the invoice's, so the member's balance counts it
+   * too.
+   */
+  async linkPayment(
+    organizationId: string,
+    invoiceId: string,
+    paymentId: string,
+    branchScope: string | null = null,
+  ) {
+    const invoice = await this.getOne(organizationId, invoiceId, branchScope);
+    if (!(COLLECTIBLE_STATUSES as readonly string[]).includes(invoice.status)) {
+      throw new BadRequestException(
+        `Only an open invoice can take a payment -- this one is ${invoice.status}`,
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${paymentId} FOR UPDATE`;
+      const payment = await tx.payment.findFirst({
+        where: { id: paymentId, organizationId },
+        select: {
+          id: true,
+          memberId: true,
+          membershipId: true,
+          status: true,
+          amount: true,
+          currency: true,
+          invoiceLinks: { select: { invoiceId: true, amount: true } },
+        },
+      });
+      if (!payment) throw new NotFoundException('Payment not found');
+      if (payment.memberId !== invoice.memberId) {
+        throw new BadRequestException(
+          "That payment belongs to another member -- it can't pay this invoice",
+        );
+      }
+      if (
+        payment.status !== 'COMPLETED' &&
+        payment.status !== 'PARTIALLY_REFUNDED'
+      ) {
+        throw new BadRequestException(
+          `A ${payment.status.toLowerCase().replace('_', ' ')} payment can't pay an invoice`,
+        );
+      }
+      if (payment.currency !== invoice.currency) {
+        throw new BadRequestException(
+          `The payment is in ${payment.currency} and the invoice in ${invoice.currency}`,
+        );
+      }
+      if (payment.invoiceLinks.some((link) => link.invoiceId === invoiceId)) {
+        throw new ConflictException('That payment is already on this invoice');
+      }
+      const unallocated = this.unallocatedOf(payment);
+      const owed = new Prisma.Decimal(invoice.outstanding);
+      if (unallocated.lte(0)) {
+        throw new BadRequestException(
+          'All of that payment is already on other invoices',
+        );
+      }
+      if (owed.lte(0)) {
+        throw new BadRequestException('This invoice has nothing left to pay');
+      }
+      await tx.invoicePayment.create({
+        data: {
+          invoiceId,
+          paymentId,
+          amount: Prisma.Decimal.min(unallocated, owed),
+        },
+      });
+      if (!payment.membershipId && invoice.membershipId) {
+        await tx.payment.update({
+          where: { id: paymentId },
+          data: { membershipId: invoice.membershipId },
+        });
+      }
+    });
+    await this.recomputeInvoiceStatus(invoiceId);
+    return this.getOne(organizationId, invoiceId, branchScope);
+  }
+
   // -- aging ---------------------------------------------------------------
 
   /**

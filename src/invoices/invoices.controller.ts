@@ -6,6 +6,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { LinkPaymentDto } from './dto/link-payment.dto';
 import { ListInvoicesQueryDto } from './dto/list-invoices-query.dto';
 import { VoidInvoiceDto } from './dto/void-invoice.dto';
 import { InvoicesService } from './invoices.service';
@@ -56,6 +57,37 @@ export class InvoicesController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.invoicesService.void(user.organizationId!, id, branchScope);
+  }
+
+  @Get(':id/linkable-payments')
+  @RequirePermissions('payments.read')
+  linkablePayments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.invoicesService.linkablePayments(
+      user.organizationId!,
+      id,
+      branchScope,
+    );
+  }
+
+  @Post(':id/payments')
+  @RequirePermissions('payments.create')
+  @Audited({ resource: 'invoice', action: 'link-payment' })
+  linkPayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: LinkPaymentDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.invoicesService.linkPayment(
+      user.organizationId!,
+      id,
+      dto.paymentId,
+      branchScope,
+    );
   }
 
   @Post(':id/retry-collection')
