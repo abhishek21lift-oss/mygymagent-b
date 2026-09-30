@@ -384,9 +384,8 @@ describe('AI (e2e)', () => {
       )) as { revenue: unknown[]; notComputable: { key: string }[] };
 
       expect(Array.isArray(result.revenue)).toBe(true);
-      expect(result.notComputable.map((n) => n.key)).toContain(
-        'productRevenue',
-      );
+      // Product sales are counted now; PT revenue still isn't.
+      expect(result.notComputable.map((n) => n.key)).toContain('ptRevenue');
     });
 
     it('get_at_risk_members returns a real list (empty is valid, not an error)', async () => {

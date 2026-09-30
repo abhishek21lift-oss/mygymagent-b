@@ -16,6 +16,10 @@ interface RevenueByCurrency {
   /// grossRevenue - membershipRevenue. Deliberately not split further
   /// into PT/product/other -- see notComputable below for why.
   otherRevenue: string;
+  /// Counter sales of products (inventory), net of nothing -- their
+  /// returns are in `refunded`. Sales raised on an invoice are left out:
+  /// that money arrives as a payment and is already in grossRevenue.
+  productRevenue: string;
   refunded: string;
   netRevenue: string;
 }
@@ -50,6 +54,7 @@ export interface RevenueSummary {
 interface RevenueMonth {
   currency: string;
   grossRevenue: string;
+  productRevenue: string;
   refunded: string;
   netRevenue: string;
 }
@@ -61,11 +66,6 @@ export interface RevenueTrendMonth {
 }
 
 const NOT_COMPUTABLE: NotComputable[] = [
-  {
-    key: 'productRevenue',
-    reason:
-      'StockMovement records quantity only, not price, and has no link to a Payment -- there is no way to know if or when a product sale was actually paid for, or at what price.',
-  },
   {
     key: 'ptRevenue',
     reason:
@@ -164,16 +164,30 @@ export class FinanceService {
       ]),
     );
 
-    const revenue: RevenueByCurrency[] = grossByCurrency.map((row) => {
-      const gross = Number(row._sum.amount ?? 0);
-      const membership = membershipRevenueByCurrency.get(row.currency) ?? 0;
-      const refunded = refundedByCurrency.get(row.currency) ?? 0;
+    const products = await this.productSalesByCurrency(
+      organizationId,
+      { gte: from, lt: to },
+      branchScope,
+    );
+    const currencies = new Set([
+      ...grossByCurrency.map((row) => row.currency),
+      ...products.keys(),
+    ]);
+    const revenue: RevenueByCurrency[] = [...currencies].map((currency) => {
+      const row = grossByCurrency.find((r) => r.currency === currency);
+      const payments = Number(row?._sum.amount ?? 0);
+      const product = products.get(currency) ?? { sold: 0, returned: 0 };
+      const membership = membershipRevenueByCurrency.get(currency) ?? 0;
+      const refunded =
+        (refundedByCurrency.get(currency) ?? 0) + product.returned;
+      const gross = payments + product.sold;
       return {
-        currency: row.currency,
-        paymentCount: row._count,
+        currency,
+        paymentCount: row?._count ?? 0,
         grossRevenue: gross.toFixed(2),
         membershipRevenue: membership.toFixed(2),
-        otherRevenue: (gross - membership).toFixed(2),
+        otherRevenue: (payments - membership).toFixed(2),
+        productRevenue: product.sold.toFixed(2),
         refunded: refunded.toFixed(2),
         netRevenue: (gross - refunded).toFixed(2),
       };
@@ -246,12 +260,25 @@ export class FinanceService {
           );
         }
 
-        const revenue: RevenueMonth[] = gross.map((row) => {
-          const grossAmount = Number(row._sum.amount ?? 0);
-          const refunded = refundedByCurrency.get(row.currency) ?? 0;
+        const products = await this.productSalesByCurrency(
+          organizationId,
+          { gte: start, lt: end },
+          branchScope,
+        );
+        const currencies = new Set([
+          ...gross.map((row) => row.currency),
+          ...products.keys(),
+        ]);
+        const revenue: RevenueMonth[] = [...currencies].map((currency) => {
+          const row = gross.find((r) => r.currency === currency);
+          const product = products.get(currency) ?? { sold: 0, returned: 0 };
+          const grossAmount = Number(row?._sum.amount ?? 0) + product.sold;
+          const refunded =
+            (refundedByCurrency.get(currency) ?? 0) + product.returned;
           return {
-            currency: row.currency,
+            currency,
             grossRevenue: grossAmount.toFixed(2),
+            productRevenue: product.sold.toFixed(2),
             refunded: refunded.toFixed(2),
             netRevenue: (grossAmount - refunded).toFixed(2),
           };
@@ -260,6 +287,54 @@ export class FinanceService {
         return { month: zonedMonthKey(start, timezone), revenue };
       }),
     );
+  }
+
+  /**
+   * Product sales at the counter, per currency: what was sold and what of
+   * it came back. They never became Payment rows (a walk-in sale has no
+   * member, and Payment needs one), so revenue left them out entirely.
+   * Sales raised on an invoice are skipped -- that money is a payment.
+   * A return has no date of its own, so it counts against its sale's
+   * period; a cancelled sale counts for nothing.
+   */
+  private async productSalesByCurrency(
+    organizationId: string,
+    createdAt: { gte: Date; lt: Date },
+    branchScope: string | null,
+  ): Promise<Map<string, { sold: number; returned: number }>> {
+    const sales = await this.prisma.inventorySale.findMany({
+      where: {
+        organizationId,
+        invoiceId: null,
+        status: { in: ['COMPLETED', 'PARTIALLY_RETURNED', 'RETURNED'] },
+        createdAt,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      select: {
+        currency: true,
+        subtotal: true,
+        total: true,
+        items: {
+          select: { unitPrice: true, returnedQuantity: true },
+        },
+      },
+    });
+    const byCurrency = new Map<string, { sold: number; returned: number }>();
+    for (const sale of sales) {
+      const entry = byCurrency.get(sale.currency) ?? { sold: 0, returned: 0 };
+      const total = Number(sale.total);
+      const subtotal = Number(sale.subtotal);
+      // Returned goods at the price actually paid, discount included.
+      const share = subtotal > 0 ? total / subtotal : 0;
+      const returnedList = sale.items.reduce(
+        (sum, item) => sum + Number(item.unitPrice) * item.returnedQuantity,
+        0,
+      );
+      entry.sold += total;
+      entry.returned += Math.round(returnedList * share * 100) / 100;
+      byCurrency.set(sale.currency, entry);
+    }
+    return byCurrency;
   }
 
   /// Same "outstanding balance" definition PaymentOverdueScanner uses

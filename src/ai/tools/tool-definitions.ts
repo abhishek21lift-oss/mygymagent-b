@@ -155,7 +155,7 @@ export const AI_TOOL_DEFINITIONS = [
     function: {
       name: 'get_revenue_summary',
       description:
-        "Get this organization's revenue for the current calendar month: gross/membership/other revenue, refunds, net revenue, and outstanding balances, broken out per currency (never summed across currencies). Also names what it cannot compute (product/PT revenue, discounts, expenses, payroll, commissions) and why -- never presents those as zero.",
+        "Get this organization's revenue for the current calendar month: gross/membership/other/product revenue, refunds (including product returns), net revenue, and outstanding balances, broken out per currency (never summed across currencies). Also names what it cannot compute (PT revenue, discounts, expenses, payroll, commissions) and why -- never presents those as zero.",
       parameters: { type: 'object', properties: {} },
     },
   },

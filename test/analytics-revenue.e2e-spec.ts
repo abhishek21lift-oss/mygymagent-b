@@ -192,12 +192,12 @@ describe('Analytics / revenue (e2e)', () => {
       60,
     );
 
+    // Product sales are counted now (productRevenue), so no longer listed.
     const notComputableKeys = res.body.data.notComputable.map(
       (n: { key: string }) => n.key,
     );
     expect(notComputableKeys).toEqual(
       expect.arrayContaining([
-        'productRevenue',
         'ptRevenue',
         'discounts',
         'expenses',
