@@ -260,10 +260,16 @@ export class ClassesService {
           id: true,
           branchId: true,
           capacity: true,
+          endTime: true,
           classProgram: { select: { capacity: true } },
         },
       });
       if (!session) throw new NotFoundException('Class session not found');
+      // A finished class takes no bookings; before, one could be booked
+      // (and waitlisted) after it had ended.
+      if (session.endTime < new Date()) {
+        throw new BadRequestException('This class has already finished');
+      }
       const capacity = session.capacity ?? session.classProgram.capacity;
 
       const existing = await tx.classBooking.findUnique({

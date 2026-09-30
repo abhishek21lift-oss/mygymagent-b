@@ -157,7 +157,6 @@ export class MembersService {
       );
     }
     await this.billing.assertUnder(organizationId, 'members');
-    await this.billing.assertUnder(organizationId, 'members');
     await this.validateReferences(
       organizationId,
       dto.primaryBranchId,

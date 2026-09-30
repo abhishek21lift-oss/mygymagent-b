@@ -142,47 +142,49 @@ export class PtPackagesService {
     // the same row the old `... AND "usedSessions" < "totalSessions"
     // ORDER BY "endDate" ASC, "createdAt" ASC LIMIT 1 ... FOR UPDATE`
     // query would have returned.
-    const candidates = await tx.ptPackage.findMany({
-      where: {
-        organizationId,
-        memberId,
-        status: 'ACTIVE',
-        startDate: { lte: sessionStartTime },
-        endDate: { gte: sessionStartTime },
-      },
-      orderBy: [{ endDate: 'asc' }, { createdAt: 'asc' }],
-    });
-    const pkg = candidates.find((c) => c.usedSessions < c.totalSessions);
-    if (!pkg) {
-      return { consumed: false, packageId: null, alreadyConsumed: false };
+    // The count is claimed with a compare-and-set on `usedSessions`: two
+    // sessions completed at once used to read the same count, both pass
+    // the "sessions left" check and both increment, running a pack past
+    // its size. A lost race re-reads and tries again.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const candidates = await tx.ptPackage.findMany({
+        where: {
+          organizationId,
+          memberId,
+          status: 'ACTIVE',
+          startDate: { lte: sessionStartTime },
+          endDate: { gte: sessionStartTime },
+        },
+        orderBy: [{ endDate: 'asc' }, { createdAt: 'asc' }],
+      });
+      const pkg = candidates.find((c) => c.usedSessions < c.totalSessions);
+      if (!pkg) {
+        return { consumed: false, packageId: null, alreadyConsumed: false };
+      }
+
+      const newUsed = pkg.usedSessions + 1;
+      const claimed = await tx.ptPackage.updateMany({
+        where: { id: pkg.id, status: 'ACTIVE', usedSessions: pkg.usedSessions },
+        data: {
+          usedSessions: newUsed,
+          status: newUsed >= pkg.totalSessions ? 'COMPLETED' : 'ACTIVE',
+        },
+      });
+      if (claimed.count !== 1) continue;
+
+      await tx.ptSessionConsumption.create({
+        data: {
+          organizationId,
+          packageId: pkg.id,
+          ptSessionId,
+          sessions: 1,
+        },
+      });
+      return { consumed: true, packageId: pkg.id, alreadyConsumed: false };
     }
-
-    // Guard against consuming a package that is no longer ACTIVE (e.g., already COMPLETED by another transaction)
-    if (pkg.status && pkg.status !== 'ACTIVE') {
-      this.logger.warn(
-        `Package ${pkg.id} status is ${pkg.status} – treating as already consumed`,
-      );
-      return { consumed: false, packageId: pkg.id, alreadyConsumed: true };
-    }
-
-    await tx.ptSessionConsumption.create({
-      data: {
-        organizationId,
-        packageId: pkg.id,
-        ptSessionId,
-        sessions: 1,
-      },
-    });
-
-    const newUsed = pkg.usedSessions + 1;
-    await tx.ptPackage.update({
-      where: { id: pkg.id },
-      data: {
-        usedSessions: { increment: 1 },
-        status: newUsed >= pkg.totalSessions ? 'COMPLETED' : pkg.status,
-      },
-    });
-
-    return { consumed: true, packageId: pkg.id, alreadyConsumed: false };
+    this.logger.warn(
+      `Could not claim a package session for PT session ${ptSessionId} after 3 attempts`,
+    );
+    return { consumed: false, packageId: null, alreadyConsumed: false };
   }
 }
