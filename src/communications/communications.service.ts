@@ -252,6 +252,18 @@ export class CommunicationsService {
     return integration?.status === 'CONNECTED';
   }
 
+  /** Whether the gym's own number is linked and online, whatever it chose
+   * for sending reminders. */
+  async ownWhatsappNumberLinked(organizationId: string): Promise<boolean> {
+    if (this.config.get<string>('WHATSAPP_WEB_ENABLED') !== 'true')
+      return false;
+    const session = await this.prisma.whatsappWebSession.findUnique({
+      where: { organizationId },
+      select: { status: true },
+    });
+    return session?.status === 'CONNECTED';
+  }
+
   async ownWhatsappNumberReady(organizationId: string): Promise<boolean> {
     if (this.config.get<string>('WHATSAPP_WEB_ENABLED') !== 'true')
       return false;
@@ -289,6 +301,9 @@ export class CommunicationsService {
     variables?: Record<string, string>;
     /** What the log calls this message; staff-composed by default. */
     templateKey?: string;
+    /** WHATSAPP: from the gym's own linked number regardless of its
+     * sending choice (see WhatsappRouterProvider). */
+    fromOwnNumber?: boolean;
   }) {
     const templateKey = input.templateKey ?? 'ad_hoc';
     const organization = await this.prisma.organization.findUnique({
@@ -363,6 +378,7 @@ export class CommunicationsService {
           organizationId: input.organizationId,
           category: input.category,
           messageLogId: log.id,
+          fromOwnNumber: input.fromOwnNumber,
         });
         if (typeof result === 'string') providerMessageId = result;
         else if (result) {
