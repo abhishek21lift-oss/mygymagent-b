@@ -255,6 +255,16 @@ describe('Automations over WhatsApp, and the audit fixes (e2e)', () => {
     it('treat a failed payment as unpaid, and remind on WhatsApp with the amount in rupees', async () => {
       const m = await member(gym);
       const ms = await membership(gym, m.id, 30, 2500);
+      // This reminder covers memberships without an invoice (imported
+      // ones); one with an invoice is left to invoice dunning. The sale's
+      // invoice is raised after the response, so wait for it, then drop it.
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const { count } = await prisma.invoice.deleteMany({
+          where: { membershipId: ms.id },
+        });
+        if (count > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
       // The full price was "paid" -- by a card that was declined.
       await prisma.payment.create({
         data: {
