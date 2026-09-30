@@ -163,7 +163,9 @@ export class PtSessionsService {
           { memberId: dto.memberId },
           ...(dto.trainerId ? [{ trainerId: dto.trainerId }] : []),
         ],
-        branchId: dto.branchId,
+        // Any branch: a trainer or member cannot be in two places at once,
+        // and matching on this branch only let a trainer be booked at two
+        // branches for the same hour.
         status: { in: ['SCHEDULED', 'COMPLETED'] },
         AND: [
           { startTime: { lt: dto.endTime } },
@@ -233,7 +235,6 @@ export class PtSessionsService {
       await this.assertBranchBelongsToOrg(organizationId, dto.branchId);
     const memberId = dto.memberId ?? session.memberId;
     const trainerId = dto.trainerId ?? session.trainerId;
-    const branchId = dto.branchId ?? session.branchId;
     if (
       dto.startTime !== undefined ||
       dto.endTime !== undefined ||
@@ -246,7 +247,6 @@ export class PtSessionsService {
           organizationId,
           id: { not: id },
           OR: [{ memberId }, ...(trainerId ? [{ trainerId }] : [])],
-          branchId,
           status: { in: ['SCHEDULED', 'COMPLETED'] },
           AND: [{ startTime: { lt: endTime } }, { endTime: { gt: startTime } }],
         },
