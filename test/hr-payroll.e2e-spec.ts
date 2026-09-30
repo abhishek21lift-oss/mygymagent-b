@@ -208,6 +208,52 @@ describe('HR & payroll (e2e)', () => {
       ).expect(400);
     });
 
+    it('works the days out from the dates when none are given', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer())
+          .post('/hr-payroll/leave-requests')
+          .send({
+            staffProfileId,
+            leaveTypeId: paidLeaveTypeId,
+            branchId,
+            startDate: day(60),
+            endDate: day(64),
+            unit: 'DAY',
+          }),
+      ).expect(201);
+      expect(Number(res.body.data.days)).toBe(5);
+    });
+
+    it('refuses more days than the dates hold, and a half day over two dates', async () => {
+      // Ten days off used to be bookable as one, and the reverse.
+      const tooMany = await asOwner(
+        request(app.getHttpServer())
+          .post('/hr-payroll/leave-requests')
+          .send({
+            staffProfileId,
+            leaveTypeId: paidLeaveTypeId,
+            branchId,
+            startDate: day(70),
+            endDate: day(71),
+            unit: 'DAY',
+            days: 5,
+          }),
+      ).expect(400);
+      expect(JSON.stringify(tooMany.body)).toMatch(/more than the 2 days/);
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/hr-payroll/leave-requests')
+          .send({
+            staffProfileId,
+            leaveTypeId: paidLeaveTypeId,
+            branchId,
+            startDate: day(80),
+            endDate: day(81),
+            unit: 'HALF_DAY',
+          }),
+      ).expect(400);
+    });
+
     it('approves the request and draws the days down from the balance', async () => {
       const res = await asOwner(
         request(app.getHttpServer())
@@ -377,6 +423,26 @@ describe('HR & payroll (e2e)', () => {
           periodEnd: '2026-03-01',
         }),
       ).expect(400);
+    });
+
+    it('pays a monthly salary for the part of the month a run covers', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({
+          branchId,
+          periodStart: '2026-03-01',
+          periodEnd: '2026-03-15',
+        }),
+      ).expect(201);
+      // 15 of March's 31 days of 30000.
+      expect(res.body.data.items[0].gross).toBe('14516.13');
+
+      // An adjustment keeps the share, adding to it.
+      const adjusted = await asOwner(
+        request(app.getHttpServer())
+          .patch(`/hr-payroll/payroll-runs/${res.body.data.id}/items`)
+          .send({ staffProfileId, incentives: 500 }),
+      ).expect(200);
+      expect(Number(adjusted.body.data.gross)).toBeCloseTo(15016.13, 2);
     });
 
     it('recomputes gross and net when an item is adjusted', async () => {

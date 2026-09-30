@@ -48,6 +48,53 @@ export function endOfPeriod(periodEnd: Date): Date {
   return new Date(periodEnd.getTime() + (atMidnight ? 24 * 60 * 60 * 1000 : 1));
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Calendar days from `start` to `end`, both included. */
+export function inclusiveDays(start: Date, end: Date): number {
+  const day = (d: Date) =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return Math.floor((day(end) - day(start)) / MS_PER_DAY) + 1;
+}
+
+/**
+ * A monthly salary for the days a pay period covers: each month it
+ * touches contributes salary x (its days in the period / days in that
+ * month). 1-31 January is exactly one salary; 1-15 January is 15/31 of it.
+ */
+export function monthlyShare(
+  salary: Prisma.Decimal,
+  start: Date,
+  end: Date,
+): Prisma.Decimal {
+  let total = new Prisma.Decimal(0);
+  let year = start.getUTCFullYear();
+  let month = start.getUTCMonth();
+  const first = Date.UTC(year, month, start.getUTCDate());
+  const last = Date.UTC(
+    end.getUTCFullYear(),
+    end.getUTCMonth(),
+    end.getUTCDate(),
+  );
+  while (Date.UTC(year, month, 1) <= last) {
+    const monthStart = Date.UTC(year, month, 1);
+    const monthEnd = Date.UTC(year, month + 1, 0);
+    const from = Math.max(first, monthStart);
+    const to = Math.min(last, monthEnd);
+    if (to >= from) {
+      const covered = (to - from) / MS_PER_DAY + 1;
+      const inMonth = (monthEnd - monthStart) / MS_PER_DAY + 1;
+      total = total.plus(salary.mul(covered).div(inMonth));
+    }
+    month += 1;
+    if (month === 12) {
+      month = 0;
+      year += 1;
+    }
+  }
+  return total.toDecimalPlaces(2);
+}
+
 @Injectable()
 export class HrPayrollService {
   constructor(private readonly prisma: PrismaService) {}
@@ -193,9 +240,19 @@ export class HrPayrollService {
       throw new BadRequestException('Invalid leave date range');
     }
 
-    if (dto.unit === 'HALF_DAY' && dto.days > 0.5) {
+    // Days come from the dates. A request used to state its own count, so
+    // ten days off could be booked -- and taken from the balance -- as one.
+    const calendarDays = inclusiveDays(start, end);
+    if (dto.unit === 'HALF_DAY' && calendarDays !== 1) {
+      throw new BadRequestException('A half-day leave is on a single day');
+    }
+    const days = dto.unit === 'HALF_DAY' ? 0.5 : (dto.days ?? calendarDays);
+    if (dto.unit === 'HALF_DAY' && dto.days !== undefined && dto.days !== 0.5) {
+      throw new BadRequestException('A half-day leave is 0.5 day');
+    }
+    if (days > calendarDays) {
       throw new BadRequestException(
-        'A half-day leave request cannot exceed 0.5 day',
+        `${days} days is more than the ${calendarDays} days from ${dto.startDate.slice(0, 10)} to ${dto.endDate.slice(0, 10)}`,
       );
     }
 
@@ -224,7 +281,7 @@ export class HrPayrollService {
         startDate: start,
         endDate: end,
         unit: dto.unit,
-        days: new Prisma.Decimal(dto.days),
+        days: new Prisma.Decimal(days),
         reason: dto.reason?.trim() || null,
       },
     });
@@ -439,7 +496,10 @@ export class HrPayrollService {
 
               let gross = new Prisma.Decimal(0);
               if (s.salaryType === 'MONTHLY') {
-                gross = base;
+                // A monthly salary for the part of each month the run
+                // covers; a whole calendar month is the full salary. A
+                // fortnight's run used to pay the full month.
+                gross = monthlyShare(base, start, end);
               } else if (s.salaryType === 'DAILY') {
                 gross = base.mul(days);
               }
@@ -489,7 +549,7 @@ export class HrPayrollService {
   ) {
     const run = await this.prisma.payrollRun.findFirst({
       where: { id: runId, organizationId, status: 'DRAFT' },
-      select: { id: true },
+      select: { id: true, periodStart: true, periodEnd: true },
     });
 
     if (!run) {
@@ -530,7 +590,12 @@ export class HrPayrollService {
         : 0,
     );
 
-    let baseGross = item.baseSalary;
+    // The run's share of a monthly salary, as when the run was made --
+    // an adjustment used to reset it to the full month.
+    let baseGross =
+      salaryType === 'MONTHLY'
+        ? monthlyShare(item.baseSalary, run.periodStart, run.periodEnd)
+        : item.baseSalary;
     if (salaryType === 'HOURLY') {
       if (regularHours.isZero()) {
         throw new BadRequestException(

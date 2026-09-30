@@ -68,10 +68,13 @@ export class CreateLeaveRequestDto {
   @IsIn(['DAY', 'HALF_DAY'])
   unit!: 'DAY' | 'HALF_DAY';
 
+  /** Working days taken. Worked out from the dates when left out; when
+   * given (to leave out weekly offs or holidays) it can't exceed them. */
+  @IsOptional()
   @IsNumber()
   @IsPositive()
   @Type(() => Number)
-  days!: number;
+  days?: number;
 
   @IsOptional()
   @IsString()
