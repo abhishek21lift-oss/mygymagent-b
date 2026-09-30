@@ -4,7 +4,7 @@ import {
   ValidationPipe,
   type INestApplication,
 } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -22,7 +22,10 @@ class MockThrottlerGuard implements CanActivate {
 /** Builds a fully-wired Nest application (same global pipes/filters/
  * middleware as main.ts) for supertest to exercise, without binding to a real
  * port. Returns an object with the app and a safe close method. */
-export async function createTestApp(): Promise<{
+export async function createTestApp(
+  /** Replace providers for one suite, e.g. a fake network client. */
+  configure: (builder: TestingModuleBuilder) => TestingModuleBuilder = (b) => b,
+): Promise<{
   app: INestApplication;
   close: () => Promise<void>;
 }> {
@@ -39,12 +42,13 @@ export async function createTestApp(): Promise<{
   };
 
   try {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideGuard(ThrottlerGuard)
-      .useClass(MockThrottlerGuard)
-      .compile();
+    const moduleRef = await configure(
+      Test.createTestingModule({
+        imports: [AppModule],
+      })
+        .overrideGuard(ThrottlerGuard)
+        .useClass(MockThrottlerGuard),
+    ).compile();
     app = moduleRef.createNestApplication();
 
     app.use(cookieParser());

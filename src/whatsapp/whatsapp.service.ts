@@ -6,19 +6,15 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { MessageStatus } from '@prisma/client';
 import { CommunicationsService } from '../communications/communications.service';
-import {
-  DomainEvent,
-  type WhatsappReceivedEvent,
-} from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   encryptWhatsappToken,
   parseWhatsappVaultKey,
 } from './whatsapp-token.vault';
+import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
 import type {
   CompleteEmbeddedSignupDto,
   SendWhatsAppMessageDto,
@@ -86,7 +82,7 @@ export class WhatsappService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly communications: CommunicationsService,
-    private readonly events: EventEmitter2,
+    private readonly inbound: WhatsappInboundFiler,
   ) {}
 
   getIntegration(organizationId: string) {
@@ -489,57 +485,7 @@ export class WhatsappService {
       // reactions, and echoes have no body to file for the CRM queue.
       const textBody = m.type === 'text' ? m.text?.body : undefined;
       if (!m.from || !textBody) continue;
-      const matchedMemberId = await this.matchMemberByPhone(
-        organizationId,
-        m.from,
-      );
-      const row = await this.prisma.inboundMessage.create({
-        data: {
-          organizationId,
-          from: m.from,
-          body: textBody,
-          matchedMemberId,
-        },
-      });
-      const event: WhatsappReceivedEvent = {
-        organizationId,
-        inboundMessageId: row.id,
-        from: m.from,
-        matchedMemberId,
-      };
-      this.events.emit(DomainEvent.WhatsappReceived, event);
+      await this.inbound.file(organizationId, m.from, textBody);
     }
-  }
-
-  /**
-   * Digits-suffix match: the inbound `from` is full international format
-   * while a member's stored phone may be local (or vice versa), so either
-   * side being a suffix of the other -- with at least 7 overlapping
-   * digits -- counts as a match. Unknown numbers return null and are
-   * still stored (the CRM unmatched queue reads exactly those rows).
-   */
-  private async matchMemberByPhone(
-    organizationId: string,
-    from: string,
-  ): Promise<string | null> {
-    const fromDigits = from.replace(/\D/g, '');
-    if (fromDigits.length < 7) return null;
-    const members = await this.prisma.member.findMany({
-      where: { organizationId, deletedAt: null },
-      select: { id: true, phone: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    for (const member of members) {
-      if (!member.phone) continue;
-      const memberDigits = member.phone.replace(/\D/g, '');
-      if (memberDigits.length < 7) continue;
-      if (
-        fromDigits.endsWith(memberDigits) ||
-        memberDigits.endsWith(fromDigits)
-      ) {
-        return member.id;
-      }
-    }
-    return null;
   }
 }
