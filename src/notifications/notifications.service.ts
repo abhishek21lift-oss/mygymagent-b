@@ -286,6 +286,11 @@ export class NotificationsService {
               organizationId,
               deletedAt: null,
               status: 'ACTIVE',
+              // Staff only. A member's portal login is a user of the same
+              // organization, so every "payment recorded" and "new WhatsApp
+              // message" about other members was landing in members' bells
+              // and buzzing their phones.
+              member: { is: null },
               ...(input.branchId
                 ? {
                     OR: [

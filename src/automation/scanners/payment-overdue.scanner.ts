@@ -36,6 +36,11 @@ export class PaymentOverdueScanner {
         startDate: { lte: now },
         member: { deletedAt: null },
         organization: runningOrganization,
+        // A membership with an invoice is chased by invoice dunning. This
+        // reminder is for the ones without (imported memberships, and
+        // those sold before invoices existed); sending both gave a member
+        // two reminders a week about the same money.
+        invoices: { none: { status: { not: 'VOID' } } },
       },
       include: {
         member: {

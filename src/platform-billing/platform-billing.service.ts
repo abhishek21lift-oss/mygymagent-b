@@ -16,6 +16,15 @@ type LimitKey =
   | 'whatsappMonthly'
   | 'apiMonthlyCalls';
 
+/**
+ * Staff on the plan: the organization's logins that are not a member's
+ * portal login. Counting every user put each member who turned the portal
+ * on against the gym's staff limit.
+ */
+const STAFF_COUNT_SQL = `SELECT count(*)::int AS count FROM users u
+  WHERE u."organizationId"=$1 AND u."deletedAt" IS NULL
+    AND NOT EXISTS (SELECT 1 FROM members m WHERE m."userId" = u.id)`;
+
 @Injectable()
 export class PlatformBillingService {
   constructor(private readonly prisma: PrismaService) {}
@@ -84,10 +93,7 @@ export class PlatformBillingService {
         `SELECT count(*)::int AS count FROM branches WHERE "organizationId"=$1 AND "deletedAt" IS NULL`,
         org,
       ),
-      this.prisma.$queryRawUnsafe<any[]>(
-        `SELECT count(*)::int AS count FROM users WHERE "organizationId"=$1 AND "deletedAt" IS NULL`,
-        org,
-      ),
+      this.prisma.$queryRawUnsafe<any[]>(STAFF_COUNT_SQL, org),
     ]);
 
     const sub = await this.subscription(org);
@@ -154,7 +160,7 @@ export class PlatformBillingService {
       current = Number(rows[0]?.count ?? 0);
     } else if (key === 'staff') {
       const rows = await this.prisma.$queryRawUnsafe<any[]>(
-        `SELECT count(*)::int AS count FROM users WHERE "organizationId"=$1 AND "deletedAt" IS NULL`,
+        STAFF_COUNT_SQL,
         org,
       );
       current = Number(rows[0]?.count ?? 0);

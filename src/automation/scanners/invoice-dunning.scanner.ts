@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CommunicationsService } from '../../communications/communications.service';
-import { OVERDUE_GRACE_DAYS } from '../../invoices/invoices.service';
+import {
+  LINK_PAID_SELECT,
+  OVERDUE_GRACE_DAYS,
+  invoicePaidTotal,
+} from '../../invoices/invoices.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { readableDate, runningOrganization } from '../automation-scope';
 import { MemberMessenger } from '../member-messenger.service';
@@ -67,12 +71,7 @@ export class InvoiceDunningScanner {
           select: { id: true, email: true, phone: true, firstName: true },
         },
         organization: { select: { timezone: true } },
-        paymentLinks: {
-          select: {
-            amount: true,
-            payment: { select: { status: true } },
-          },
-        },
+        paymentLinks: { select: LINK_PAID_SELECT },
       },
     });
 
@@ -85,12 +84,9 @@ export class InvoiceDunningScanner {
       const window = dunningWindowFor(daysPast);
 
       if (window !== null) {
-        const paid = invoice.paymentLinks.reduce(
-          (sum, link) =>
-            link.payment.status !== 'FAILED' ? sum.plus(link.amount) : sum,
-          new Prisma.Decimal(0),
+        const outstanding = new Prisma.Decimal(invoice.grandTotal).minus(
+          invoicePaidTotal(invoice),
         );
-        const outstanding = new Prisma.Decimal(invoice.grandTotal).minus(paid);
         if (outstanding.gt(0)) {
           const dueState = dueStateFor(window);
           const whatsappTemplate =
