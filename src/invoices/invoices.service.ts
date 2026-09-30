@@ -29,7 +29,7 @@ export const OVERDUE_GRACE_DAYS = 7;
 const COLLECTIBLE_STATUSES = ['ISSUED', 'PART_PAID', 'OVERDUE'] as const;
 
 /** What paidTotalOf needs from each payment link. */
-const LINK_PAID_SELECT = {
+export const LINK_PAID_SELECT = {
   amount: true,
   payment: {
     select: {
@@ -48,6 +48,32 @@ type PaidLink = {
     refunds: { amount: Prisma.Decimal }[];
   };
 };
+
+/**
+ * What an invoice has been paid: each linked payment's share, net of
+ * what was refunded from that payment (in proportion when one payment is
+ * split across invoices). FAILED payments never count. Shared with the
+ * dunning scanner, which used to count refunded money as paid and so
+ * never chased an invoice a refund had reopened.
+ */
+export function invoicePaidTotal(invoice: {
+  paymentLinks: PaidLink[];
+}): Prisma.Decimal {
+  return invoice.paymentLinks.reduce((sum, link) => {
+    if (link.payment.status === 'FAILED') return sum;
+    const linked = new Prisma.Decimal(link.amount);
+    const refunded = link.payment.refunds.reduce(
+      (total, refund) => total.plus(refund.amount),
+      new Prisma.Decimal(0),
+    );
+    if (refunded.lte(0)) return sum.plus(linked);
+    const paymentAmount = new Prisma.Decimal(link.payment.amount);
+    const kept = paymentAmount.gt(0)
+      ? linked.mul(paymentAmount.minus(refunded)).div(paymentAmount)
+      : new Prisma.Decimal(0);
+    return sum.plus(Prisma.Decimal.max(kept, 0).toDecimalPlaces(2));
+  }, new Prisma.Decimal(0));
+}
 
 const invoiceIncludes = {
   member: { select: { id: true, firstName: true, lastName: true } },
@@ -727,27 +753,8 @@ export class InvoicesService {
 
   // -- helpers ---------------------------------------------------------------
 
-  /**
-   * What an invoice has been paid: each linked payment's share, net of
-   * what was refunded from that payment (in proportion when one payment
-   * is split across invoices). FAILED payments never count. Refunds used
-   * to be ignored, so a refunded invoice stayed PAID.
-   */
   private paidTotalOf(invoice: { paymentLinks: PaidLink[] }): Prisma.Decimal {
-    return invoice.paymentLinks.reduce((sum, link) => {
-      if (link.payment.status === 'FAILED') return sum;
-      const linked = new Prisma.Decimal(link.amount);
-      const refunded = link.payment.refunds.reduce(
-        (total, refund) => total.plus(refund.amount),
-        new Prisma.Decimal(0),
-      );
-      if (refunded.lte(0)) return sum.plus(linked);
-      const paymentAmount = new Prisma.Decimal(link.payment.amount);
-      const kept = paymentAmount.gt(0)
-        ? linked.mul(paymentAmount.minus(refunded)).div(paymentAmount)
-        : new Prisma.Decimal(0);
-      return sum.plus(Prisma.Decimal.max(kept, 0).toDecimalPlaces(2));
-    }, new Prisma.Decimal(0));
+    return invoicePaidTotal(invoice);
   }
 
   /** Outstanding balance of an invoice row carrying its paymentLinks. */

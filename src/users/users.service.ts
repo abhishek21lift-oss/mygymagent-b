@@ -42,6 +42,8 @@ export class UsersService {
     const where = {
       organizationId,
       deletedAt: null,
+      // Staff only: a member's portal login is a user too.
+      member: { is: null },
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
       ...(query.search
         ? {

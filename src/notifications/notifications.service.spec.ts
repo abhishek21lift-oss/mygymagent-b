@@ -40,6 +40,8 @@ describe('NotificationsService', () => {
         organizationId: 'org-1',
         deletedAt: null,
         status: 'ACTIVE',
+        // Staff only, never a member's portal login.
+        member: { is: null },
       },
       select: { id: true },
     });

@@ -168,6 +168,16 @@ describe('Automation (e2e)', () => {
       }),
     ).expect(201);
 
+    // A membership with an invoice is chased by invoice dunning; this
+    // reminder covers the ones without, like an imported membership.
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const { count } = await prisma.invoice.deleteMany({
+        where: { membershipId: membership.body.data.id },
+      });
+      if (count > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
     // Only 40 of the 100 owed has been paid -- a real outstanding balance
     // computed from Payment rows, not a fabricated invoice/due-date.
     await authed(org.accessToken)(
