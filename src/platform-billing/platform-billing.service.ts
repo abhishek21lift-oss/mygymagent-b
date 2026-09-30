@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   HttpException,
   Injectable,
@@ -36,7 +37,17 @@ export class PlatformBillingService {
     return rows[0] ?? null;
   }
 
-  async subscribe(org: string, planKey: string) {
+  /**
+   * Put an organization on a plan for `months` from today. Platform staff
+   * only -- see PlatformOrganizationsController. Returns the subscription
+   * as it was before, for the audit record, and as it is now.
+   */
+  async setPlan(org: string, planKey: string, months: number) {
+    if (!Number.isInteger(months) || months < 1 || months > 36) {
+      throw new BadRequestException(
+        'months must be a whole number from 1 to 36',
+      );
+    }
     const plan = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT * FROM subscription_plans WHERE "key"=$1 AND "isActive"=true LIMIT 1`,
       planKey,
@@ -44,20 +55,23 @@ export class PlatformBillingService {
     if (!plan[0]) {
       throw new NotFoundException('Subscription plan not found');
     }
+    const before = await this.subscription(org);
 
-    return this.prisma.$queryRawUnsafe(
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
       `INSERT INTO organization_subscriptions (id,"organizationId","planId","status","currentPeriodStart","currentPeriodEnd","createdAt","updatedAt")
-       VALUES (gen_random_uuid(),$1,$2,'ACTIVE',CURRENT_DATE,(CURRENT_DATE + INTERVAL '1 month'),now(),now())
+       VALUES (gen_random_uuid(),$1,$2,'ACTIVE',CURRENT_DATE,(CURRENT_DATE + make_interval(months => $3::int)),now(),now())
        ON CONFLICT ("organizationId") DO UPDATE SET
          "planId"=EXCLUDED."planId",
          "status"='ACTIVE',
          "currentPeriodStart"=CURRENT_DATE,
-         "currentPeriodEnd"=(CURRENT_DATE + INTERVAL '1 month'),
+         "currentPeriodEnd"=(CURRENT_DATE + make_interval(months => $3::int)),
          "updatedAt"=now()
        RETURNING *`,
       org,
       plan[0].id,
+      months,
     );
+    return { before, after: { ...rows[0], planKey } };
   }
 
   async usage(org: string) {
