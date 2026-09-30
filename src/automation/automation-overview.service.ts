@@ -12,6 +12,20 @@ import {
 
 const WINDOW_DAYS = 30;
 const DAY_MS = 86_400_000;
+/** How long the page waits on the job queue before showing job timings
+ * as unknown. */
+const QUEUE_READ_TIMEOUT_MS = 3_000;
+/** Recent jobs read per state: enough to find each job's last run. */
+const JOBS_READ = 500;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
+    timer.unref();
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
 
 type Channel = 'email' | 'whatsapp' | 'sms' | 'none';
 
@@ -288,11 +302,17 @@ export class AutomationOverviewService {
   private async jobTimings(): Promise<Map<string, JobTiming>> {
     const timings = new Map<string, JobTiming>();
     try {
-      const [schedulers, completed, failedJobs] = await Promise.all([
-        this.queue.getJobSchedulers(0, 100),
-        this.queue.getJobs(['completed'], 0, 500),
-        this.queue.getJobs(['failed'], 0, 500),
-      ]);
+      // The queue's Redis connection retries forever (BullMQ needs
+      // maxRetriesPerRequest: null), so a slow or unreachable Redis would
+      // otherwise hold this request -- and the whole page -- open forever.
+      const [schedulers, completed, failedJobs] = await withTimeout(
+        Promise.all([
+          this.queue.getJobSchedulers(0, 100),
+          this.queue.getJobs(['completed'], 0, JOBS_READ),
+          this.queue.getJobs(['failed'], 0, JOBS_READ),
+        ]),
+        QUEUE_READ_TIMEOUT_MS,
+      );
 
       const schedulerNext = new Map<string, number>();
       for (const scheduler of schedulers) {

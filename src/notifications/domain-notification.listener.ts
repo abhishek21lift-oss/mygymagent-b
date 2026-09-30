@@ -293,7 +293,7 @@ export class DomainNotificationListener {
       priority: 'HIGH',
       title: 'Low stock alert',
       body: `${event.name} is low on stock (${event.quantityOnHand} remaining).`,
-      actionUrl: `/inventory/products/${event.productId}`,
+      actionUrl: '/inventory/reorder',
       branchId: event.branchId,
       entityType: 'product',
       entityId: event.productId,
@@ -317,7 +317,7 @@ export class DomainNotificationListener {
       priority: 'HIGH',
       title: 'PT session booked',
       body: 'A personal training session has been booked.',
-      actionUrl: `/pt/sessions/${event.ptSessionId}`,
+      actionUrl: '/pt-operations/sessions',
       branchId: event.branchId,
       entityType: 'pt_session',
       entityId: event.ptSessionId,
@@ -342,7 +342,7 @@ export class DomainNotificationListener {
       priority: 'NORMAL',
       title: 'PT session completed',
       body: 'A personal training session has been completed.',
-      actionUrl: `/pt/sessions/${event.ptSessionId}`,
+      actionUrl: '/pt-operations/sessions',
       branchId: event.branchId,
       entityType: 'pt_session',
       entityId: event.ptSessionId,
@@ -366,7 +366,7 @@ export class DomainNotificationListener {
       priority: 'HIGH',
       title: 'PT session cancelled',
       body: 'A personal training session has been cancelled.',
-      actionUrl: `/pt/sessions/${event.ptSessionId}`,
+      actionUrl: '/pt-operations/sessions',
       branchId: event.branchId,
       entityType: 'pt_session',
       entityId: event.ptSessionId,
@@ -390,7 +390,11 @@ export class DomainNotificationListener {
       body: event.matchedMemberId
         ? 'A WhatsApp message was received from a matched member.'
         : 'A WhatsApp message was received from an unmatched number.',
-      actionUrl: '/whatsapp/inbox',
+      // A matched reply opens the member it came from; an unknown number
+      // opens the replies list on the WhatsApp settings screen.
+      actionUrl: event.matchedMemberId
+        ? `/members/${event.matchedMemberId}`
+        : '/settings/whatsapp#inbox',
       branchId: event.branchId ?? undefined,
       entityType: 'whatsapp_message',
       entityId: event.inboundMessageId,

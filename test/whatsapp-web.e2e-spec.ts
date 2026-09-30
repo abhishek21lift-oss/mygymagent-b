@@ -277,6 +277,48 @@ describe('WhatsApp Web (e2e)', () => {
       });
     });
 
+    it("opens the member from a reply's notification, or the replies list for an unknown number", async () => {
+      const [matched] = await prisma.inboundMessage.findMany({
+        where: {
+          organizationId: gym.organizationId,
+          matchedMemberId: memberId,
+        },
+      });
+      const alertFor = (inboundId: string) =>
+        eventually(
+          () =>
+            prisma.notification.findMany({
+              where: {
+                organizationId: gym.organizationId,
+                type: 'WHATSAPP_RECEIVED',
+                entityId: inboundId,
+              },
+            }),
+          (n) => n.length > 0,
+        );
+      const [known] = await alertFor(matched.id);
+      expect(known.actionUrl).toBe(`/members/${memberId}`);
+
+      socketFor(gym.organizationId).emit('messages.upsert', {
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: '919811122233@s.whatsapp.net', fromMe: false },
+            message: { conversation: 'Do you have day passes?' },
+          },
+        ],
+      });
+      const stranger = await eventually(
+        () =>
+          prisma.inboundMessage.findFirst({
+            where: { organizationId: gym.organizationId, from: '919811122233' },
+          }),
+        (m) => m !== null,
+      );
+      const [unknown] = await alertFor(stranger!.id);
+      expect(unknown.actionUrl).toBe('/settings/whatsapp#inbox');
+    });
+
     it("fails a number that isn't on WhatsApp without retrying", async () => {
       const noWa = await member(gym, '+919700000000', 'Ravi');
       socketFor(gym.organizationId).notOnWhatsapp.add('919700000000');
