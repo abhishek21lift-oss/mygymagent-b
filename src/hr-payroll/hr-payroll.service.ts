@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type SalaryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CreateLeaveRequestDto,
@@ -33,6 +33,40 @@ const STAFF_PAYROLL_SELECT = {
     select: { id: true, firstName: true, lastName: true, email: true },
   },
 } as const;
+
+/**
+ * The pay settings a payroll run can compute from. A payroll-enabled staff
+ * member needs a salary type, and the rate that type pays by: otherwise
+ * every payslip in the run is zero.
+ */
+export function assertPayrollSettings(next: {
+  payrollEnabled: boolean;
+  salaryType: SalaryType | null;
+  baseSalary: Prisma.Decimal | null;
+  hourlyRate: Prisma.Decimal | null;
+}): void {
+  if (!next.payrollEnabled) return;
+  if (!next.salaryType) {
+    throw new BadRequestException(
+      'Set a salaryType (MONTHLY, DAILY or HOURLY) before enabling payroll for this staff member',
+    );
+  }
+  const needsBase =
+    next.salaryType === 'MONTHLY' || next.salaryType === 'DAILY';
+  if (needsBase && (next.baseSalary === null || next.baseSalary.lte(0))) {
+    throw new BadRequestException(
+      `A ${next.salaryType} salary needs a baseSalary greater than 0, or every payslip in the run is zero`,
+    );
+  }
+  if (
+    next.salaryType === 'HOURLY' &&
+    (next.hourlyRate === null || next.hourlyRate.lte(0))
+  ) {
+    throw new BadRequestException(
+      'An HOURLY salary needs an hourlyRate greater than 0, or every payslip in the run is zero',
+    );
+  }
+}
 
 /**
  * The instant after a pay period's last day. The app sends the end as
@@ -824,28 +858,7 @@ export class HrPayrollService {
           : profile.hourlyRate,
     };
 
-    if (next.payrollEnabled) {
-      if (!next.salaryType) {
-        throw new BadRequestException(
-          'Set a salaryType (MONTHLY, DAILY or HOURLY) before enabling payroll for this staff member',
-        );
-      }
-      const needsBase =
-        next.salaryType === 'MONTHLY' || next.salaryType === 'DAILY';
-      if (needsBase && (next.baseSalary === null || next.baseSalary.lte(0))) {
-        throw new BadRequestException(
-          `A ${next.salaryType} salary needs a baseSalary greater than 0, or every payslip in the run is zero`,
-        );
-      }
-      if (
-        next.salaryType === 'HOURLY' &&
-        (next.hourlyRate === null || next.hourlyRate.lte(0))
-      ) {
-        throw new BadRequestException(
-          'An HOURLY salary needs an hourlyRate greater than 0, or every payslip in the run is zero',
-        );
-      }
-    }
+    assertPayrollSettings(next);
 
     return this.prisma.staffProfile.update({
       where: { id: profile.id },

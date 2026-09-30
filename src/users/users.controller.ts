@@ -16,6 +16,7 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { GrantAccessDto } from './dto/grant-access.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
 
@@ -31,6 +32,15 @@ export class UsersController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.usersService.list(user.organizationId!, query, branchScope);
+  }
+
+  @Get('stats')
+  @RequirePermissions('users.read')
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.usersService.stats(user.organizationId!, branchScope);
   }
 
   @Get(':id')
@@ -51,7 +61,12 @@ export class UsersController {
     @Body() dto: CreateUserDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.usersService.invite(user.organizationId!, dto, branchScope);
+    return this.usersService.invite(
+      user.organizationId!,
+      dto,
+      branchScope,
+      user.id,
+    );
   }
 
   @Patch(':id')
@@ -83,6 +98,24 @@ export class UsersController {
     return this.usersService.deactivate(
       user.organizationId!,
       id,
+      branchScope,
+      user.id,
+    );
+  }
+
+  @Post(':id/invite')
+  @RequirePermissions('users.create')
+  @Audited({ resource: 'user', action: 'grant_access' })
+  grantAccess(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: GrantAccessDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.usersService.grantAccess(
+      user.organizationId!,
+      id,
+      dto,
       branchScope,
       user.id,
     );
