@@ -369,13 +369,33 @@ export class InvoicesService {
     try {
       const member = await this.prisma.member.findFirst({
         where: { id: payment.memberId, organizationId },
-        select: { id: true, email: true, firstName: true },
+        select: { id: true, email: true, phone: true, firstName: true },
       });
       const full = await this.prisma.invoice.findFirst({
         where: { id: invoiceId, organizationId },
         select: { number: true },
       });
-      if (member?.email && full) {
+      // On WhatsApp when the gym sends from its own number, else email.
+      const onWhatsapp =
+        Boolean(member?.phone && full) &&
+        (await this.communications.ownWhatsappNumberReady(organizationId));
+      if (onWhatsapp && member?.phone && full) {
+        await this.communications.send({
+          organizationId,
+          channel: 'WHATSAPP',
+          category: 'TRANSACTIONAL',
+          templateKey: 'payment.receipt',
+          recipient: member.phone,
+          memberId: member.id,
+          variables: {
+            '1': member.firstName,
+            '2': input.amountRupees.toFixed(2),
+            '3': input.currency,
+            '4': full.number,
+            '5': payment.id.slice(0, 8).toUpperCase(),
+          },
+        });
+      } else if (member?.email && full) {
         await this.communications.sendPaymentReceipt(
           organizationId,
           member.id,

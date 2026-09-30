@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AutomationRunService } from '../automation-run.service';
+import { runningOrganization } from '../automation-scope';
 
 const INACTIVE_THRESHOLD_DAYS = 30;
 const COOLDOWN_DAYS = 14;
@@ -14,8 +15,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * `Member.status === 'INACTIVE'` -- that status is a staff-set
  * classification, a different thing from "hasn't shown up in a while."
  * A member staff have already marked INACTIVE is out of scope for this
- * re-engagement email. Conditions: not reminded for this member in the
- * last `COOLDOWN_DAYS`. Action: `CommunicationsService.sendInactiveMemberRecovery`
+ * re-engagement email. Conditions: nothing sent since the member's last
+ * visit (once per absence). Action: `CommunicationsService.sendInactiveMemberRecovery`
  * -- MARKETING category, so it's gated by the member's own consent
  * (enforced inside CommunicationsService.send(), not duplicated here).
  */
@@ -33,7 +34,12 @@ export class MemberInactiveScanner {
     const now = new Date();
 
     const members = await this.prisma.member.findMany({
-      where: { status: 'ACTIVE', deletedAt: null, email: { not: null } },
+      where: {
+        status: 'ACTIVE',
+        deletedAt: null,
+        email: { not: null },
+        organization: runningOrganization,
+      },
       select: {
         id: true,
         organizationId: true,
@@ -57,6 +63,22 @@ export class MemberInactiveScanner {
       );
       if (daysInactive < INACTIVE_THRESHOLD_DAYS) continue;
       checked++;
+
+      // Once per absence: a member who left a year ago was told "we miss
+      // you" every fortnight, forever. Anything already sent (or skipped
+      // for consent) since their last visit settles this absence; coming
+      // back and lapsing again starts a new one.
+      const alreadyThisAbsence = await this.prisma.automationRun.findFirst({
+        where: {
+          organizationId: member.organizationId,
+          key: 'MEMBER_INACTIVE_RECOVERY',
+          subjectId: member.id,
+          status: { not: 'FAILED' },
+          createdAt: { gte: lastActivity },
+        },
+        select: { id: true },
+      });
+      if (alreadyThisAbsence) continue;
 
       const outcome = await this.runs.attempt(
         member.organizationId,

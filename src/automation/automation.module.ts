@@ -6,9 +6,11 @@ import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
+import { MemberMessenger } from './member-messenger.service';
 import { AutomationSchedulerService } from './automation-scheduler.service';
 import { AutomationScanProcessor } from './automation-scan.processor';
 import { InventoryLowListener } from './inventory-low.listener';
+import { PaymentReceiptListener } from './payment-receipt.listener';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
 import { QrRotationScanner } from './scanners/qr-rotation.scanner';
@@ -32,9 +34,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
   providers: [
     AutomationOverviewService,
     AutomationRunService,
+    MemberMessenger,
     AutomationSchedulerService,
     AutomationScanProcessor,
     InventoryLowListener,
+    PaymentReceiptListener,
     MembershipRenewalScanner,
     PaymentOverdueScanner,
     MemberInactiveScanner,

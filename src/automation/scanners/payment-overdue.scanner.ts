@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AutomationRunService } from '../automation-run.service';
+import { readableMoney, runningOrganization } from '../automation-scope';
+import { MemberMessenger } from '../member-messenger.service';
 
 const COOLDOWN_DAYS = 5;
 
@@ -23,17 +24,29 @@ export class PaymentOverdueScanner {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
-    private readonly runs: AutomationRunService,
+    private readonly messenger: MemberMessenger,
   ) {}
 
   async scan(): Promise<{ checked: number; sent: number }> {
     const now = new Date();
 
     const memberships = await this.prisma.membership.findMany({
-      where: { status: { in: ['ACTIVE', 'PENDING'] }, startDate: { lte: now } },
+      where: {
+        status: { in: ['ACTIVE', 'PENDING'] },
+        startDate: { lte: now },
+        member: { deletedAt: null },
+        organization: runningOrganization,
+      },
       include: {
-        member: { select: { id: true, email: true, firstName: true } },
-        payments: { include: { refunds: true } },
+        member: {
+          select: { id: true, email: true, phone: true, firstName: true },
+        },
+        // A FAILED payment never collected anything; counting it as paid
+        // let a member whose card was declined go unreminded.
+        payments: {
+          where: { status: { not: 'FAILED' } },
+          include: { refunds: true },
+        },
       },
     });
 
@@ -50,14 +63,21 @@ export class PaymentOverdueScanner {
       const outstanding = Number(membership.price) - (grossPaid - refunded);
       if (outstanding <= 0) continue;
       checked++;
-      if (!membership.member.email) continue;
 
-      const outcome = await this.runs.attempt(
-        membership.organizationId,
-        'PAYMENT_OVERDUE_REMINDER',
-        membership.id,
-        COOLDOWN_DAYS,
-        () =>
+      const { outcome } = await this.messenger.deliver({
+        organizationId: membership.organizationId,
+        key: 'PAYMENT_OVERDUE_REMINDER',
+        subjectId: membership.id,
+        cooldownDays: COOLDOWN_DAYS,
+        member: membership.member,
+        whatsapp: {
+          templateKey: 'payment.overdue',
+          variables: {
+            firstName: membership.member.firstName,
+            amount: readableMoney(outstanding, membership.currency),
+          },
+        },
+        email: () =>
           this.communications.sendPaymentOverdueReminder(
             membership.organizationId,
             membership.member.id,
@@ -68,8 +88,8 @@ export class PaymentOverdueScanner {
               currency: membership.currency,
             },
           ),
-        { outstanding: outstanding.toFixed(2) },
-      );
+        detail: { outstanding: outstanding.toFixed(2) },
+      });
       if (outcome === 'SENT') sent++;
     }
 

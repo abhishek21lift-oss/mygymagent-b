@@ -1,46 +1,44 @@
 # automation
 
-**Status: P1 scope built and tested (5 automations); PT expiry explicitly blocked; approval workflow deferred to P3.**
+Trigger -> Conditions -> Action -> Audit. Scans run as BullMQ repeatable jobs
+(`AutomationSchedulerService`); a few automations are event-driven. Every attempt writes an
+`AutomationRun` row, and `AutomationRunService.attempt()` uses those rows for cooldowns. A FAILED
+run never uses up a cooldown.
 
-## What exists
+## What runs
 
-Trigger -> Conditions -> Action -> Audit, for five automations, built on top of `QueueModule`
-(BullMQ) and `CommunicationsService`:
+| Automation | When | Who | Channel | Once per |
+|---|---|---|---|---|
+| Renewal reminder | Daily 08:00 UTC; ACTIVE membership ending within 7 days, member has no later membership | Member | **WhatsApp** (`renewal.t7` / `t3` / `t0`) else email | WhatsApp: each stage once (>3 days, 2-3 days, the last day). Email: every 3 days |
+| Payment overdue | Daily; started ACTIVE/PENDING membership with a balance, where FAILED payments count as unpaid | Member | **WhatsApp** (`payment.overdue`) else email | 5 days |
+| Invoice due / overdue | Daily; windows at -3, 0, +3 and +7 days from `dueAt`, each caught up for up to 3 days if a scan misses its day; invoice set to OVERDUE at +7 | Member | **WhatsApp** (`invoice.due_soon` / `overdue` / `final_notice`) else email | Each window once |
+| PT package expiry | Daily; ACTIVE package with sessions left, ending within 7 days | Member | **WhatsApp** (`pt.expiry`) else email | 3 days |
+| Win-back | Daily; ACTIVE member not seen for 30+ days. MARKETING, so only with the member's consent | Member | Email only: marketing never goes from the gym's own number | Once per absence (nothing sent since the last visit) |
+| Welcome | Member created | Member | **WhatsApp** (`welcome`) else email | Once |
+| Receipt (front desk) | `payment.recorded` for a COMPLETED payment | Member | **WhatsApp** (`payment.received`) only | Once |
+| Receipt (online) | Razorpay capture | Member | **WhatsApp** (`payment.receipt`) else email | Once |
+| Lead first touch | Every 5 minutes; NEW lead with a phone, never contacted | Lead | WhatsApp (own number or Meta) | Once |
+| Lead follow-up due | Daily; overdue follow-up with an assignee | Staff | Email | 1 day |
+| Low stock | `inventory.low` event | Staff with `inventory.manage` | Email | 1 day per product and recipient |
+| Push nudges | Renewal at 7/3/1 days, and domain events | Member's devices | Push | Deduped per event |
 
-| Automation | Trigger | Cooldown | Source |
-|---|---|---|---|
-| Membership renewal reminder | ACTIVE membership, `endDate` within 7 days | 3 days | `scanners/membership-renewal.scanner.ts` |
-| Payment overdue reminder | ACTIVE/PENDING membership, `startDate` passed, net paid (payments minus refunds) < `price` | 5 days | `scanners/payment-overdue.scanner.ts` |
-| Inactive member recovery | ACTIVE member, no Attendance (or ever) in 30+ days | 14 days | `scanners/member-inactive.scanner.ts` |
-| Lead follow-up reminder | Incomplete `LeadFollowUp` past `dueAt`, lead has an assignee | 1 day | `scanners/lead-followup.scanner.ts` |
-| Low stock alert | `Product.quantityOnHand` crosses at-or-below `reorderLevel` | 1 day (per product+recipient) | `inventory-low.listener.ts` (real-time, not a scan) |
+**WhatsApp first.** A member reminder goes on WhatsApp when the gym has linked its own number
+(WhatsApp Web) and turned on "send from this number", and the member has a phone. Otherwise it
+goes by email, as before. It goes on one channel, not both. The two channels keep separate cooldowns
+(WhatsApp runs are recorded as `<subjectId>:whatsapp[:stage]`), so a failed WhatsApp send falls back
+to email the same day. The Meta Cloud API is not used for these, because it only delivers
+business-initiated messages as pre-approved templates. See `member-messenger.service.ts`.
 
-The first four run as BullMQ repeatable jobs (`AutomationSchedulerService`, daily at 08:00 UTC,
-registered via `Queue.upsertJobScheduler` -- idempotent across restarts, no separate scheduler
-abstraction needed since BullMQ already provides the cron primitive plus retries/backoff/failure
-tracking via `QueueModule`'s `defaultJobOptions`). The fifth is event-driven: `StockMovementsService`
-has emitted `inventory.low` since the P0 concurrency fix with no listener until now.
+**Who is never messaged:**
+- gyms that are SUSPENDED, CANCELLED or deleted (`automation-scope.ts`);
+- soft-deleted members;
+- a member whose next membership is already sold.
 
-**Audit + idempotency:** every attempt -- sent, skipped (no MARKETING consent), or failed -- writes
-an `AutomationRun` row (`organizationId`, `key`, `subjectId`, `status`, `detail`).
-`AutomationRunService.attempt()` checks for a recent row before trying again, which is what makes
-cooldowns work: a membership expiring in 7 days doesn't get re-emailed on days 6, 5, 4...
+Dates are written the gym's way, in its timezone ("14 Oct 2026"), and amounts in its currency
+("₹2,500").
 
-**No approval step.** The master prompt's shape is Trigger -> Conditions -> AI/Action ->
-**Approval-if-required** -> Execute -> Audit. Every automation here is a notification send --
-TRANSACTIONAL or MARKETING-gated email, never money movement or a destructive action -- so
-"Approval-if-required" trivially resolves to "not required" for all five. A real approval
-workflow (Action Center, human-in-the-loop for higher-risk actions) is P3 scope, once the
-Automation Engine actually does something riskier than sending an email.
-
-## What's explicitly blocked, not faked
-
-**PT (personal training) expiry reminders** are not built. The master prompt lists this as a P1
-starting automation, but there is no PT package/session data model in this schema (confirmed by
-the 2026-08-21 audit) -- no way to know when a PT package "expires" without inventing one. Per
-this project's "do not fake features" rule, this is left undone rather than approximated on data
-that doesn't exist. Building it requires a decision on a minimal PT-session/package model first,
-which the master prompt itself doesn't specify -- flagged for the user rather than guessed at.
+**No approval step.** Every automation here sends a message about the recipient's own account.
+Nothing moves money or deletes anything.
 
 ## Known simplifications
 
@@ -54,7 +52,7 @@ which the master prompt itself doesn't specify -- flagged for the user rather th
   per-user DENY override the way `PermissionsService.hasPermission()` does for a live request.
   Acceptable for an internal stock alert; would need fixing before this pattern is reused for
   anything higher-stakes.
-- **Fixed daily schedule (08:00 UTC), same for every org.** No per-org timezone/schedule
+- **Fixed daily schedule (08:00 UTC -- 13:30 in India), same for every org.** No per-org timezone/schedule
   configuration -- not asked for by the master prompt's P1 scope, and there's nowhere in the
   schema to store it yet.
 - **Inactive-member recovery threshold (30 days) and all cooldowns are fixed constants**, not
@@ -67,3 +65,15 @@ which the master prompt itself doesn't specify -- flagged for the user rather th
 second run, the payment-overdue balance calculation from real Payment/Refund rows, the
 MARKETING-consent SKIPPED path for inactive-member recovery, and the real-time inventory-low event
 -> queue -> email path end to end.
+
+`test/automation-whatsapp.e2e-spec.ts` covers the WhatsApp-first path against a fake WhatsApp socket:
+- renewal stages sent once each, with readable dates and no leftover `{{…}}`;
+- falling back to email when there is no phone;
+- renewed and deleted members, and suspended gyms, left alone;
+- a declined card counted as unpaid, with the amount in rupees;
+- a missed dunning day caught up, once;
+- win-back once per absence;
+- the WhatsApp welcome and desk receipt;
+- the automation screen's WhatsApp flags.
+
+Removing any one of those fixes turns a test red.

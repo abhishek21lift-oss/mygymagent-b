@@ -13,7 +13,7 @@ import {
 const WINDOW_DAYS = 30;
 const DAY_MS = 86_400_000;
 
-type Channel = 'email' | 'sms' | 'none';
+type Channel = 'email' | 'whatsapp' | 'sms' | 'none';
 
 interface ScannerDefinition {
   /** BullMQ job name, or null for the one that fires on an event. */
@@ -26,6 +26,8 @@ interface ScannerDefinition {
   description: string;
   cadence: string;
   channel: Channel;
+  /** Goes on WhatsApp instead when the gym sends from its own number. */
+  whatsappFirst?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export const SCANNERS: ScannerDefinition[] = [
     description: 'Chases members whose membership is short-paid.',
     cadence: 'Daily',
     channel: 'email',
+    whatsappFirst: true,
   },
   {
     job: JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS,
@@ -53,6 +56,7 @@ export const SCANNERS: ScannerDefinition[] = [
     description: 'Tells members their membership is about to end.',
     cadence: 'Daily',
     channel: 'email',
+    whatsappFirst: true,
   },
   {
     job: JOB_NAMES.SCAN_INVOICE_DUNNING,
@@ -62,6 +66,7 @@ export const SCANNERS: ScannerDefinition[] = [
     description: 'Follows up invoices that are due or past due.',
     cadence: 'Daily',
     channel: 'email',
+    whatsappFirst: true,
   },
   {
     job: JOB_NAMES.SCAN_PT_EXPIRY,
@@ -71,6 +76,7 @@ export const SCANNERS: ScannerDefinition[] = [
     description: 'Warns members before a PT package runs out.',
     cadence: 'Daily',
     channel: 'email',
+    whatsappFirst: true,
   },
   {
     job: JOB_NAMES.SCAN_MEMBER_INACTIVE,
@@ -89,7 +95,7 @@ export const SCANNERS: ScannerDefinition[] = [
     title: 'First touch for new enquiries',
     description: 'Makes first contact with a new lead within minutes.',
     cadence: 'Every 5 minutes',
-    channel: 'email',
+    channel: 'whatsapp',
   },
   {
     job: JOB_NAMES.SCAN_LEAD_FOLLOWUPS_DUE,
@@ -160,7 +166,14 @@ export class AutomationOverviewService {
 
   async overview(organizationId: string) {
     const since = new Date(Date.now() - WINDOW_DAYS * DAY_MS);
-    const channels = this.communications.channelReadiness();
+    const channels = {
+      ...this.communications.channelReadiness(),
+      whatsapp: await this.communications.whatsappReadiness(organizationId),
+    };
+    // Reminders only switch to WhatsApp for the gym's own linked number;
+    // see MemberMessenger for why the Meta API does not count.
+    const ownNumber =
+      await this.communications.ownWhatsappNumberReady(organizationId);
 
     const [timings, grouped, failed, recent] = await Promise.all([
       this.jobTimings(),
@@ -197,8 +210,11 @@ export class AutomationOverviewService {
       const tally = scanner.key ? outcomes.get(scanner.key) : undefined;
       // A reminder job can run on time and still reach nobody: it is only
       // as live as the channel under it.
+      const whatsappNow = Boolean(scanner.whatsappFirst && ownNumber);
       const channelReady =
-        scanner.channel === 'none' ? true : channels[scanner.channel];
+        scanner.channel === 'none'
+          ? true
+          : channels[scanner.channel] || whatsappNow;
       return {
         job: scanner.job,
         key: scanner.key,
@@ -206,6 +222,8 @@ export class AutomationOverviewService {
         description: scanner.description,
         cadence: scanner.cadence,
         channel: scanner.channel,
+        /** True when this reminder currently goes on WhatsApp. */
+        viaWhatsapp: whatsappNow,
         channelReady,
         nextRunAt: timing?.nextRunAt ?? null,
         lastRunAt: timing?.lastRunAt ?? null,
@@ -334,9 +352,15 @@ export class AutomationOverviewService {
       organizationId: string;
     }>,
   ) {
+    // A WhatsApp run or a dunning window is recorded as
+    // `<id>:whatsapp[:stage]` or `<id>:w<window>`; the thing it is about
+    // is the part before the first colon.
+    const baseId = (subjectId: string) => subjectId.split(':')[0];
     const ids = (keys: AutomationKey[]) => [
       ...new Set(
-        rows.filter((r) => keys.includes(r.key)).map((r) => r.subjectId),
+        rows
+          .filter((r) => keys.includes(r.key))
+          .map((r) => baseId(r.subjectId)),
       ),
     ];
     const organizationId = rows[0]?.organizationId;
@@ -443,8 +467,8 @@ export class AutomationOverviewService {
       detail: row.detail,
       createdAt: row.createdAt,
       subjectId: row.subjectId,
-      subjectLabel: labels.get(row.subjectId)?.label ?? null,
-      memberId: labels.get(row.subjectId)?.memberId ?? null,
+      subjectLabel: labels.get(baseId(row.subjectId))?.label ?? null,
+      memberId: labels.get(baseId(row.subjectId))?.memberId ?? null,
     }));
   }
 }
