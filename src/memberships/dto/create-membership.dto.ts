@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Min,
 } from 'class-validator';
 import { PaymentMethod } from '@prisma/client';
 
@@ -23,12 +24,16 @@ export class CreateMembershipDto {
   @IsBoolean()
   autoRenew?: boolean;
 
+  /** Off the plan price; never more than the price itself (checked in
+   * the service, which knows the plan). */
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
   discount?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
   initialPayment?: number;
 
   @IsOptional()

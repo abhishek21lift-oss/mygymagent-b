@@ -141,6 +141,16 @@ export const SCANNERS: ScannerDefinition[] = [
     channel: 'none',
   },
   {
+    job: JOB_NAMES.SCAN_MEMBERSHIP_STATUS,
+    schedulerId: JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_STATUS,
+    key: null,
+    title: 'Membership expiry and freezes',
+    description:
+      'Marks memberships expired when they end, and ends freezes on the day booked.',
+    cadence: 'Hourly',
+    channel: 'none',
+  },
+  {
     job: JOB_NAMES.ROTATE_QR_TOKENS,
     schedulerId: JOB_SCHEDULER_IDS.ROTATE_QR_TOKENS,
     key: null,

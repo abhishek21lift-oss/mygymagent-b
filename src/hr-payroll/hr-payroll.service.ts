@@ -34,6 +34,20 @@ const STAFF_PAYROLL_SELECT = {
   },
 } as const;
 
+/**
+ * The instant after a pay period's last day. The app sends the end as
+ * 23:59:59.999 of that day; a bare date (midnight) means the whole day,
+ * and `lt periodEnd` left that day's commissions out of every run.
+ */
+export function endOfPeriod(periodEnd: Date): Date {
+  const atMidnight =
+    periodEnd.getUTCHours() === 0 &&
+    periodEnd.getUTCMinutes() === 0 &&
+    periodEnd.getUTCSeconds() === 0 &&
+    periodEnd.getUTCMilliseconds() === 0;
+  return new Date(periodEnd.getTime() + (atMidnight ? 24 * 60 * 60 * 1000 : 1));
+}
+
 @Injectable()
 export class HrPayrollService {
   constructor(private readonly prisma: PrismaService) {}
@@ -380,6 +394,33 @@ export class HrPayrollService {
             );
           }
 
+          // Nobody is paid twice for a day. The unique index cannot catch
+          // this: it misses organisation-wide runs (a NULL branch never
+          // equals another NULL in Postgres) and any period that overlaps
+          // without matching exactly. An organisation-wide run covers
+          // every branch, so it clashes with any run in the window.
+          const clash = await tx.payrollRun.findFirst({
+            where: {
+              organizationId,
+              status: { not: 'CANCELLED' },
+              periodStart: { lte: end },
+              periodEnd: { gte: start },
+              ...(dto.branchId
+                ? { OR: [{ branchId: dto.branchId }, { branchId: null }] }
+                : {}),
+            },
+            select: { periodStart: true, periodEnd: true },
+          });
+          if (clash) {
+            throw new ConflictException(
+              `A payroll run already covers ${clash.periodStart
+                .toISOString()
+                .slice(0, 10)} to ${clash.periodEnd
+                .toISOString()
+                .slice(0, 10)} for this scope`,
+            );
+          }
+
           const run = await tx.payrollRun.create({
             data: {
               organizationId,
@@ -616,7 +657,10 @@ export class HrPayrollService {
             where: {
               organizationId,
               status: 'PENDING',
-              sessionAt: { gte: run.periodStart, lt: run.periodEnd },
+              sessionAt: {
+                gte: run.periodStart,
+                lt: endOfPeriod(run.periodEnd),
+              },
               ...(branchTrainerIds
                 ? { trainerId: { in: branchTrainerIds } }
                 : {}),

@@ -326,6 +326,39 @@ describe('HR & payroll (e2e)', () => {
       ).expect(409);
     });
 
+    it('rejects a run overlapping one already in the window', async () => {
+      const res = await asOwner(
+        request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({
+          branchId,
+          periodStart: '2026-01-15',
+          periodEnd: '2026-02-14',
+        }),
+      ).expect(409);
+      expect(JSON.stringify(res.body)).toMatch(/2026-01-01 to 2026-01-31/);
+    });
+
+    it('rejects an organisation-wide run over a branch run, and twice over', async () => {
+      // The unique index never caught these: NULL branches never collide.
+      await asOwner(
+        request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({
+          periodStart: '2026-01-01',
+          periodEnd: '2026-01-31',
+        }),
+      ).expect(409);
+      await asOwner(
+        request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({
+          periodStart: '2025-06-01',
+          periodEnd: '2025-06-30',
+        }),
+      ).expect(201);
+      await asOwner(
+        request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({
+          periodStart: '2025-06-01',
+          periodEnd: '2025-06-30',
+        }),
+      ).expect(409);
+    });
+
     it('rejects a run for a scope with no payroll-enabled staff', async () => {
       await asOwner(
         request(app.getHttpServer()).post('/hr-payroll/payroll-runs').send({

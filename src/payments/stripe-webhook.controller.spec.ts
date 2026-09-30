@@ -1,5 +1,8 @@
 import { Test } from '@nestjs/testing';
-import { StripeWebhookController } from './stripe-webhook.controller';
+import {
+  StripeWebhookController,
+  fromMinorUnits,
+} from './stripe-webhook.controller';
 import { StripeService } from './stripe.service';
 import { PaymentsService } from '../billing/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -61,6 +64,7 @@ describe('StripeWebhookController', () => {
           useValue: {
             member: { findFirst: jest.fn() },
             membership: { findFirst: jest.fn() },
+            payment: { updateMany: jest.fn() },
           },
         },
         {
@@ -88,6 +92,7 @@ describe('StripeWebhookController', () => {
     });
     (prismaService.membership.findFirst as jest.Mock).mockResolvedValue({
       id: 'membership_1',
+      memberId: 'member_1',
     });
   });
 
@@ -170,9 +175,10 @@ describe('StripeWebhookController', () => {
       await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
+      // Stripe's 1000 cents are 10.00 -- Payment.amount is in whole units.
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
         'org_1',
-        1000,
+        10,
         'USD',
         'member_1',
         undefined,
@@ -209,11 +215,13 @@ describe('StripeWebhookController', () => {
       await controller.handleWebhook(webhookRequest(), 'signature');
 
       // Assert
+      // A membership-only intent is recorded against that membership's
+      // member (Payment.memberId is required).
       expect(paymentsService.createStripePayment).toHaveBeenCalledWith(
         'org_1',
-        2000,
+        20,
         'USD',
-        undefined,
+        'member_1',
         'membership_1',
         'pi_456',
         'user_1',
@@ -265,6 +273,7 @@ describe('StripeWebhookController', () => {
             metadata: {
               organizationId: 'org_1',
               userId: 'user_1',
+              memberId: 'member_1',
             },
           },
         },
@@ -306,6 +315,7 @@ describe('StripeWebhookController', () => {
             metadata: {
               organizationId: 'org_1',
               userId: 'user_1',
+              memberId: 'member_1',
             },
           },
         },
@@ -394,6 +404,42 @@ describe('StripeWebhookController', () => {
       expect(logSpy).toHaveBeenCalledWith(
         'Unhandled event type charge.succeeded',
       );
+    });
+
+    it('completes the failed row when the same intent later succeeds', async () => {
+      (configService.get as jest.Mock).mockReturnValue('whsec_123');
+      (stripeService.constructEvent as jest.Mock).mockReturnValue({
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_retry',
+            amount: 250000,
+            currency: 'inr',
+            metadata: {
+              organizationId: 'org_1',
+              userId: 'user_1',
+              memberId: 'member_1',
+            },
+          },
+        },
+      });
+      (paymentsService.getOneByStripeIntentId as jest.Mock).mockResolvedValue({
+        id: 'payment_failed',
+        status: 'FAILED',
+      });
+
+      await controller.handleWebhook(webhookRequest(), 'signature');
+
+      expect(prismaService.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment_failed', status: 'FAILED' },
+        data: { status: 'COMPLETED', amount: 2500 },
+      });
+      expect(paymentsService.createStripePayment).not.toHaveBeenCalled();
+    });
+
+    it('keeps zero-decimal currencies as they are', () => {
+      expect(fromMinorUnits(5000, 'jpy')).toBe(5000);
+      expect(fromMinorUnits(5000, 'INR')).toBe(50);
     });
 
     it('should ignore a payment whose member does not belong to the metadata org', async () => {

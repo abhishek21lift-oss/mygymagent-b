@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
+import { organizationCurrency } from '../common/money/organization-currency';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePtPackageDto } from './dto/create-pt-package.dto';
 
@@ -92,7 +93,9 @@ export class PtPackagesService {
         startDate,
         endDate,
         price: dto.price,
-        currency: dto.currency ?? 'USD',
+        currency:
+          dto.currency ??
+          (await organizationCurrency(this.prisma, organizationId)),
         status: 'ACTIVE',
       },
     });

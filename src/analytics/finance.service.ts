@@ -72,11 +72,13 @@ const NOT_COMPUTABLE: NotComputable[] = [
   },
   {
     key: 'expenses',
-    reason: 'No expense-tracking model exists anywhere in this schema.',
+    reason:
+      'Expenses are tracked separately (Expenses, GET /expenses/summary) and are not netted into this revenue summary.',
   },
   {
     key: 'payroll',
-    reason: 'No payroll model exists anywhere in this schema.',
+    reason:
+      'Payroll runs are tracked separately (HR payroll) and are not netted into this revenue summary.',
   },
   {
     key: 'commissions',
@@ -104,13 +106,14 @@ export class FinanceService {
     branchScope: string | null,
   ): Promise<RevenueSummary> {
     const { from, to } = resolvePeriod(query);
-    // No PaymentStatus filter: Payment.amount is always the original
-    // charge regardless of refund status (refunds are tracked
-    // separately and never mutate it -- see the Payment model comment),
-    // so every payment counts toward gross revenue; refunds are
-    // subtracted below to get net.
+    // Payment.amount is always the original charge regardless of refund
+    // status (refunds are tracked separately and never mutate it -- see
+    // the Payment model comment), so refunded payments count toward gross
+    // revenue and refunds are subtracted below to get net. FAILED ones
+    // collected nothing and never count -- they used to.
     const paymentWhere = {
       organizationId,
+      status: { not: 'FAILED' as const },
       createdAt: { gte: from, lte: to },
       ...(branchScope ? { branchId: branchScope } : {}),
     };
@@ -211,6 +214,7 @@ export class FinanceService {
         );
         const paymentWhere = {
           organizationId,
+          status: { not: 'FAILED' as const },
           createdAt: { gte: start, lt: end },
           ...(branchScope ? { branchId: branchScope } : {}),
         };
@@ -276,6 +280,7 @@ export class FinanceService {
         price: true,
         currency: true,
         payments: {
+          where: { status: { not: 'FAILED' } },
           select: { amount: true, refunds: { select: { amount: true } } },
         },
       },

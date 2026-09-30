@@ -20,6 +20,35 @@ import { PaymentsService } from '../billing/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
 
+/** Stripe's zero-decimal currencies: amounts are already whole units. */
+const ZERO_DECIMAL = new Set([
+  'BIF',
+  'CLP',
+  'DJF',
+  'GNF',
+  'JPY',
+  'KMF',
+  'KRW',
+  'MGA',
+  'PYG',
+  'RWF',
+  'UGX',
+  'VND',
+  'VUV',
+  'XAF',
+  'XOF',
+  'XPF',
+]);
+
+/**
+ * Stripe reports amounts in the currency's smallest unit (paise, cents);
+ * Payment.amount is in whole units like every other payment. Stored raw,
+ * a 500-rupee payment read as 50,000.
+ */
+export function fromMinorUnits(amount: number, currency: string): number {
+  return ZERO_DECIMAL.has(currency.toUpperCase()) ? amount : amount / 100;
+}
+
 @Controller('payments/webhook')
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 export class StripeWebhookController {
@@ -125,6 +154,20 @@ export class StripeWebhookController {
     return true;
   }
 
+  /** A membership-only intent still needs its member: Payment.memberId
+   * is required, and the create failed (silently) without it. */
+  private async memberOfMembership(
+    organizationId: string | undefined,
+    membershipId: string | undefined,
+  ): Promise<string | undefined> {
+    if (!organizationId || !membershipId) return undefined;
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: membershipId, organizationId },
+      select: { memberId: true },
+    });
+    return membership?.memberId;
+  }
+
   private async handleSucceededPaymentIntent(
     paymentIntent: Stripe.PaymentIntent,
   ) {
@@ -133,6 +176,23 @@ export class StripeWebhookController {
       const existingPayment = await this.paymentsService.getOneByStripeIntentId(
         paymentIntent.id,
       );
+      const amount = fromMinorUnits(
+        paymentIntent.amount,
+        paymentIntent.currency,
+      );
+      if (existingPayment?.status === 'FAILED') {
+        // The customer retried the card on the same intent: the earlier
+        // failure row becomes the payment. Skipping it as "already
+        // recorded" lost the money.
+        await this.prisma.payment.updateMany({
+          where: { id: existingPayment.id, status: 'FAILED' },
+          data: { status: 'COMPLETED', amount },
+        });
+        this.logger.log(
+          `PaymentIntent ${paymentIntent.id} succeeded after a failure; payment ${existingPayment.id} completed`,
+        );
+        return;
+      }
       if (existingPayment) {
         this.logger.log(
           `Payment already exists for stripePaymentIntentId: ${paymentIntent.id}`,
@@ -144,11 +204,13 @@ export class StripeWebhookController {
       const metadata = paymentIntent.metadata || {};
       const organizationId = metadata.organizationId;
       const userId = metadata.userId;
-      const memberId = metadata.memberId || undefined;
       const membershipId = metadata.membershipId || undefined;
+      const memberId =
+        metadata.memberId ||
+        (await this.memberOfMembership(organizationId, membershipId));
 
       // Validate required metadata
-      if (!organizationId || !userId) {
+      if (!organizationId || !userId || !memberId) {
         this.logger.error(
           `Missing required metadata in payment intent ${paymentIntent.id}`,
         );
@@ -170,7 +232,7 @@ export class StripeWebhookController {
       // Create payment record
       await this.paymentsService.createStripePayment(
         organizationId,
-        paymentIntent.amount,
+        amount,
         paymentIntent.currency.toUpperCase(),
         memberId,
         membershipId,
@@ -208,11 +270,13 @@ export class StripeWebhookController {
       const metadata = paymentIntent.metadata || {};
       const organizationId = metadata.organizationId;
       const userId = metadata.userId;
-      const memberId = metadata.memberId || undefined;
       const membershipId = metadata.membershipId || undefined;
+      const memberId =
+        metadata.memberId ||
+        (await this.memberOfMembership(organizationId, membershipId));
 
       // Validate required metadata
-      if (!organizationId || !userId) {
+      if (!organizationId || !userId || !memberId) {
         this.logger.error(
           `Missing required metadata in payment intent ${paymentIntent.id}`,
         );
@@ -231,7 +295,7 @@ export class StripeWebhookController {
       // Create payment record
       await this.paymentsService.createStripePayment(
         organizationId,
-        paymentIntent.amount,
+        fromMinorUnits(paymentIntent.amount, paymentIntent.currency),
         paymentIntent.currency.toUpperCase(),
         memberId,
         membershipId,

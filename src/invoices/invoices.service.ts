@@ -28,11 +28,34 @@ export const OVERDUE_GRACE_DAYS = 7;
 
 const COLLECTIBLE_STATUSES = ['ISSUED', 'PART_PAID', 'OVERDUE'] as const;
 
+/** What paidTotalOf needs from each payment link. */
+const LINK_PAID_SELECT = {
+  amount: true,
+  payment: {
+    select: {
+      status: true,
+      amount: true,
+      refunds: { select: { amount: true } },
+    },
+  },
+} satisfies Prisma.InvoicePaymentSelect;
+
+type PaidLink = {
+  amount: Prisma.Decimal;
+  payment: {
+    status: string;
+    amount: Prisma.Decimal;
+    refunds: { amount: Prisma.Decimal }[];
+  };
+};
+
 const invoiceIncludes = {
   member: { select: { id: true, firstName: true, lastName: true } },
   membership: { include: { membershipPlan: true } },
   paymentLinks: {
-    include: { payment: true },
+    include: {
+      payment: { include: { refunds: { select: { amount: true } } } },
+    },
     orderBy: { createdAt: 'desc' as const },
   },
   dunningAttempts: { orderBy: { createdAt: 'desc' as const } },
@@ -63,7 +86,7 @@ export class InvoicesService {
       ...(query.overdue
         ? {
             dueAt: { lt: new Date() },
-            status: { in: ['ISSUED', 'PART_PAID'] },
+            status: { in: [...COLLECTIBLE_STATUSES] },
           }
         : {}),
     };
@@ -74,9 +97,7 @@ export class InvoicesService {
         orderBy: { createdAt: query.order ?? 'desc' },
         include: {
           member: { select: { id: true, firstName: true, lastName: true } },
-          paymentLinks: {
-            select: { amount: true, payment: { select: { status: true } } },
-          },
+          paymentLinks: { select: LINK_PAID_SELECT },
         },
       }),
       this.prisma.invoice.count({ where }),
@@ -440,12 +461,7 @@ export class InvoicesService {
       const invoice = await tx.invoice.findUnique({
         where: { id: invoiceId },
         include: {
-          paymentLinks: {
-            select: {
-              amount: true,
-              payment: { select: { status: true } },
-            },
-          },
+          paymentLinks: { select: LINK_PAID_SELECT },
         },
       });
       if (!invoice) throw new NotFoundException('Invoice not found');
@@ -517,10 +533,15 @@ export class InvoicesService {
         memberId: membership.memberId,
         membershipId: membership.id,
         branchId: membership.branchId,
+        // What was sold, not what the plan costs today: price + discount
+        // is the list price at the sale, so the invoice totals exactly the
+        // membership's price even after the plan is repriced.
         lines: [
           {
             label: membership.membershipPlan.name,
-            amount: Number(membership.membershipPlan.price),
+            amount: Number(
+              membership.price.plus(membership.discount ?? 0).toFixed(2),
+            ),
             qty: 1,
           },
         ],
@@ -530,12 +551,112 @@ export class InvoicesService {
       this.logger.log(
         `Auto-raised invoice for membership ${event.membershipId}`,
       );
+      // A payment taken with the sale is already in; settle it now, or
+      // the invoice goes overdue and dunning chases a member who paid.
+      await this.settleMembershipPayments(
+        event.organizationId,
+        event.membershipId,
+      );
     } catch (error) {
       this.logger.warn(
         `Auto-invoice for membership ${event.membershipId} failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    }
+  }
+
+  /**
+   * Links a membership's unallocated payments to its open invoices,
+   * oldest first, up to what each invoice still owes.
+   *
+   * A desk payment names a membership, rarely an invoice, and the
+   * invoice for a sale is raised after the sale's payment is recorded.
+   * Nothing joined the two, so every auto-raised invoice stayed ISSUED,
+   * went OVERDUE, and dunning sent "final notice" to members who had paid
+   * at the counter.
+   *
+   * The membership row is locked for the allocation, so two payments
+   * recorded at once cannot both fill the same outstanding amount.
+   */
+  async settleMembershipPayments(
+    organizationId: string,
+    membershipId: string,
+  ): Promise<void> {
+    const touched = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM memberships WHERE id = ${membershipId} FOR UPDATE`;
+      const invoices = await tx.invoice.findMany({
+        where: {
+          organizationId,
+          membershipId,
+          status: { in: [...COLLECTIBLE_STATUSES] },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          grandTotal: true,
+          paymentLinks: { select: LINK_PAID_SELECT },
+        },
+      });
+      if (invoices.length === 0) return [];
+      const payments = await tx.payment.findMany({
+        where: {
+          organizationId,
+          membershipId,
+          status: { in: ['COMPLETED', 'PARTIALLY_REFUNDED'] },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          amount: true,
+          invoiceLinks: { select: { amount: true } },
+        },
+      });
+      const owed = new Map(
+        invoices.map((invoice) => [
+          invoice.id,
+          new Prisma.Decimal(invoice.grandTotal).minus(
+            this.paidTotalOf(invoice),
+          ),
+        ]),
+      );
+      const linked = new Set<string>();
+      for (const payment of payments) {
+        let free = payment.invoiceLinks.reduce(
+          (left, link) => left.minus(link.amount),
+          new Prisma.Decimal(payment.amount),
+        );
+        for (const invoice of invoices) {
+          if (free.lte(0)) break;
+          const due = owed.get(invoice.id)!;
+          if (due.lte(0)) continue;
+          if (
+            invoice.paymentLinks.length > 0 &&
+            (await tx.invoicePayment.findUnique({
+              where: {
+                invoiceId_paymentId: {
+                  invoiceId: invoice.id,
+                  paymentId: payment.id,
+                },
+              },
+              select: { id: true },
+            }))
+          ) {
+            continue;
+          }
+          const amount = Prisma.Decimal.min(free, due);
+          await tx.invoicePayment.create({
+            data: { invoiceId: invoice.id, paymentId: payment.id, amount },
+          });
+          owed.set(invoice.id, due.minus(amount));
+          free = free.minus(amount);
+          linked.add(invoice.id);
+        }
+      }
+      return [...linked];
+    });
+    for (const invoiceId of touched) {
+      await this.recomputeInvoiceStatus(invoiceId);
     }
   }
 
@@ -556,12 +677,7 @@ export class InvoicesService {
         dueAt: true,
         grandTotal: true,
         currency: true,
-        paymentLinks: {
-          select: {
-            amount: true,
-            payment: { select: { status: true } },
-          },
-        },
+        paymentLinks: { select: LINK_PAID_SELECT },
       },
     });
     const now = new Date();
@@ -611,22 +727,33 @@ export class InvoicesService {
 
   // -- helpers ---------------------------------------------------------------
 
-  private paidTotalOf(invoice: {
-    paymentLinks: { amount: unknown; payment: { status: string } }[];
-  }): Prisma.Decimal {
-    return invoice.paymentLinks.reduce(
-      (sum, link) =>
-        link.payment.status !== 'FAILED'
-          ? sum.plus(link.amount as Prisma.Decimal)
-          : sum,
-      new Prisma.Decimal(0),
-    );
+  /**
+   * What an invoice has been paid: each linked payment's share, net of
+   * what was refunded from that payment (in proportion when one payment
+   * is split across invoices). FAILED payments never count. Refunds used
+   * to be ignored, so a refunded invoice stayed PAID.
+   */
+  private paidTotalOf(invoice: { paymentLinks: PaidLink[] }): Prisma.Decimal {
+    return invoice.paymentLinks.reduce((sum, link) => {
+      if (link.payment.status === 'FAILED') return sum;
+      const linked = new Prisma.Decimal(link.amount);
+      const refunded = link.payment.refunds.reduce(
+        (total, refund) => total.plus(refund.amount),
+        new Prisma.Decimal(0),
+      );
+      if (refunded.lte(0)) return sum.plus(linked);
+      const paymentAmount = new Prisma.Decimal(link.payment.amount);
+      const kept = paymentAmount.gt(0)
+        ? linked.mul(paymentAmount.minus(refunded)).div(paymentAmount)
+        : new Prisma.Decimal(0);
+      return sum.plus(Prisma.Decimal.max(kept, 0).toDecimalPlaces(2));
+    }, new Prisma.Decimal(0));
   }
 
   /** Outstanding balance of an invoice row carrying its paymentLinks. */
   private outstandingOf(invoice: {
     grandTotal: unknown;
-    paymentLinks: { amount: unknown; payment: { status: string } }[];
+    paymentLinks: PaidLink[];
   }): Prisma.Decimal {
     return new Prisma.Decimal(invoice.grandTotal as Prisma.Decimal).minus(
       this.paidTotalOf(invoice),

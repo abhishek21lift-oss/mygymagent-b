@@ -16,6 +16,7 @@ import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
 import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
+import { MembershipStatusScanner } from './scanners/membership-status.scanner';
 import { PaymentOverdueScanner } from './scanners/payment-overdue.scanner';
 import { DataRetentionScanner } from './scanners/data-retention.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
@@ -41,6 +42,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     InventoryLowListener,
     PaymentReceiptListener,
     MembershipRenewalScanner,
+    MembershipStatusScanner,
     PaymentOverdueScanner,
     MemberInactiveScanner,
     LeadFollowupScanner,
