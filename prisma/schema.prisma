@@ -2989,6 +2989,9 @@ model WhatsappWebSession {
   /// The linked account's number, digits only, once paired.
   phoneNumber   String?
   useForSending Boolean           @default(false)
+  /// Answers members' questions (plans, classes, their membership) on its
+  /// own while the gym sends through this number.
+  autoReply     Boolean           @default(true)
   /// Most messages this number may send in any 24 hours.
   dailyLimit    Int               @default(200)
 

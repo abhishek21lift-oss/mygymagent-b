@@ -287,7 +287,10 @@ export class CommunicationsService {
     subject?: string;
     body: string;
     variables?: Record<string, string>;
+    /** What the log calls this message; staff-composed by default. */
+    templateKey?: string;
   }) {
+    const templateKey = input.templateKey ?? 'ad_hoc';
     const organization = await this.prisma.organization.findUnique({
       where: { id: input.organizationId },
       select: { name: true, emailFromName: true, emailReplyTo: true },
@@ -312,7 +315,7 @@ export class CommunicationsService {
             organizationId: input.organizationId,
             channel: input.channel,
             category: input.category,
-            templateKey: 'ad_hoc',
+            templateKey,
             recipient: input.recipient,
             memberId: input.memberId,
             status: 'SKIPPED_NO_CONSENT',
@@ -331,7 +334,7 @@ export class CommunicationsService {
         organizationId: input.organizationId,
         channel: input.channel,
         category: input.category,
-        templateKey: 'ad_hoc',
+        templateKey,
         recipient: input.recipient,
         memberId: input.memberId,
         status: 'PENDING',

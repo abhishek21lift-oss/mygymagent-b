@@ -32,6 +32,10 @@ export class UpdateWhatsappWebSettingsDto {
   useForSending?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  autoReply?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(1000)
