@@ -26,15 +26,15 @@ anything promotional.
 
 ## Safeguards
 
-| Safeguard                                                                                                | Where                            |
-| -------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| MARKETING-category messages refused, even with consent                                                   | `WhatsappWebSender.enqueue`      |
-| Daily cap per gym, default 200 in any 24 hours, configurable 1-1000                                      | `WhatsappWebSender.enqueue`      |
-| Messages spaced 8-15 s apart per gym (`WHATSAPP_WEB_MIN_GAP_MS` + up to `WHATSAPP_WEB_JITTER_MS`)        | Redis-booked slots, `nextSlot()` |
-| One message at a time                                                                                    | processor `concurrency: 1`       |
-| Numbers not on WhatsApp fail at once, no retries                                                         | `NotOnWhatsappError`             |
-| Local numbers get +91 only for an Indian gym (INR or Asia/Kolkata); otherwise a country code is required | `normaliseWhatsappNumber`        |
-| No silent fallback between WhatsApp Web and the Meta API                                                 | `WhatsappRouterProvider`         |
+| Safeguard | Where |
+|---|---|
+| MARKETING-category messages refused, even with consent | `WhatsappWebSender.enqueue` |
+| Daily cap per gym, default 200 in any 24 hours, configurable 1-1000 | `WhatsappWebSender.enqueue` |
+| Messages spaced 8-15 s apart per gym (`WHATSAPP_WEB_MIN_GAP_MS` + up to `WHATSAPP_WEB_JITTER_MS`) | Redis-booked slots, `nextSlot()` |
+| One message at a time | processor `concurrency: 1` |
+| Numbers not on WhatsApp fail at once, no retries | `NotOnWhatsappError` |
+| Local numbers get +91 only for an Indian gym (INR or Asia/Kolkata); otherwise a country code is required | `normaliseWhatsappNumber` |
+| No silent fallback between WhatsApp Web and the Meta API | `WhatsappRouterProvider` |
 
 ## How it works
 
