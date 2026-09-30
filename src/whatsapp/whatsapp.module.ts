@@ -3,6 +3,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CommunicationsModule } from '../communications/communications.module';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappService } from './whatsapp.service';
+import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
 
 /**
  * WhatsApp Business integration (one row per org): Meta embedded-signup
@@ -15,7 +16,7 @@ import { WhatsappService } from './whatsapp.service';
 @Module({
   imports: [EventEmitterModule, CommunicationsModule],
   controllers: [WhatsappController],
-  providers: [WhatsappService],
+  providers: [WhatsappService, WhatsappInboundFiler],
   exports: [WhatsappService],
 })
 export class WhatsappModule {}

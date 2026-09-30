@@ -1,3 +1,4 @@
+import type { MessageCategory } from '@prisma/client';
 import { ChannelNotConfiguredError } from './email-provider.interface';
 
 /** Shared shape for the non-email channels (WhatsApp, SMS, push) -- simpler
@@ -13,12 +14,26 @@ import { ChannelNotConfiguredError } from './email-provider.interface';
  * message id (Meta's `wamid`) is returned when the provider reports one so
  * CommunicationsService can store it on MessageLog for webhook status
  * callbacks; providers that report nothing resolve void. */
+/** A provider that sends later (WhatsApp Web's spaced queue) returns this
+ * instead of a message id: the log row stays PENDING under
+ * `providerMessageId` until the send settles it. */
+export interface QueuedSend {
+  queued: true;
+  providerMessageId: string;
+}
+
 export interface MessageProvider {
   send(message: {
     to: string;
     text: string;
     organizationId?: string;
-  }): Promise<string | void>;
+    /** For providers that treat categories differently -- WhatsApp Web
+     * refuses MARKETING. */
+    category?: MessageCategory;
+    /** The MessageLog row this send is recorded on, for providers that
+     * settle it later. */
+    messageLogId?: string;
+  }): Promise<string | void | QueuedSend>;
   /** Whether a send could succeed at all. Optional; absent means "assume
    * yes", which is the generic HTTP provider's honest answer. */
   isConfigured?(): boolean;

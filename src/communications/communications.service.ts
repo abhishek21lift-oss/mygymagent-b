@@ -166,12 +166,22 @@ export class CommunicationsService {
           SMS: this.smsProvider,
           PUSH: this.pushProvider,
         }[input.channel];
-        const messageId = await provider.send({
+        const result = await provider.send({
           to: input.recipient,
           text: body,
           organizationId: input.organizationId ?? undefined,
+          category: input.category,
+          messageLogId: log.id,
         });
-        if (typeof messageId === 'string') providerMessageId = messageId;
+        if (typeof result === 'string') providerMessageId = result;
+        else if (result) {
+          // Queued to send later (WhatsApp Web): the row stays PENDING
+          // until the send settles it to SENT or FAILED.
+          return this.prisma.messageLog.update({
+            where: { id: log.id },
+            data: { providerMessageId: result.providerMessageId },
+          });
+        }
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },
@@ -308,12 +318,22 @@ export class CommunicationsService {
           SMS: this.smsProvider,
           PUSH: this.pushProvider,
         }[input.channel];
-        const messageId = await provider.send({
+        const result = await provider.send({
           to: input.recipient,
           text: body,
           organizationId: input.organizationId,
+          category: input.category,
+          messageLogId: log.id,
         });
-        if (typeof messageId === 'string') providerMessageId = messageId;
+        if (typeof result === 'string') providerMessageId = result;
+        else if (result) {
+          // Queued to send later (WhatsApp Web): the row stays PENDING
+          // until the send settles it to SENT or FAILED.
+          return this.prisma.messageLog.update({
+            where: { id: log.id },
+            data: { providerMessageId: result.providerMessageId },
+          });
+        }
       }
       return this.prisma.messageLog.update({
         where: { id: log.id },

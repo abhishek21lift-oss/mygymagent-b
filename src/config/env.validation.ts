@@ -157,6 +157,14 @@ export const envSchema = z
     WHATSAPP_TOKEN_KEY: z.string().optional(),
     META_WABA_VERIFY_TOKEN: z.string().optional(),
 
+    // WhatsApp Web through Baileys (src/whatsapp-web/) -- an unofficial
+    // client, so off unless a deployment opts in. Needs WHATSAPP_TOKEN_KEY
+    // to encrypt the linked sessions. The gap settings space one gym's
+    // messages at least MIN_GAP apart plus up to JITTER more.
+    WHATSAPP_WEB_ENABLED: z.enum(['true', 'false']).default('false'),
+    WHATSAPP_WEB_MIN_GAP_MS: z.coerce.number().int().min(0).default(8_000),
+    WHATSAPP_WEB_JITTER_MS: z.coerce.number().int().min(0).default(7_000),
+
     // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
     // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a
     // deployment that hasn't turned on 2FA still starts; the enrolment

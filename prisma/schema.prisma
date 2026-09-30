@@ -165,6 +165,8 @@ model Organization {
   ptSessionConsumptions    PtSessionConsumption[]
   whatsappIntegration      WhatsappIntegration?
   whatsappCredential       WhatsappCredential?
+  whatsappWebSession       WhatsappWebSession?
+  whatsappWebAuthKeys      WhatsappWebAuthKey[]
   inboundMessages          InboundMessage[]
   memberTags               MemberTag[]
   leaveTypes               LeaveType[]
@@ -2960,6 +2962,65 @@ model WhatsappCredential {
   updatedAt DateTime @updatedAt
 
   @@map("whatsapp_credentials")
+}
+
+enum WhatsappWebStatus {
+  /// Never paired, or unpaired by staff.
+  DISCONNECTED
+  /// A QR code / pairing code is waiting to be scanned on the phone.
+  PAIRING
+  CONNECTED
+  /// WhatsApp ended the session from the phone or blocked the number;
+  /// the stored keys are gone and the gym has to pair again.
+  LOGGED_OUT
+}
+
+/// A gym's own WhatsApp number linked as a "WhatsApp Web" device through
+/// Baileys (an unofficial client). Opt-in per gym, after the owner accepts
+/// that WhatsApp may ban a number used this way -- see
+/// src/whatsapp-web/README.md. `useForSending` routes the gym's WHATSAPP
+/// channel through this number instead of the Meta Cloud API.
+model WhatsappWebSession {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  status        WhatsappWebStatus @default(DISCONNECTED)
+  /// The linked account's number, digits only, once paired.
+  phoneNumber   String?
+  useForSending Boolean           @default(false)
+  /// Most messages this number may send in any 24 hours.
+  dailyLimit    Int               @default(200)
+
+  riskAcceptedAt       DateTime?
+  riskAcceptedByUserId String?
+
+  lastError      String?
+  connectedAt    DateTime?
+  disconnectedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_web_sessions")
+}
+
+/// Baileys' signal-protocol state for a linked number: `creds` plus one
+/// row per key. Whoever holds these can read and send as that WhatsApp
+/// account, so the value is AES-256-GCM encrypted with WHATSAPP_TOKEN_KEY
+/// (same vault as the Meta token) and never leaves the server.
+model WhatsappWebAuthKey {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key      String
+  valueEnc String
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, key])
+  @@map("whatsapp_web_auth_keys")
 }
 
 /// One inbound WhatsApp text message received on an org's connected number
