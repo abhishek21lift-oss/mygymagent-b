@@ -7,20 +7,20 @@ run never uses up a cooldown.
 
 ## What runs
 
-| Automation | When | Who | Channel | Once per |
-|---|---|---|---|---|
-| Renewal reminder | Daily 08:00 UTC; ACTIVE membership ending within 7 days, member has no later membership | Member | **WhatsApp** (`renewal.t7` / `t3` / `t0`) else email | WhatsApp: each stage once (>3 days, 2-3 days, the last day). Email: every 3 days |
-| Payment overdue | Daily; started ACTIVE/PENDING membership with a balance, where FAILED payments count as unpaid | Member | **WhatsApp** (`payment.overdue`) else email | 5 days |
-| Invoice due / overdue | Daily; windows at -3, 0, +3 and +7 days from `dueAt`, each caught up for up to 3 days if a scan misses its day; invoice set to OVERDUE at +7 | Member | **WhatsApp** (`invoice.due_soon` / `overdue` / `final_notice`) else email | Each window once |
-| PT package expiry | Daily; ACTIVE package with sessions left, ending within 7 days | Member | **WhatsApp** (`pt.expiry`) else email | 3 days |
-| Win-back | Daily; ACTIVE member not seen for 30+ days. MARKETING, so only with the member's consent | Member | Email only: marketing never goes from the gym's own number | Once per absence (nothing sent since the last visit) |
-| Welcome | Member created | Member | **WhatsApp** (`welcome`) else email | Once |
-| Receipt (front desk) | `payment.recorded` for a COMPLETED payment | Member | **WhatsApp** (`payment.received`) only | Once |
-| Receipt (online) | Razorpay capture | Member | **WhatsApp** (`payment.receipt`) else email | Once |
-| Lead first touch | Every 5 minutes; NEW lead with a phone, never contacted | Lead | WhatsApp (own number or Meta) | Once |
-| Lead follow-up due | Daily; overdue follow-up with an assignee | Staff | Email | 1 day |
-| Low stock | `inventory.low` event | Staff with `inventory.manage` | Email | 1 day per product and recipient |
-| Push nudges | Renewal at 7/3/1 days, and domain events | Member's devices | Push | Deduped per event |
+| Automation            | When                                                                                                                                         | Who                           | Channel                                                                   | Once per                                                                         |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Renewal reminder      | Daily 08:00 UTC; ACTIVE membership ending within 7 days, member has no later membership                                                      | Member                        | **WhatsApp** (`renewal.t7` / `t3` / `t0`) else email                      | WhatsApp: each stage once (>3 days, 2-3 days, the last day). Email: every 3 days |
+| Payment overdue       | Daily; started ACTIVE/PENDING membership with a balance, where FAILED payments count as unpaid                                               | Member                        | **WhatsApp** (`payment.overdue`) else email                               | 5 days                                                                           |
+| Invoice due / overdue | Daily; windows at -3, 0, +3 and +7 days from `dueAt`, each caught up for up to 3 days if a scan misses its day; invoice set to OVERDUE at +7 | Member                        | **WhatsApp** (`invoice.due_soon` / `overdue` / `final_notice`) else email | Each window once                                                                 |
+| PT package expiry     | Daily; ACTIVE package with sessions left, ending within 7 days                                                                               | Member                        | **WhatsApp** (`pt.expiry`) else email                                     | 3 days                                                                           |
+| Win-back              | Daily; ACTIVE member not seen for 30+ days. MARKETING, so only with the member's consent                                                     | Member                        | Email only: marketing never goes from the gym's own number                | Once per absence (nothing sent since the last visit)                             |
+| Welcome               | Member created                                                                                                                               | Member                        | **WhatsApp** (`welcome`) else email                                       | Once                                                                             |
+| Receipt (front desk)  | `payment.recorded` for a COMPLETED payment                                                                                                   | Member                        | **WhatsApp** (`payment.received`) only                                    | Once                                                                             |
+| Receipt (online)      | Razorpay capture                                                                                                                             | Member                        | **WhatsApp** (`payment.receipt`) else email                               | Once                                                                             |
+| Lead first touch      | Every 5 minutes; NEW lead with a phone, never contacted                                                                                      | Lead                          | WhatsApp (own number or Meta)                                             | Once                                                                             |
+| Lead follow-up due    | Daily; overdue follow-up with an assignee                                                                                                    | Staff                         | Email                                                                     | 1 day                                                                            |
+| Low stock             | `inventory.low` event                                                                                                                        | Staff with `inventory.manage` | Email                                                                     | 1 day per product and recipient                                                  |
+| Push nudges           | Renewal at 7/3/1 days, and domain events                                                                                                     | Member's devices              | Push                                                                      | Deduped per event                                                                |
 
 **WhatsApp first.** A member reminder goes on WhatsApp when the gym has linked its own number
 (WhatsApp Web) and turned on "send from this number", and the member has a phone. Otherwise it
@@ -30,6 +30,7 @@ to email the same day. The Meta Cloud API is not used for these, because it only
 business-initiated messages as pre-approved templates. See `member-messenger.service.ts`.
 
 **Who is never messaged:**
+
 - gyms that are SUSPENDED, CANCELLED or deleted (`automation-scope.ts`);
 - soft-deleted members;
 - a member whose next membership is already sold.
@@ -67,6 +68,7 @@ MARKETING-consent SKIPPED path for inactive-member recovery, and the real-time i
 -> queue -> email path end to end.
 
 `test/automation-whatsapp.e2e-spec.ts` covers the WhatsApp-first path against a fake WhatsApp socket:
+
 - renewal stages sent once each, with readable dates and no leftover `{{…}}`;
 - falling back to email when there is no phone;
 - renewed and deleted members, and suspended gyms, left alone;
