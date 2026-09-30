@@ -340,6 +340,30 @@ describe('WhatsApp auto-replies (e2e)', () => {
     await unanswered(m.digits, 'plans');
   });
 
+  it('answers from the linked number even when reminders go through the official API', async () => {
+    // The gym in production: number linked, "send reminders from this
+    // number" off. The member wrote to the linked number, so the answer
+    // has to come from it.
+    const m = await member();
+    await as(gym.accessToken)
+      .patch('/whatsapp-web/settings')
+      .send({ useForSending: false })
+      .expect(200);
+    try {
+      const reply = await ask(m.digits, 'memberships');
+      expect(reply).toContain('Auto Reply Fitness membership plans');
+      const log = await prisma.messageLog.findFirstOrThrow({
+        where: { memberId: m.id, templateKey: 'auto_reply.plans' },
+      });
+      expect(log.providerMessageId).toMatch(/^waweb:/);
+    } finally {
+      await as(gym.accessToken)
+        .patch('/whatsapp-web/settings')
+        .send({ useForSending: true })
+        .expect(200);
+    }
+  });
+
   it('answers nothing once the gym turns auto-replies off', async () => {
     const off = await as(gym.accessToken)
       .patch('/whatsapp-web/settings')

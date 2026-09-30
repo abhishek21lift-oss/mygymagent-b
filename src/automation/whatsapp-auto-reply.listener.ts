@@ -153,12 +153,16 @@ export class WhatsappAutoReplyListener {
       memberId: member?.id,
       body,
       templateKey,
+      fromOwnNumber: true,
     });
     return intent;
   }
 
   private async enabled(organizationId: string): Promise<boolean> {
-    if (!(await this.communications.ownWhatsappNumberReady(organizationId)))
+    // Only a linked number: the reply has to come from the number the
+    // member wrote to. Not tied to "send reminders from this number" --
+    // a gym that keeps reminders on the official API still answers chats.
+    if (!(await this.communications.ownWhatsappNumberLinked(organizationId)))
       return false;
     const session = await this.prisma.whatsappWebSession.findUnique({
       where: { organizationId },

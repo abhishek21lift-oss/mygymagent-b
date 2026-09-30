@@ -33,6 +33,10 @@ export interface MessageProvider {
     /** The MessageLog row this send is recorded on, for providers that
      * settle it later. */
     messageLogId?: string;
+    /** WhatsApp only: send from the gym's own linked number whatever it
+     * chose for reminders -- a reply to a chat must come from the number
+     * the member wrote to. */
+    fromOwnNumber?: boolean;
   }): Promise<string | void | QueuedSend>;
   /** Whether a send could succeed at all. Optional; absent means "assume
    * yes", which is the generic HTTP provider's honest answer. */
