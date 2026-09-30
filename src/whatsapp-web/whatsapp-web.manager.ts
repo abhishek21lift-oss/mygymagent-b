@@ -110,18 +110,34 @@ export class WhatsappWebManager
     if (!this.enabled) return;
     this.renewTimer = setInterval(() => void this.renewAll(), LOCK_RENEW_MS);
     this.renewTimer.unref();
-    // Resume every gym that was linked when the last server stopped. Not
-    // awaited: a slow WhatsApp handshake must not hold up the API booting.
+    await this.resumeLinked();
+  }
+
+  /**
+   * Resumes every gym that was linked when the last server stopped. Not
+   * awaited per gym: a slow WhatsApp handshake must not hold up the API
+   * booting.
+   *
+   * A gym whose lock is still held -- the previous server was killed
+   * before it could release it, so it lingers up to LOCK_TTL_MS, or
+   * another server really has it -- is retried with the usual backoff
+   * until the lock is free. Before, it was logged once and left: the page
+   * said "connected" while nothing was, after every redeploy.
+   */
+  async resumeLinked(): Promise<void> {
     const linked = await this.prisma.whatsappWebSession.findMany({
       where: { status: 'CONNECTED' },
       select: { organizationId: true },
     });
     for (const { organizationId } of linked) {
-      void this.connect(organizationId).catch((error: unknown) =>
+      void this.connect(organizationId).catch((error: unknown) => {
         this.logger.warn(
           `Could not resume WhatsApp Web for ${organizationId}: ${describe(error)}`,
-        ),
-      );
+        );
+        if (error instanceof ConflictException && !this.shuttingDown) {
+          this.scheduleReconnect(organizationId, false);
+        }
+      });
     }
   }
 

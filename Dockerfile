@@ -38,5 +38,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||4000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 # Applies any pending migration before serving traffic -- see "Database
 # migrations" in docs/deployment/overview.md for why this runs on every
-# boot rather than as a separate manual step.
-CMD ["sh", "-c", "node scripts/migrate-deploy.cjs && node dist/main"]
+# boot rather than as a separate manual step. `exec` hands PID 1 to node,
+# so the SIGTERM a redeploy sends reaches it: without it `sh` swallowed
+# the signal, node was SIGKILLed 10 s later, and shutdown hooks (closing
+# queues, releasing the WhatsApp Web lock) never ran.
+CMD ["sh", "-c", "node scripts/migrate-deploy.cjs && exec node dist/main"]
