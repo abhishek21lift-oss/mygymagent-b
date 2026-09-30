@@ -219,14 +219,15 @@ export class MemberOtpService {
     // all answer identically.
     if (!challenge || challenge.member.deletedAt) throw invalid;
 
-    if (challenge.attempts >= MAX_ATTEMPTS) throw invalid;
-
     // Count the guess before checking it, so a caller who disconnects
-    // mid-request does not get a free attempt.
-    await this.prisma.memberOtpChallenge.update({
-      where: { id: challenge.id },
+    // mid-request does not get a free attempt -- and check the budget in
+    // the same write: reading it first let parallel guesses all pass the
+    // check before any of them was counted.
+    const counted = await this.prisma.memberOtpChallenge.updateMany({
+      where: { id: challenge.id, attempts: { lt: MAX_ATTEMPTS } },
       data: { attempts: { increment: 1 } },
     });
+    if (counted.count !== 1) throw invalid;
 
     const supplied = hashCode(String(code ?? ''));
     const expected = challenge.codeHash;
@@ -235,11 +236,13 @@ export class MemberOtpService {
       timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
     if (!matches) throw invalid;
 
-    // Single use, even inside the window.
-    await this.prisma.memberOtpChallenge.update({
-      where: { id: challenge.id },
+    // Single use, even inside the window -- and even for two requests
+    // racing with the same code: only one of them spends it.
+    const consumed = await this.prisma.memberOtpChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null },
       data: { consumedAt: new Date() },
     });
+    if (consumed.count !== 1) throw invalid;
 
     const userId = await this.ensureMemberUser(challenge.member);
 

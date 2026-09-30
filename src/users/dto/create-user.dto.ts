@@ -8,8 +8,10 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
+import { NormaliseEmail } from '../../common/transforms/normalise-email';
 
 export class CreateUserDto {
+  @NormaliseEmail()
   @IsEmail()
   email!: string;
 

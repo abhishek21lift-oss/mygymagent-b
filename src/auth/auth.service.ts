@@ -460,6 +460,15 @@ export class AuthService {
     if (!record || record.usedAt || record.expiresAt < new Date()) {
       throw new BadRequestException('Invalid or expired reset token');
     }
+    // Spend the token before using it, so two requests racing with one
+    // link cannot both set a password.
+    const spent = await this.prisma.passwordResetToken.updateMany({
+      where: { id: record.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (spent.count !== 1) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
 
     const account = await this.prisma.user.findUniqueOrThrow({
       where: { id: record.userId },
@@ -491,14 +500,13 @@ export class AuthService {
         where: { id: record.userId },
         data: {
           passwordHash,
+          // A new password ends a lockout earned by guessing the old one.
+          failedLoginAttempts: 0,
+          lockedUntil: null,
           ...(activating
             ? { status: 'ACTIVE', emailVerifiedAt: new Date() }
             : {}),
         },
-      }),
-      this.prisma.passwordResetToken.update({
-        where: { id: record.id },
-        data: { usedAt: new Date() },
       }),
     ]);
 

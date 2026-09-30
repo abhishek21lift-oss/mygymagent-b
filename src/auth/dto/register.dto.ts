@@ -1,4 +1,5 @@
 import { IsEmail, IsString, MinLength } from 'class-validator';
+import { NormaliseEmail } from '../../common/transforms/normalise-email';
 
 /** Self-serve signup: creates a brand-new Organization, its first Branch,
  * and the caller as that organization's Owner. Inviting additional staff
@@ -8,6 +9,7 @@ export class RegisterDto {
   @MinLength(2)
   organizationName!: string;
 
+  @NormaliseEmail()
   @IsEmail()
   email!: string;
 
