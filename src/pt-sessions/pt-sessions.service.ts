@@ -41,22 +41,21 @@ export class PtSessionsService {
     branchId?: string,
     startFrom?: Date,
     endTo?: Date,
+    branchScope: string | null = null,
   ) {
+    // A branch-scoped caller reads only their own branch, whatever branch
+    // they ask for; this list used to answer for the whole organization.
+    const and: Prisma.PtSessionWhereInput[] = [
+      ...(branchId ? [{ branchId }] : []),
+      ...(branchScope ? [{ branchId: branchScope }] : []),
+      ...(startFrom ? [{ startTime: { gte: startFrom } }] : []),
+      ...(endTo ? [{ endTime: { lte: endTo } }] : []),
+    ];
     const where: Prisma.PtSessionWhereInput = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(trainerId ? { trainerId } : {}),
-      ...(branchId ? { branchId } : {}),
-      ...(startFrom && endTo
-        ? {
-            AND: [
-              { startTime: { gte: startFrom } },
-              { endTime: { lte: endTo } },
-            ],
-          }
-        : {}),
-      ...(startFrom && !endTo ? { startTime: { gte: startFrom } } : {}),
-      ...(!startFrom && endTo ? { endTime: { lte: endTo } } : {}),
+      ...(and.length ? { AND: and } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.ptSession.findMany({
@@ -86,9 +85,17 @@ export class PtSessionsService {
     return paginate(items, total, query.page, query.pageSize);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const session = await this.prisma.ptSession.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       include: {
         member: {
           select: {

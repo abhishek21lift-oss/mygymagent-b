@@ -28,17 +28,38 @@ export class PtPackagesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(organizationId: string, memberId?: string) {
+  /**
+   * A branch-scoped caller sees only their branch's packages. These
+   * reads and the sale below used to ignore the scope, so a branch
+   * manager could list, open and sell packs anywhere in the organization.
+   */
+  async list(
+    organizationId: string,
+    memberId?: string,
+    branchScope: string | null = null,
+  ) {
     const packages = await this.prisma.ptPackage.findMany({
-      where: { organizationId, ...(memberId ? { memberId } : {}) },
+      where: {
+        organizationId,
+        ...(memberId ? { memberId } : {}),
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       orderBy: { endDate: 'asc' },
     });
     return packages.map(withRemaining);
   }
 
-  async getOne(organizationId: string, id: string) {
+  async getOne(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const pkg = await this.prisma.ptPackage.findFirst({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
     });
     if (!pkg) throw new NotFoundException('PT package not found');
     return withRemaining(pkg);
@@ -48,7 +69,12 @@ export class PtPackagesService {
     organizationId: string,
     dto: CreatePtPackageDto,
     createdByUserId: string,
+    branchScope: string | null = null,
   ) {
+    if (branchScope && dto.branchId !== branchScope)
+      throw new BadRequestException(
+        'Cannot sell a package outside your assigned branch',
+      );
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
     if (startDate > endDate)
@@ -56,10 +82,15 @@ export class PtPackagesService {
 
     const [member, branch] = await Promise.all([
       this.prisma.member.findFirst({
-        where: { id: dto.memberId, organizationId },
+        where: {
+          id: dto.memberId,
+          organizationId,
+          deletedAt: null,
+          ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        },
       }),
       this.prisma.branch.findFirst({
-        where: { id: dto.branchId, organizationId },
+        where: { id: dto.branchId, organizationId, deletedAt: null },
       }),
     ]);
     if (!member)

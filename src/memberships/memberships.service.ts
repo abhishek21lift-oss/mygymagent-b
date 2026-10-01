@@ -816,12 +816,37 @@ export class MembershipsService {
     branchScope: string | null = null,
   ) {
     const membership = await this.getOne(organizationId, id, branchScope);
+    if (membership.status === 'CANCELLED' || membership.status === 'EXPIRED')
+      throw new BadRequestException(
+        'Only a running membership can be transferred.',
+      );
+    // A branch-scoped caller hands the term only to a member of their own
+    // branch: it used to reach any member in the organization.
     const target = await this.prisma.member.findFirst({
-      where: { id: dto.memberId, organizationId, deletedAt: null },
+      where: {
+        id: dto.memberId,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
     });
     if (!target) throw new NotFoundException('Target member not found');
     if (target.id === membership.memberId)
       throw new BadRequestException('Membership is already with this member');
+    // The renewal already sold would stay with the first member and
+    // carry on the term the second one now holds.
+    const renewal = await this.prisma.membership.findFirst({
+      where: {
+        organizationId,
+        previousMembershipId: membership.id,
+        status: { not: 'CANCELLED' },
+      },
+      select: { id: true },
+    });
+    if (renewal)
+      throw new BadRequestException(
+        'This membership has already been renewed. Cancel the renewal first, then transfer it.',
+      );
     return this.prisma.membership.update({
       where: { id },
       data: {

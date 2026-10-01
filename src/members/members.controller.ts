@@ -19,6 +19,7 @@ import {
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import { AssignTrainerDto } from './dto/assign-trainer.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { ListMembersQueryDto } from './dto/list-members-query.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
@@ -43,6 +44,24 @@ export class MembersController {
       query,
       branchScope ?? requestedBranchId,
       assignmentScope,
+    );
+  }
+
+  @Get('assignable-trainers')
+  @RequireAnyPermission(
+    'members.assign_trainer',
+    'members.update',
+    'members.create',
+  )
+  listAssignableTrainers(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.membersService.listAssignableTrainers(
+      user.organizationId!,
+      branchId || undefined,
+      branchScope,
     );
   }
 
@@ -105,6 +124,29 @@ export class MembersController {
       user.organizationId!,
       id,
       dto,
+      branchScope,
+      user.id,
+    );
+  }
+
+  /**
+   * Give a member a coach, change it, or take it away. Its own route so
+   * `members.assign_trainer` means something: a head trainer holds it
+   * without `members.update`, and could not do this part of the job.
+   */
+  @Patch(':id/trainer')
+  @RequireAnyPermission('members.assign_trainer', 'members.update')
+  @Audited({ resource: 'member', action: 'assign-trainer' })
+  assignTrainer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AssignTrainerDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membersService.update(
+      user.organizationId!,
+      id,
+      { assignedTrainerId: dto.trainerId },
       branchScope,
       user.id,
     );
