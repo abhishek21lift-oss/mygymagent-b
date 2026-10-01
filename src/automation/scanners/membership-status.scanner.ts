@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { bookedFreezeDays } from '../../memberships/freeze-days';
+import { shiftLaterTerms } from '../../memberships/later-terms';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -62,15 +63,27 @@ export class MembershipStatusScanner {
     for (const membership of frozen) {
       const start = membership.freezeStartDate ?? membership.freezeEndDate!;
       const days = bookedFreezeDays(start, membership.freezeEndDate!);
-      const { count } = await this.prisma.membership.updateMany({
-        where: { id: membership.id, status: 'FROZEN' },
-        data: {
-          status: 'ACTIVE',
-          endDate: new Date(membership.endDate.getTime() + days * MS_PER_DAY),
-          freezeStartDate: null,
-          freezeEndDate: null,
-          totalFreezeDaysUsed: membership.totalFreezeDaysUsed + days,
-        },
+      const count = await this.prisma.$transaction(async (tx) => {
+        const { count } = await tx.membership.updateMany({
+          where: { id: membership.id, status: 'FROZEN' },
+          data: {
+            status: 'ACTIVE',
+            endDate: new Date(membership.endDate.getTime() + days * MS_PER_DAY),
+            freezeStartDate: null,
+            freezeEndDate: null,
+            totalFreezeDaysUsed: membership.totalFreezeDaysUsed + days,
+          },
+        });
+        // A renewal sold during the freeze starts later by the same days.
+        if (count === 1) {
+          await shiftLaterTerms(
+            tx,
+            membership.id,
+            membership.endDate,
+            days * MS_PER_DAY,
+          );
+        }
+        return count;
       });
       resumed += count;
     }

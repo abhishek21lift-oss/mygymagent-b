@@ -22,6 +22,7 @@ import type { CreateMembershipDto } from './dto/create-membership.dto';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto';
 import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { bookedFreezeDays } from './freeze-days';
+import { shiftLaterTerms } from './later-terms';
 import {
   COLLECTED_PAYMENT_STATUSES,
   membershipBalances,
@@ -252,6 +253,10 @@ export class MembershipsService {
     const membership = await this.getOne(organizationId, id, branchScope);
     if (membership.status !== 'ACTIVE')
       throw new BadRequestException('Only an active membership can be frozen');
+    if (membership.startDate.getTime() > Date.now())
+      throw new BadRequestException(
+        "This term hasn't started yet -- freeze the one that is running now.",
+      );
     const remainingFreezeDays =
       membership.membershipPlan.maxFreezeDays - membership.totalFreezeDaysUsed;
     if (dto.days > remainingFreezeDays) {
@@ -294,15 +299,25 @@ export class MembershipsService {
     const extendedEndDate = new Date(
       membership.endDate.getTime() + frozenDays * MS_PER_DAY,
     );
-    return this.prisma.membership.update({
-      where: { id },
-      data: {
-        status: 'ACTIVE',
-        endDate: extendedEndDate,
-        freezeStartDate: null,
-        freezeEndDate: null,
-        totalFreezeDaysUsed: membership.totalFreezeDaysUsed + frozenDays,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const resumed = await tx.membership.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE',
+          endDate: extendedEndDate,
+          freezeStartDate: null,
+          freezeEndDate: null,
+          totalFreezeDaysUsed: membership.totalFreezeDaysUsed + frozenDays,
+        },
+      });
+      // The renewal already sold starts later by the same days.
+      await shiftLaterTerms(
+        tx,
+        id,
+        membership.endDate,
+        frozenDays * MS_PER_DAY,
+      );
+      return resumed;
     });
   }
 
@@ -376,40 +391,47 @@ export class MembershipsService {
         'Cannot renew a frozen membership. Please resume it first.',
       );
     }
-    const next = await this.prisma.membership.findFirst({
-      where: {
-        organizationId,
-        previousMembershipId: membership.id,
-        status: { not: 'CANCELLED' },
-      },
-      select: { id: true },
-    });
-    if (next) {
-      throw new BadRequestException(
-        'This membership has already been renewed -- renew the newer term instead.',
-      );
-    }
     const plan = membership.membershipPlan;
     const discount = discountOff(plan.price, dto.discount);
     // A closed membership starts a new term today. A running one starts
     // the next term the day it ends -- that used to only push the end date
     // out, a whole extra term with no price, no invoice and no payment.
     const startDate = isExpiredOrCancelled ? new Date() : membership.endDate;
-    const newMembership = await this.prisma.membership.create({
-      data: {
-        organizationId,
-        branchId: membership.branchId,
-        memberId: membership.memberId,
-        membershipPlanId: plan.id,
-        status: 'ACTIVE',
-        startDate,
-        endDate: new Date(startDate.getTime() + plan.durationDays * MS_PER_DAY),
-        price: discount ? plan.price.sub(discount) : plan.price,
-        discount,
-        currency: plan.currency,
-        autoRenew: membership.autoRenew,
-        previousMembershipId: membership.id,
-      },
+    // One renewal per term, even for a double-tap: the row is locked, so a
+    // second request waits, then sees the first one's renewal.
+    const newMembership = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM memberships WHERE id = ${membership.id} FOR UPDATE`;
+      const next = await tx.membership.findFirst({
+        where: {
+          organizationId,
+          previousMembershipId: membership.id,
+          status: { not: 'CANCELLED' },
+        },
+        select: { id: true },
+      });
+      if (next) {
+        throw new BadRequestException(
+          'This membership has already been renewed -- renew the newer term instead.',
+        );
+      }
+      return tx.membership.create({
+        data: {
+          organizationId,
+          branchId: membership.branchId,
+          memberId: membership.memberId,
+          membershipPlanId: plan.id,
+          status: 'ACTIVE',
+          startDate,
+          endDate: new Date(
+            startDate.getTime() + plan.durationDays * MS_PER_DAY,
+          ),
+          price: discount ? plan.price.sub(discount) : plan.price,
+          discount,
+          currency: plan.currency,
+          autoRenew: membership.autoRenew,
+          previousMembershipId: membership.id,
+        },
+      });
     });
     // Post-commit like create(): the invoice auto-raise listener treats
     // every started membership the same, whether first sale or renewal.
@@ -625,11 +647,17 @@ export class MembershipsService {
       throw new BadRequestException(
         'Cannot extend a closed membership. Renew it instead.',
       );
-    return this.prisma.membership.update({
-      where: { id },
-      data: {
-        endDate: new Date(membership.endDate.getTime() + dto.days * MS_PER_DAY),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const extended = await tx.membership.update({
+        where: { id },
+        data: {
+          endDate: new Date(
+            membership.endDate.getTime() + dto.days * MS_PER_DAY,
+          ),
+        },
+      });
+      await shiftLaterTerms(tx, id, membership.endDate, dto.days * MS_PER_DAY);
+      return extended;
     });
   }
 
@@ -656,6 +684,24 @@ export class MembershipsService {
     if (membership.status === 'CANCELLED' || membership.status === 'EXPIRED')
       throw new BadRequestException(
         'Cannot change the plan of a closed membership. Renew it instead.',
+      );
+    // The new plan starts today. For a term that hasn't begun, or one
+    // already renewed, that would run two terms side by side.
+    if (membership.startDate.getTime() > Date.now())
+      throw new BadRequestException(
+        "This term hasn't started yet. Cancel it and sell the new plan instead.",
+      );
+    const renewedAlready = await this.prisma.membership.findFirst({
+      where: {
+        organizationId,
+        previousMembershipId: membership.id,
+        status: { not: 'CANCELLED' },
+      },
+      select: { id: true },
+    });
+    if (renewedAlready)
+      throw new BadRequestException(
+        'This membership has already been renewed. Cancel the renewal first, then change the plan.',
       );
     const plan = await this.prisma.membershipPlan.findFirst({
       where: { id: dto.membershipPlanId, organizationId, isActive: true },
