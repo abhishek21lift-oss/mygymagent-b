@@ -23,11 +23,16 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 /** Most automatic answers one number gets in an hour: a loop with another
- * bot, or someone testing every keyword, stops here. */
-const MAX_REPLIES_PER_HOUR = 6;
+ * bot stops here. It was 6, and in production a member who said "Hi" a
+ * few times used it up on menus, so their "My plan" and "Plans" twenty
+ * minutes later went unanswered. */
+const MAX_REPLIES_PER_HOUR = 10;
 /** The same answer is not sent twice this close together ("Membership",
  * then "Memberships" a minute later). */
 const SAME_ANSWER_GAP_MS = 2 * MINUTE_MS;
+/** The menu is a greeting: once in this long is enough. "Hi" five times in
+ * twenty minutes sent it four times. */
+const MENU_GAP_MS = 30 * MINUTE_MS;
 /** "Our team will reply" is said once in this long, not to every message. */
 const HOLDING_REPLY_GAP_MS = 12 * HOUR_MS;
 /** A message nobody's keywords match is left to staff while they are
@@ -122,10 +127,10 @@ export class WhatsappAutoReplyListener {
       (log) => log.createdAt.getTime() >= now - HOUR_MS,
     );
     if (inLastHour.length >= MAX_REPLIES_PER_HOUR) return null;
+    const gap = intent === 'MENU' ? MENU_GAP_MS : SAME_ANSWER_GAP_MS;
     const sameAnswerJustSent = recent.some(
       (log) =>
-        log.templateKey === templateKey &&
-        log.createdAt.getTime() >= now - SAME_ANSWER_GAP_MS,
+        log.templateKey === templateKey && log.createdAt.getTime() >= now - gap,
     );
     if (sameAnswerJustSent) return null;
 
