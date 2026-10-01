@@ -488,4 +488,319 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
       });
     });
   });
+  /**
+   * The self-service kiosk screen. A member does not know their UUID: they
+   * hold up the check-in QR from the member portal, or type the member
+   * code on their card. Both resolve to a member inside the device's own
+   * organization and then go through exactly the same branch check, gate
+   * and attendance write as a memberId does.
+   */
+  describe('self-service kiosk', () => {
+    let kioskKey: string;
+    let kioskId: string;
+    let memberId: string;
+    let memberCode: string;
+    let unpaidMemberId: string;
+
+    beforeAll(async () => {
+      const kiosk = await asOwner(
+        request(app.getHttpServer())
+          .post('/devices')
+          .send({ branchId, name: 'Lobby Kiosk' }),
+      ).expect(201);
+      kioskKey = kiosk.body.data.key;
+      kioskId = kiosk.body.data.id;
+
+      const plan = await asOwner(
+        request(app.getHttpServer()).post('/membership-plans').send({
+          name: 'Self-service Plan',
+          price: 1000,
+          durationDays: 30,
+        }),
+      ).expect(201);
+      const member = await asOwner(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: branchId,
+          firstName: 'Sela',
+          lastName: 'Service',
+        }),
+      ).expect(201);
+      memberId = member.body.data.id;
+      memberCode = member.body.data.memberCode;
+      expect(memberCode).toBeTruthy();
+      await asOwner(
+        request(app.getHttpServer())
+          .post('/memberships')
+          .send({
+            memberId,
+            membershipPlanId: plan.body.data.id,
+            startDate: new Date().toISOString().slice(0, 10),
+          }),
+      ).expect(201);
+
+      const unpaid = await asOwner(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: branchId,
+          firstName: 'Una',
+          lastName: 'Paid',
+        }),
+      ).expect(201);
+      unpaidMemberId = unpaid.body.data.id;
+    });
+
+    const mintQr = async (id: string) => {
+      const res = await asOwner(
+        request(app.getHttpServer()).get(`/attendance/qr-token/${id}`),
+      ).expect(200);
+      return res.body.data.token as string;
+    };
+
+    describe('POST /kiosk/session', () => {
+      it('tells the kiosk who it is, and nothing secret', async () => {
+        const res = await fromIp(
+          request(app.getHttpServer())
+            .post('/kiosk/session')
+            .send({ deviceKey: kioskKey }),
+        ).expect(200);
+        expect(res.body.data.device).toEqual({
+          id: kioskId,
+          name: 'Lobby Kiosk',
+        });
+        expect(res.body.data.branch.id).toBe(branchId);
+        expect(res.body.data.organization.name).toBe('Kiosk Test Gym');
+        const body = JSON.stringify(res.body.data);
+        expect(body).not.toContain(kioskKey);
+        expect(body).not.toMatch(/keyHash|logoKey/);
+      });
+
+      it('is a 401 for an unknown key and for a turnstile key', async () => {
+        await fromIp(
+          request(app.getHttpServer())
+            .post('/kiosk/session')
+            .send({ deviceKey: 'not-a-real-key' }),
+        ).expect(401);
+
+        const turnstile = await asOwner(
+          request(app.getHttpServer())
+            .post('/devices')
+            .send({ branchId, name: 'Gate', kind: 'BIOMETRIC' }),
+        ).expect(201);
+        await fromIp(
+          request(app.getHttpServer())
+            .post('/kiosk/session')
+            .send({ deviceKey: turnstile.body.data.key }),
+        ).expect(401);
+      });
+
+      it('is a 401 once the kiosk is revoked', async () => {
+        const doomed = await asOwner(
+          request(app.getHttpServer())
+            .post('/devices')
+            .send({ branchId, name: 'Doomed Kiosk' }),
+        ).expect(201);
+        await asOwner(
+          request(app.getHttpServer()).post(
+            `/devices/${doomed.body.data.id}/revoke`,
+          ),
+        ).expect(200);
+        await fromIp(
+          request(app.getHttpServer())
+            .post('/kiosk/session')
+            .send({ deviceKey: doomed.body.data.key }),
+        ).expect(401);
+      });
+    });
+
+    it('checks a member in from their portal QR code', async () => {
+      const qrToken = await mintQr(memberId);
+      const res = await checkIn({ deviceKey: kioskKey, qrToken }).expect(200);
+      expect(res.body.data.allowed).toBe(true);
+      expect(res.body.data.member).toEqual({
+        id: memberId,
+        firstName: 'Sela',
+        lastName: 'Service',
+      });
+      expect(res.body.data.checkedInAt).toBeTruthy();
+
+      const row = await prisma.attendance.findUniqueOrThrow({
+        where: { id: res.body.data.attendanceId },
+        select: { memberId: true, method: true, deviceId: true },
+      });
+      expect(row).toEqual({ memberId, method: 'KIOSK', deviceId: kioskId });
+    });
+
+    it('treats a second scan inside a minute as the same visit', async () => {
+      await prisma.attendance.deleteMany({
+        where: { memberId, deviceId: kioskId },
+      });
+      const qrToken = await mintQr(memberId);
+      const before = await prisma.attendance.count({
+        where: { memberId, deviceId: kioskId },
+      });
+      const first = await checkIn({ deviceKey: kioskKey, qrToken }).expect(200);
+      expect(first.body.data.repeat).toBeUndefined();
+      const second = await checkIn({
+        deviceKey: kioskKey,
+        memberCode,
+      }).expect(200);
+      expect(second.body.data.allowed).toBe(true);
+      expect(second.body.data.repeat).toBe(true);
+      expect(second.body.data.attendanceId).toBe(first.body.data.attendanceId);
+      const after = await prisma.attendance.count({
+        where: { memberId, deviceId: kioskId },
+      });
+      expect(after).toBe(before + 1);
+    });
+
+    it('checks a member in by member code, whatever its case', async () => {
+      await prisma.attendance.deleteMany({
+        where: { memberId, deviceId: kioskId },
+      });
+      const res = await checkIn({
+        deviceKey: kioskKey,
+        memberCode: memberCode.toLowerCase(),
+      }).expect(200);
+      expect(res.body.data.allowed).toBe(true);
+      expect(res.body.data.member.id).toBe(memberId);
+    });
+
+    it('takes just the digits of an issued member code', async () => {
+      await prisma.attendance.deleteMany({
+        where: { memberId, deviceId: kioskId },
+      });
+      const digits = memberCode.replace(/^M-0*/, '');
+      expect(memberCode).toMatch(/^M-\d{6}$/);
+      const res = await checkIn({
+        deviceKey: kioskKey,
+        memberCode: digits,
+      }).expect(200);
+      expect(res.body.data.allowed).toBe(true);
+      expect(res.body.data.member.id).toBe(memberId);
+    });
+
+    it('refuses a rotated QR code without writing a row', async () => {
+      const old = await mintQr(memberId);
+      await mintQr(memberId);
+      const before = await prisma.attendance.count({ where: { memberId } });
+      const res = await checkIn({ deviceKey: kioskKey, qrToken: old }).expect(
+        200,
+      );
+      expect(res.body.data).toEqual({
+        allowed: false,
+        reason: 'qr code not recognised',
+        code: 'QR_INVALID',
+      });
+      expect(await prisma.attendance.count({ where: { memberId } })).toBe(
+        before,
+      );
+    });
+
+    it('refuses a QR code from another gym', async () => {
+      const other = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          organizationName: 'Other Kiosk Gym',
+          email: `kiosk-other-${Date.now()}@example.com`,
+          password: 'CorrectHorseBattery9',
+          firstName: 'Oto',
+          lastName: 'Owner',
+        })
+        .expect(201);
+      const otherToken = other.body.data.accessToken;
+      const otherBranches = await authed(otherToken)(
+        request(app.getHttpServer()).get('/branches'),
+      ).expect(200);
+      const stranger = await authed(otherToken)(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: otherBranches.body.data.items[0].id,
+          firstName: 'Stra',
+          lastName: 'Nger',
+        }),
+      ).expect(201);
+      const qr = await authed(otherToken)(
+        request(app.getHttpServer()).get(
+          `/attendance/qr-token/${stranger.body.data.id}`,
+        ),
+      ).expect(200);
+
+      const res = await checkIn({
+        deviceKey: kioskKey,
+        qrToken: qr.body.data.token,
+      }).expect(200);
+      expect(res.body.data.allowed).toBe(false);
+      expect(res.body.data.code).toBe('QR_INVALID');
+
+      // Same for that gym's member code: it names nobody here.
+      const byCode = await checkIn({
+        deviceKey: kioskKey,
+        memberCode: `${stranger.body.data.memberCode}-x`,
+      }).expect(200);
+      expect(byCode.body.data.code).toBe('MEMBER_NOT_FOUND');
+    });
+
+    it('names the gate reason in a code as well as words', async () => {
+      const res = await checkIn({
+        deviceKey: kioskKey,
+        memberId: unpaidMemberId,
+      }).expect(200);
+      expect(res.body.data.allowed).toBe(false);
+      expect(res.body.data.reason).toBe('no active membership');
+      expect(res.body.data.code).toBe('NO_ACTIVE_MEMBERSHIP');
+      const row = await prisma.attendance.findUniqueOrThrow({
+        where: { id: res.body.data.attendanceId },
+        select: { deniedReason: true },
+      });
+      expect(row.deniedReason).toBe('no active membership');
+    });
+
+    it('does not absorb a denied attempt into an earlier one', async () => {
+      const first = await checkIn({
+        deviceKey: kioskKey,
+        memberId: unpaidMemberId,
+      }).expect(200);
+      const second = await checkIn({
+        deviceKey: kioskKey,
+        memberId: unpaidMemberId,
+      }).expect(200);
+      expect(second.body.data.allowed).toBe(false);
+      expect(second.body.data.attendanceId).not.toBe(
+        first.body.data.attendanceId,
+      );
+    });
+
+    it('keeps the branch check for every identifier', async () => {
+      const other = await asOwner(
+        request(app.getHttpServer())
+          .post('/branches')
+          .send({ name: 'Annex', slug: `annex-${Date.now()}` }),
+      ).expect(201);
+      const elsewhere = await asOwner(
+        request(app.getHttpServer()).post('/members').send({
+          primaryBranchId: other.body.data.id,
+          firstName: 'Else',
+          lastName: 'Where',
+        }),
+      ).expect(201);
+      const qrToken = await mintQr(elsewhere.body.data.id);
+      for (const body of [
+        { qrToken },
+        { memberCode: elsewhere.body.data.memberCode },
+      ]) {
+        const res = await checkIn({ deviceKey: kioskKey, ...body }).expect(200);
+        expect(res.body.data.allowed).toBe(false);
+        expect(res.body.data.code).toBe('WRONG_BRANCH');
+      }
+    });
+
+    it('wants exactly one way of naming the member', async () => {
+      await checkIn({ deviceKey: kioskKey }).expect(400);
+      await checkIn({ deviceKey: kioskKey, memberId, memberCode }).expect(400);
+      await checkIn({ deviceKey: kioskKey, memberCode: '   ' }).expect(400);
+    });
+
+    it('still checks the key before resolving a QR code', async () => {
+      const qrToken = await mintQr(memberId);
+      await checkIn({ deviceKey: 'not-a-real-key', qrToken }).expect(401);
+    });
+  });
 });

@@ -25,10 +25,38 @@ export class ListDevicesQueryDto {
   branchId?: string;
 }
 
+/**
+ * Exactly one way of naming the member, checked in the service: the
+ * member's id (what every kiosk sent before the self-service screen), the
+ * member code printed on their card, or the token encoded in the check-in
+ * QR the member portal shows. A QR token is resolved through the same
+ * hashed `MemberQrToken` lookup the front desk uses.
+ */
 export class KioskCheckInDto {
   @IsString()
+  @MaxLength(256)
   deviceKey!: string;
 
+  @IsOptional()
   @IsString()
-  memberId!: string;
+  @MaxLength(64)
+  memberId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  memberCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  qrToken?: string;
+}
+
+/** A kiosk asking who it is. The key is the only input and the only
+ * credential, the same as on check-in. */
+export class KioskSessionDto {
+  @IsString()
+  @MaxLength(256)
+  deviceKey!: string;
 }
