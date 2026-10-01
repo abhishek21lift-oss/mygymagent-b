@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -28,6 +29,48 @@ import { PrismaService } from '../../prisma/prisma.service';
  * while a bulk import wants to reject one row into its `errors` array and
  * carry on with the other 1,999.
  */
+/**
+ * Who may be a member's trainer: an active trainer of this organization
+ * who works at the member's branch, when one is given. The rule the
+ * write paths enforce and the trainer picker lists from.
+ */
+export function assignableTrainerWhere(
+  organizationId: string,
+  primaryBranchId?: string,
+): Prisma.UserWhereInput {
+  return {
+    organizationId,
+    deletedAt: null,
+    status: 'ACTIVE',
+    AND: [
+      {
+        OR: [
+          { staffProfile: { is: { isTrainer: true } } },
+          { userRoles: { some: { role: { key: 'TRAINER' } } } },
+        ],
+      },
+      ...(primaryBranchId
+        ? [
+            {
+              OR: [
+                { primaryBranchId },
+                { staffProfile: { is: { branchId: primaryBranchId } } },
+                {
+                  userRoles: {
+                    some: {
+                      branchId: primaryBranchId,
+                      role: { key: 'TRAINER' },
+                    },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
 @Injectable()
 export class TenantReferenceValidator {
   constructor(private readonly prisma: PrismaService) {}
@@ -57,35 +100,7 @@ export class TenantReferenceValidator {
       const trainer = await this.prisma.user.findFirst({
         where: {
           id: assignedTrainerId,
-          organizationId,
-          deletedAt: null,
-          status: 'ACTIVE',
-          AND: [
-            {
-              OR: [
-                { staffProfile: { is: { isTrainer: true } } },
-                { userRoles: { some: { role: { key: 'TRAINER' } } } },
-              ],
-            },
-            ...(primaryBranchId
-              ? [
-                  {
-                    OR: [
-                      { primaryBranchId },
-                      { staffProfile: { is: { branchId: primaryBranchId } } },
-                      {
-                        userRoles: {
-                          some: {
-                            branchId: primaryBranchId,
-                            role: { key: 'TRAINER' },
-                          },
-                        },
-                      },
-                    ],
-                  },
-                ]
-              : []),
-          ],
+          ...assignableTrainerWhere(organizationId, primaryBranchId),
         },
         select: { id: true },
       });

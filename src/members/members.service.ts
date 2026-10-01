@@ -10,7 +10,10 @@ import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { membershipBalances } from '../memberships/membership-balance';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
-import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
+import {
+  TenantReferenceValidator,
+  assignableTrainerWhere,
+} from '../common/validators/tenant-reference.validator';
 import type { CreateMemberDto } from './dto/create-member.dto';
 import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
@@ -117,6 +120,28 @@ export class MembersService {
     });
     if (!member) throw new NotFoundException('Member not found');
     return member;
+  }
+
+  /**
+   * The trainers a member at `branchId` can be given, by the same rule
+   * create and update enforce. Names only: whoever assigns a coach needs
+   * this list without being allowed to read the staff directory.
+   */
+  async listAssignableTrainers(
+    organizationId: string,
+    branchId: string | undefined,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && branchId && branchId !== branchScope)
+      throw new BadRequestException(
+        'Cannot list trainers outside your assigned branch',
+      );
+    return this.prisma.user.findMany({
+      where: assignableTrainerWhere(organizationId, branchScope ?? branchId),
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      take: 200,
+    });
   }
 
   async getMetrics(
@@ -270,7 +295,10 @@ export class MembersService {
   async update(
     organizationId: string,
     id: string,
-    dto: UpdateMemberDto,
+    // A trainer can be taken away as well as given: null clears it.
+    dto: Omit<UpdateMemberDto, 'assignedTrainerId'> & {
+      assignedTrainerId?: string | null;
+    },
     branchScope: string | null = null,
     changedByUserId: string | null = null,
   ) {

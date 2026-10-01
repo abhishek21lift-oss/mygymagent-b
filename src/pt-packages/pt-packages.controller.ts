@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -14,14 +15,23 @@ export class PtPackagesController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('memberId') memberId?: string,
+    @CurrentBranchScope() branchScope: string | null = null,
   ) {
-    return this.service.list(user.organizationId ?? '', memberId ?? undefined);
+    return this.service.list(
+      user.organizationId ?? '',
+      memberId ?? undefined,
+      branchScope,
+    );
   }
 
   @Get(':id')
   @RequirePermissions('pt-packages.read')
-  getOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.getOne(user.organizationId ?? '', id);
+  getOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null = null,
+  ) {
+    return this.service.getOne(user.organizationId ?? '', id, branchScope);
   }
 
   @Post()
@@ -29,7 +39,13 @@ export class PtPackagesController {
   create(
     @Body() dto: CreatePtPackageDto,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null = null,
   ) {
-    return this.service.create(user.organizationId ?? '', dto, user.id);
+    return this.service.create(
+      user.organizationId ?? '',
+      dto,
+      user.id,
+      branchScope,
+    );
   }
 }

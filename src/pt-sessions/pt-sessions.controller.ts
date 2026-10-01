@@ -9,6 +9,7 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { ListPtSessionsDto } from './dto/list-pt-sessions.dto';
@@ -46,6 +47,7 @@ export class PtSessionsController {
   async list(
     @Query() query: ListPtSessionsDto,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.ptSessionsService.list(
       requireOrgId(user),
@@ -55,6 +57,7 @@ export class PtSessionsController {
       query.branchId,
       query.startFrom ? new Date(query.startFrom) : undefined,
       query.endTo ? new Date(query.endTo) : undefined,
+      branchScope,
     );
   }
 
@@ -63,8 +66,9 @@ export class PtSessionsController {
   async getOne(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.ptSessionsService.getOne(requireOrgId(user), id);
+    return this.ptSessionsService.getOne(requireOrgId(user), id, branchScope);
   }
 
   @Post()
