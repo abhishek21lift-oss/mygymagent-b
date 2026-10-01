@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { Public } from '../common/decorators/public.decorator';
 import { AttendanceService } from './attendance.service';
-import { KioskCheckInDto } from './dto/kiosk.dto';
+import { KioskCheckInDto, KioskSessionDto } from './dto/kiosk.dto';
 
 /**
  * Self-service kiosk check-in.
@@ -43,7 +43,28 @@ export class KioskController {
     return this.attendance.kioskCheckIn({
       deviceKey: dto.deviceKey,
       memberId: dto.memberId,
+      memberCode: dto.memberCode,
+      qrToken: dto.qrToken,
       clientKey,
+    });
+  }
+
+  /**
+   * The kiosk's identity -- device, branch and gym names -- for the
+   * self-service screen. Same credential and same client key as
+   * check-in, on its own rate-limit scope so a screen re-checking that it
+   * is still connected never spends a member's check-in budget. A POST
+   * because the key is a secret and belongs in a body, not a URL that
+   * proxies log.
+   */
+  @Post('session')
+  @Public()
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  session(@Body() dto: KioskSessionDto, @Req() req: Request) {
+    return this.attendance.kioskSession({
+      deviceKey: dto.deviceKey,
+      clientKey: req.ip || 'unknown',
     });
   }
 }

@@ -19,6 +19,7 @@ import {
 } from '../events/domain-events';
 import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { organizationTimezone, startOfZonedDay } from '../common/time/zoned';
+import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
 import type { DeviceKind } from '@prisma/client';
@@ -29,6 +30,26 @@ import type {
 } from './dto/device-enrolment.dto';
 
 const QR_VALIDITY_DAYS = 30;
+
+/**
+ * A second allowed kiosk check-in by the same member on the same device
+ * inside this window is the same visit -- a QR held in front of the camera
+ * twice, a double tap -- and answers with the first record instead of
+ * writing another.
+ */
+const KIOSK_REPEAT_WINDOW_MS = 60_000;
+
+/**
+ * Machine-readable twin of a denial `reason`. The reason strings are an
+ * existing contract (turnstiles and the attendance list show them), so
+ * they stay as they are; the code is what an unattended screen keys its
+ * member-facing wording on, so it never has to parse English.
+ */
+export type GateDenialCode =
+  'MEMBERSHIP_EXPIRED' | 'NO_ACTIVE_MEMBERSHIP' | 'PAYMENT_DUE';
+
+export type KioskDenialCode =
+  GateDenialCode | 'MEMBER_NOT_FOUND' | 'WRONG_BRANCH' | 'QR_INVALID';
 
 /** What an enrolment looks like to an operator. The member is included
  * because an `externalUserId` on its own says nothing a human can act on. */
@@ -53,6 +74,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly rateLimit: PublicRateLimitService,
+    private readonly files: FileStorageService,
   ) {}
 
   async list(
@@ -251,7 +273,7 @@ export class AttendanceService {
     organizationId: string,
     memberId: string,
     now: Date = new Date(),
-  ): Promise<{ allowed: boolean; reason?: string }> {
+  ): Promise<{ allowed: boolean; reason?: string; code?: GateDenialCode }> {
     const active = await this.prisma.membership.findFirst({
       where: {
         organizationId,
@@ -268,12 +290,17 @@ export class AttendanceService {
         orderBy: { endDate: 'desc' },
         select: { endDate: true },
       });
-      return {
-        allowed: false,
-        reason: latest
-          ? `membership expired ${latest.endDate.toISOString().slice(0, 10)}`
-          : 'no active membership',
-      };
+      return latest
+        ? {
+            allowed: false,
+            reason: `membership expired ${latest.endDate.toISOString().slice(0, 10)}`,
+            code: 'MEMBERSHIP_EXPIRED',
+          }
+        : {
+            allowed: false,
+            reason: 'no active membership',
+            code: 'NO_ACTIVE_MEMBERSHIP',
+          };
     }
     const overdue = await this.prisma.invoice.findFirst({
       where: { organizationId, memberId, status: 'OVERDUE' },
@@ -281,7 +308,11 @@ export class AttendanceService {
       orderBy: { dueAt: 'asc' },
     });
     if (overdue) {
-      return { allowed: false, reason: `unpaid invoice ${overdue.number}` };
+      return {
+        allowed: false,
+        reason: `unpaid invoice ${overdue.number}`,
+        code: 'PAYMENT_DUE',
+      };
     }
     return { allowed: true };
   }
@@ -536,40 +567,109 @@ export class AttendanceService {
    */
   async kioskCheckIn(input: {
     deviceKey: string;
-    memberId: string;
+    memberId?: string;
+    memberCode?: string;
+    qrToken?: string;
     clientKey: string;
     at?: Date;
   }) {
-    if (!input.deviceKey || !input.memberId) {
-      throw new BadRequestException('deviceKey and memberId are required');
+    const identifiers = [input.memberId, input.memberCode, input.qrToken]
+      .map((value) => value?.trim())
+      .filter((value): value is string => !!value);
+    if (!input.deviceKey || identifiers.length !== 1) {
+      throw new BadRequestException(
+        'deviceKey and exactly one of memberId, memberCode or qrToken are required',
+      );
     }
     await this.rateLimit.consume('kiosk-checkin', input.clientKey, 60, 60);
 
     const device = await this.resolveDevice(input.deviceKey, 'KIOSK');
 
-    const member = await this.prisma.member.findFirst({
-      where: {
-        id: input.memberId,
-        organizationId: device.organizationId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        primaryBranchId: true,
-      },
-    });
+    let memberId: string | null;
+    if (input.qrToken?.trim()) {
+      // The front desk's own resolver: hashed lookup, scoped to the
+      // device's organization, refusing a rotated code. Its 410 is the
+      // right answer for staff; an unattended screen needs a decision.
+      try {
+        memberId = await this.resolveMemberFromQrToken(
+          device.organizationId,
+          input.qrToken.trim(),
+        );
+      } catch (error) {
+        if (!(error instanceof GoneException)) throw error;
+        return {
+          allowed: false as const,
+          reason: 'qr code not recognised',
+          code: 'QR_INVALID' as KioskDenialCode,
+        };
+      }
+    } else if (input.memberCode?.trim()) {
+      memberId = await this.findMemberIdByCode(
+        device.organizationId,
+        input.memberCode.trim(),
+      );
+    } else {
+      memberId = input.memberId!.trim();
+    }
+
+    const member = memberId
+      ? await this.prisma.member.findFirst({
+          where: {
+            id: memberId,
+            organizationId: device.organizationId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            primaryBranchId: true,
+          },
+        })
+      : null;
     // No attendance row for an unknown member: there is no member to
     // attach it to, and the old code's attempt to log one anyway violated
     // a foreign key and turned a clean denial into a 500.
     if (!member) {
-      return { allowed: false as const, reason: 'member not found' };
+      return {
+        allowed: false as const,
+        reason: 'member not found',
+        code: 'MEMBER_NOT_FOUND' as KioskDenialCode,
+      };
     }
     if (member.primaryBranchId !== device.branchId) {
       return {
         allowed: false as const,
         reason: 'member is assigned to a different branch',
+        code: 'WRONG_BRANCH' as KioskDenialCode,
+      };
+    }
+
+    const memberView = {
+      id: member.id,
+      firstName: member.firstName,
+      lastName: member.lastName,
+    };
+    const at = input.at ?? new Date();
+
+    const recent = await this.prisma.attendance.findFirst({
+      where: {
+        organizationId: device.organizationId,
+        memberId: member.id,
+        deviceId: device.id,
+        deniedReason: null,
+        checkInAt: { gte: new Date(at.getTime() - KIOSK_REPEAT_WINDOW_MS) },
+      },
+      orderBy: { checkInAt: 'desc' },
+      select: { id: true, checkInAt: true },
+    });
+    if (recent) {
+      return {
+        allowed: true as const,
+        attendanceId: recent.id,
+        checkedInAt: recent.checkInAt,
+        repeat: true,
+        member: memberView,
       };
     }
 
@@ -578,7 +678,7 @@ export class AttendanceService {
       branchId: device.branchId,
       memberId: member.id,
       method: 'KIOSK',
-      at: input.at ?? new Date(),
+      at,
       deviceId: device.id,
     });
 
@@ -586,18 +686,87 @@ export class AttendanceService {
       return {
         allowed: false as const,
         reason: gate.reason as string,
+        code: gate.code as KioskDenialCode,
         attendanceId: record.id,
       };
     }
     return {
       allowed: true as const,
       attendanceId: record.id,
-      member: {
-        id: member.id,
-        firstName: member.firstName,
-        lastName: member.lastName,
-      },
+      checkedInAt: record.checkInAt,
+      member: memberView,
     };
+  }
+
+  /**
+   * Who a kiosk is: its own name, the branch it admits members to and the
+   * gym it belongs to, for the screen to show. Nothing about any member,
+   * and never the key or its digest. A revoked or unknown key is the same
+   * 401 as on check-in, which is how a kiosk learns it was disconnected.
+   */
+  async kioskSession(input: { deviceKey: string; clientKey: string }) {
+    await this.rateLimit.consume('kiosk-session', input.clientKey, 30, 60);
+    const device = await this.resolveDevice(input.deviceKey, 'KIOSK');
+    const row = await this.prisma.kioskDevice.findUniqueOrThrow({
+      where: { id: device.id },
+      select: {
+        id: true,
+        name: true,
+        branch: { select: { id: true, name: true, timezone: true } },
+        organization: { select: { name: true, logoKey: true } },
+      },
+    });
+    const logoUrl = row.organization.logoKey
+      ? await this.files
+          .getSignedUrl(row.organization.logoKey)
+          .catch(() => null)
+      : null;
+    return {
+      device: { id: row.id, name: row.name },
+      branch: row.branch,
+      organization: { name: row.organization.name, logoUrl },
+    };
+  }
+
+  /**
+   * The member code printed on a card, matched within one organization.
+   * Exact first; then case-insensitively, but only when that names a
+   * single member -- a typed `m-000012` should work, an ambiguous match
+   * should not pick someone. Bare digits are also tried in the shape
+   * `generateMemberCode` issues (`12` -> `M-000012`), after the exact
+   * match, so a gym that imported its own numeric codes still gets those.
+   */
+  private async findMemberIdByCode(
+    organizationId: string,
+    memberCode: string,
+  ): Promise<string | null> {
+    const exact = await this.prisma.member.findFirst({
+      where: { organizationId, memberCode, deletedAt: null },
+      select: { id: true },
+    });
+    if (exact) return exact.id;
+    const loose = await this.prisma.member.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        memberCode: { equals: memberCode, mode: 'insensitive' },
+      },
+      select: { id: true },
+      take: 2,
+    });
+    if (loose.length === 1) return loose[0].id;
+    if (/^\d{1,6}$/.test(memberCode)) {
+      const issued = await this.prisma.member.findFirst({
+        where: {
+          organizationId,
+          deletedAt: null,
+          memberCode: `M-${memberCode.padStart(6, '0')}`,
+        },
+        select: { id: true },
+      });
+      return issued?.id ?? null;
+    }
+    return null;
   }
 
   /**
