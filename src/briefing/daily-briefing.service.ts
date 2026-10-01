@@ -24,6 +24,8 @@ import {
   organizationTimezone,
   startOfZonedDay,
   startOfZonedMonth,
+  zonedDate,
+  zonedMidnight,
 } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -33,11 +35,12 @@ export interface DailyBriefing {
   generatedAt: string;
   branchId: string | null;
   today: {
-    /// UTC calendar day -- a check-in at 11pm and one at 1am the next
-    /// day fall in different days, same boundary every other UTC-based
-    /// window in this codebase (FinanceService's month, the 30-day
-    /// windows) already uses.
+    /// Members admitted since the gym's local midnight. Denied attempts
+    /// (a row with `deniedReason`) and staff check-ins are attendance
+    /// rows too, but neither is a member visit.
     checkIns: number;
+    /// Members turned away at the door today -- the front desk's cue.
+    deniedCheckIns: number;
   };
   revenue: RevenueSummary;
   atRiskMembers: {
@@ -58,6 +61,14 @@ export interface DailyBriefing {
     notComputable: { key: string; reason: string }[];
   };
   pendingAiActions: number;
+  /// Lead follow-ups still open and due by the end of the gym's today,
+  /// whenever their lead came in. `salesFunnel.followUps` is a different
+  /// thing -- every follow-up, done or not, on leads created this month
+  /// -- and the dashboard used to present that as "due".
+  followUpsDue: {
+    count: number;
+    overdue: number;
+  };
 }
 
 /**
@@ -91,10 +102,34 @@ export class DailyBriefingService {
     const now = new Date();
     const timezone = await organizationTimezone(this.prisma, organizationId);
     const startOfToday = startOfZonedDay(now, timezone);
+    const today = zonedDate(now, timezone);
+    const startOfTomorrow = zonedMidnight(
+      today.year,
+      today.month,
+      today.day + 1,
+      timezone,
+    );
+    const memberVisitToday = {
+      organizationId,
+      memberId: { not: null },
+      checkInAt: { gte: startOfToday },
+      ...(branchScope ? { branchId: branchScope } : {}),
+    };
+    const openFollowUp = {
+      organizationId,
+      completedAt: null,
+      lead: {
+        status: { notIn: ['WON' as const, 'LOST' as const] },
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+    };
     const monthStart = startOfZonedMonth(now, timezone);
 
     const [
       checkIns,
+      deniedCheckIns,
+      followUpsDue,
+      followUpsOverdue,
       revenue,
       atRiskMembers,
       salesFunnel,
@@ -103,11 +138,16 @@ export class DailyBriefingService {
       pendingAiActions,
     ] = await Promise.all([
       this.prisma.attendance.count({
-        where: {
-          organizationId,
-          checkInAt: { gte: startOfToday },
-          ...(branchScope ? { branchId: branchScope } : {}),
-        },
+        where: { ...memberVisitToday, deniedReason: null },
+      }),
+      this.prisma.attendance.count({
+        where: { ...memberVisitToday, deniedReason: { not: null } },
+      }),
+      this.prisma.leadFollowUp.count({
+        where: { ...openFollowUp, dueAt: { lt: startOfTomorrow } },
+      }),
+      this.prisma.leadFollowUp.count({
+        where: { ...openFollowUp, dueAt: { lt: startOfToday } },
       }),
       this.finance.getRevenueSummary(organizationId, {}, branchScope),
       this.memberIntelligence.getAtRiskMembers(organizationId, branchScope),
@@ -124,7 +164,7 @@ export class DailyBriefingService {
     return {
       generatedAt: now.toISOString(),
       branchId: branchScope,
-      today: { checkIns },
+      today: { checkIns, deniedCheckIns },
       revenue,
       atRiskMembers: {
         count: atRiskMembers.length,
@@ -141,6 +181,7 @@ export class DailyBriefingService {
         notComputable: trainerWorkload.notComputable,
       },
       pendingAiActions,
+      followUpsDue: { count: followUpsDue, overdue: followUpsOverdue },
     };
   }
 }

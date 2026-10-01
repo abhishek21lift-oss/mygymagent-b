@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
-import { MemberIntelligenceService } from '../analytics/member-intelligence.service';
+import {
+  MemberIntelligenceService,
+  currentTermWhere,
+} from '../analytics/member-intelligence.service';
 import { startOfZonedDay, validTimezone } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -99,16 +102,22 @@ export class OwnerOsService {
       this.prisma.member.count({
         where: memberWhere,
       }),
+      // Terms running today. A sold renewal is ACTIVE from the day it is
+      // sold but starts when the current term ends, so counting every
+      // ACTIVE row counted a renewed member twice.
       this.prisma.membership.count({
         where: {
           organizationId,
-          status: 'ACTIVE',
+          ...currentTermWhere(now),
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
+      // Members admitted today: not denied attempts, not staff.
       this.prisma.attendance.count({
         where: {
           organizationId,
+          memberId: { not: null },
+          deniedReason: null,
           checkInAt: { gte: startOfToday },
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
@@ -117,7 +126,13 @@ export class OwnerOsService {
         where: {
           organizationId,
           currency,
-          status: 'COMPLETED',
+          // Everything collected, refunded or not -- refunds are taken
+          // off below. Counting only COMPLETED dropped a refunded
+          // payment (refund() moves it to REFUNDED / PARTIALLY_REFUNDED)
+          // *and* subtracted its refund, so a same-day refund counted
+          // twice and today's revenue could go negative. Same rule as
+          // FinanceService.getRevenueSummary.
+          status: { not: 'FAILED' },
           createdAt: { gte: startOfToday },
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
@@ -139,8 +154,14 @@ export class OwnerOsService {
       this.prisma.membership.count({
         where: {
           organizationId,
-          status: 'ACTIVE',
+          ...currentTermWhere(now),
           endDate: { gte: now, lte: in7Days },
+          // Already renewed is not expiring: a renewal links back to this
+          // term. One that was cancelled leaves it expiring again.
+          OR: [
+            { nextMembership: { is: null } },
+            { nextMembership: { is: { status: 'CANCELLED' } } },
+          ],
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),

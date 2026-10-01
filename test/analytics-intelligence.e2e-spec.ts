@@ -67,6 +67,9 @@ describe('Analytics / intelligence (e2e)', () => {
         lastName: 'Member',
       }),
     ).expect(201);
+    // At risk means paying and not coming: a member with no membership
+    // at all is a sale to make, not a member about to churn.
+    await grantActiveMembership(app, org.accessToken, stale.body.data.id);
     await prisma.member.update({
       where: { id: stale.body.data.id },
       data: { joinedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000) },
