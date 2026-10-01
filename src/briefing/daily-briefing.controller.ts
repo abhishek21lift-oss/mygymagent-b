@@ -1,5 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import {
+  BranchFilterQueryDto,
+  effectiveBranch,
+} from '../common/branch/branch-filter';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -18,11 +22,12 @@ export class DailyBriefingController {
   @RequirePermissions('reports.view')
   getDaily(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.dailyBriefing.getDailyBriefing(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 }

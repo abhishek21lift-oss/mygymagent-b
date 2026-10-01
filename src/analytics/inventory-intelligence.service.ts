@@ -21,31 +21,67 @@ export interface StockForecast {
 
 /**
  * Real stock-velocity forecasting from actual `StockMovement` history --
- * not a guess. `Product` isn't branch-scoped in this schema (see that
- * model's comment in schema.prisma), so there's no branch filter here.
+ * not a guess.
+ *
+ * Organization-wide, a product's stock is `Product.quantityOnHand`, the
+ * sum over its branches. For one branch it is that branch's own
+ * `ProductStock` row and that branch's sales: a branch can run out while
+ * the total still clears the reorder level, and a branch-restricted
+ * manager was being shown the whole organization's stock.
  */
 @Injectable()
 export class InventoryIntelligenceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getStockForecast(organizationId: string): Promise<StockForecast[]> {
+  async getStockForecast(
+    organizationId: string,
+    branchId: string | null = null,
+  ): Promise<StockForecast[]> {
+    const since = new Date(Date.now() - LOOKBACK_DAYS * MS_PER_DAY);
     const [products, salesByProduct] = await Promise.all([
-      this.prisma.product.findMany({
-        where: { organizationId, isActive: true },
-        select: {
-          id: true,
-          sku: true,
-          name: true,
-          quantityOnHand: true,
-          reorderLevel: true,
-        },
-      }),
+      branchId
+        ? this.prisma.productStock
+            .findMany({
+              where: {
+                organizationId,
+                branchId,
+                product: { organizationId, isActive: true },
+              },
+              select: {
+                quantityOnHand: true,
+                product: {
+                  select: {
+                    id: true,
+                    sku: true,
+                    name: true,
+                    reorderLevel: true,
+                  },
+                },
+              },
+            })
+            .then((rows) =>
+              rows.map((row) => ({
+                ...row.product,
+                quantityOnHand: row.quantityOnHand,
+              })),
+            )
+        : this.prisma.product.findMany({
+            where: { organizationId, isActive: true },
+            select: {
+              id: true,
+              sku: true,
+              name: true,
+              quantityOnHand: true,
+              reorderLevel: true,
+            },
+          }),
       this.prisma.stockMovement.groupBy({
         by: ['productId'],
         where: {
           organizationId,
           type: 'SALE',
-          createdAt: { gte: new Date(Date.now() - LOOKBACK_DAYS * MS_PER_DAY) },
+          createdAt: { gte: since },
+          ...(branchId ? { branchId } : {}),
         },
         _sum: { quantity: true },
       }),

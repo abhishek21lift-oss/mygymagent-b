@@ -379,10 +379,16 @@ export class ToolExecutorService {
     { organizationId, userId, requestedBranchId }: ToolCallContext,
   ) {
     validateToolArgs(EmptyArgsDto, rawArgs);
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'reports.view',
-    ]);
-    return this.inventoryIntelligence.getStockForecast(organizationId);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['reports.view'],
+    );
+    return this.inventoryIntelligence.getStockForecast(
+      organizationId,
+      branchScope,
+    );
   }
   private async getDailyBriefing(
     rawArgs: unknown,

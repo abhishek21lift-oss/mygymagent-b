@@ -186,7 +186,10 @@ export class OwnerOsService {
         organizationId,
         branchScope ?? null,
       ),
-      this.inventoryIntelligence.getStockForecast(organizationId),
+      this.inventoryIntelligence.getStockForecast(
+        organizationId,
+        branchScope ?? null,
+      ),
       this.aiActions.countPending(organizationId),
     ]);
 
