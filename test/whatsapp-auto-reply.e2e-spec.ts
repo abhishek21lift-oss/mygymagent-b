@@ -320,11 +320,52 @@ describe('WhatsApp auto-replies (e2e)', () => {
     expect(await ask(m.digits, 'plans')).toContain('membership plans');
   });
 
-  it('stops after six answers an hour to one number', async () => {
+  it('stops after ten answers an hour to one number', async () => {
     const m = await member();
-    // Six different answers over the last hour, none of them just now.
+    // Ten different answers over the last hour, none of them just now.
     await prisma.messageLog.createMany({
-      data: ['menu', 'classes', 'contact', 'my_plan', 'unknown', 'menu'].map(
+      data: [
+        'menu',
+        'classes',
+        'contact',
+        'my_plan',
+        'unknown',
+        'hours',
+        'classes',
+        'contact',
+        'my_plan',
+        'hours',
+      ].map((intent, n) => ({
+        organizationId: gym.organizationId,
+        channel: 'WHATSAPP' as const,
+        category: 'TRANSACTIONAL' as const,
+        templateKey: `auto_reply.${intent}`,
+        recipient: m.digits,
+        memberId: m.id,
+        status: 'SENT' as const,
+        createdAt: new Date(Date.now() - (5 + n * 5) * 60 * 1000),
+      })),
+    });
+    await unanswered(m.digits, 'plans');
+  });
+
+  it("answers a member's questions after they've said hi again and again", async () => {
+    // Production: "Hi" a few times sent the menu four times in twenty
+    // minutes, the six-an-hour limit was spent, and "My plan" and "Plans"
+    // got nothing.
+    const m = await member('Asha');
+    expect(await ask(m.digits, 'Hi')).toContain('*PLANS*');
+    const menuAt = (minutesAgo: number) =>
+      prisma.messageLog.updateMany({
+        where: { memberId: m.id, templateKey: 'auto_reply.menu' },
+        data: { createdAt: new Date(Date.now() - minutesAgo * 60 * 1000) },
+      });
+    // Ten minutes on, another "Hi" doesn't send the menu again.
+    await menuAt(10);
+    await unanswered(m.digits, 'Hi');
+    // Six answers already this hour still leaves room for real questions.
+    await prisma.messageLog.createMany({
+      data: ['plans', 'hours', 'contact', 'classes', 'unknown'].map(
         (intent, n) => ({
           organizationId: gym.organizationId,
           channel: 'WHATSAPP' as const,
@@ -333,11 +374,58 @@ describe('WhatsApp auto-replies (e2e)', () => {
           recipient: m.digits,
           memberId: m.id,
           status: 'SENT' as const,
-          createdAt: new Date(Date.now() - (10 + n * 5) * 60 * 1000),
+          createdAt: new Date(Date.now() - (15 + n * 5) * 60 * 1000),
         }),
       ),
     });
-    await unanswered(m.digits, 'plans');
+    expect(await ask(m.digits, 'My plan')).toContain('Hi Asha');
+  });
+
+  it('reads a message from a disappearing-messages chat, and a photo caption', async () => {
+    const m = await member();
+    const before = repliesTo(m.digits).length;
+    socketFor(gym.organizationId).emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: `${m.digits}@s.whatsapp.net`, fromMe: false },
+          message: {
+            ephemeralMessage: {
+              message: { extendedTextMessage: { text: 'Memberships' } },
+            },
+          },
+        },
+      ],
+    });
+    const sent = await eventually(
+      async () => repliesTo(m.digits),
+      (list) => list.length > before,
+    );
+    expect(sent[sent.length - 1].text).toContain('membership plans');
+
+    socketFor(gym.organizationId).emit('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: `${m.digits}@s.whatsapp.net`, fromMe: false },
+          message: { imageMessage: { caption: 'timings?' } },
+        },
+      ],
+    });
+    await eventually(
+      () =>
+        prisma.inboundMessage.findFirst({
+          where: { matchedMemberId: m.id, body: 'timings?' },
+        }),
+      (row) => row !== null,
+    );
+  });
+
+  it('leaves a question with a keyword in it to staff when only staff can answer', async () => {
+    const m = await member();
+    const reply = await ask(m.digits, 'diet plan chahiye');
+    expect(reply).toContain('team will reply soon');
+    expect(reply).not.toContain('membership plans');
   });
 
   it('answers from the linked number even when reminders go through the official API', async () => {

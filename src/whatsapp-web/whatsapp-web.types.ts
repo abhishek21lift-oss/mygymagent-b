@@ -22,12 +22,23 @@ export interface WaMessageKey {
   senderPn?: string | null;
 }
 
+/** The parts of a Baileys message body this app reads. */
+export interface WaMessageContent {
+  conversation?: string | null;
+  extendedTextMessage?: { text?: string | null } | null;
+  imageMessage?: { caption?: string | null } | null;
+  videoMessage?: { caption?: string | null } | null;
+  documentMessage?: { caption?: string | null } | null;
+  /** Disappearing-messages chats wrap every message in this. */
+  ephemeralMessage?: { message?: WaMessageContent | null } | null;
+  viewOnceMessage?: { message?: WaMessageContent | null } | null;
+  viewOnceMessageV2?: { message?: WaMessageContent | null } | null;
+  documentWithCaptionMessage?: { message?: WaMessageContent | null } | null;
+}
+
 export interface WaMessage {
   key: WaMessageKey;
-  message?: {
-    conversation?: string | null;
-    extendedTextMessage?: { text?: string | null } | null;
-  } | null;
+  message?: WaMessageContent | null;
 }
 
 export interface WaMessageUpdate {

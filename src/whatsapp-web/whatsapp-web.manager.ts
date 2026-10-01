@@ -22,6 +22,7 @@ import {
   WhatsappWebNotReadyError,
   type WaConnectionUpdate,
   type WaMessage,
+  type WaMessageContent,
   type WaMessageKey,
   type WaMessageUpdate,
   type WaSocket,
@@ -428,9 +429,7 @@ export class WhatsappWebManager
   private async onMessages(organizationId: string, messages: WaMessage[]) {
     for (const message of messages) {
       if (message.key.fromMe) continue;
-      const text =
-        message.message?.conversation ??
-        message.message?.extendedTextMessage?.text;
+      const text = messageText(message.message);
       const from = phoneJid(message.key);
       // Group chats, broadcasts and senders WhatsApp only identifies by
       // LID have no phone number to match to a member.
@@ -646,6 +645,34 @@ function statusCode(error: unknown): number | undefined {
   const output = (error as { output?: { statusCode?: number } } | undefined)
     ?.output;
   return output?.statusCode;
+}
+
+/**
+ * The words in a message: a plain or quoted text, or the caption on a
+ * photo, video or document -- inside the wrapper WhatsApp puts around
+ * every message in a disappearing-messages chat, or a view-once one.
+ * Only plain and quoted text were read before, so with disappearing
+ * messages on, a member's every message was dropped: not in the inbox,
+ * not answered.
+ */
+export function messageText(
+  content: WaMessageContent | null | undefined,
+  depth = 0,
+): string | null {
+  if (!content || depth > 3) return null;
+  const inner =
+    content.ephemeralMessage?.message ??
+    content.viewOnceMessage?.message ??
+    content.viewOnceMessageV2?.message ??
+    content.documentWithCaptionMessage?.message;
+  if (inner) return messageText(inner, depth + 1);
+  const text =
+    content.conversation ??
+    content.extendedTextMessage?.text ??
+    content.imageMessage?.caption ??
+    content.videoMessage?.caption ??
+    content.documentMessage?.caption;
+  return text?.trim() ? text : null;
 }
 
 /** The chat's phone-number JID, whichever field Baileys put it in. */

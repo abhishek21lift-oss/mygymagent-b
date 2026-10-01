@@ -23,6 +23,19 @@ describe('detectIntent', () => {
     ['Can I bring a friend on Sunday?', 'UNKNOWN'],
     ['', 'UNKNOWN'],
     ['😀', 'UNKNOWN'],
+    // Hindi script: vowel signs are kept, so these match.
+    ['फीस कितनी है', 'PLANS'],
+    ['जिम कितने बजे खुलता है', 'HOURS'],
+    ['मेरा प्लान कब तक है', 'MY_PLAN'],
+    ['जिम का पता', 'CONTACT'],
+    ['नमस्ते', 'MENU'],
+    ['धन्यवाद', 'THANKS'],
+    // A keyword inside a question only staff can answer.
+    ['diet plan chahiye', 'UNKNOWN'],
+    ['PT fees kitni hai', 'UNKNOWN'],
+    ['personal trainer ka rate', 'UNKNOWN'],
+    ['membership freeze karni hai', 'UNKNOWN'],
+    ['payment baaki hai kya', 'UNKNOWN'],
   ])('%s -> %s', (text, intent) => {
     expect(detectIntent(text)).toBe(intent);
   });
