@@ -65,42 +65,59 @@ export class TrainerIntelligenceService {
 
     const since = new Date(Date.now() - ACTIVITY_WINDOW_DAYS * MS_PER_DAY);
 
-    const workload = await Promise.all(
-      trainers.map(async (trainer) => {
-        const [assignedMemberCount, workoutPlansAssigned, dietPlansAssigned] =
-          await Promise.all([
-            this.prisma.member.count({
-              where: {
-                organizationId,
-                assignedTrainerId: trainer.id,
-                status: 'ACTIVE',
-              },
-            }),
-            this.prisma.workoutAssignment.count({
-              where: {
-                organizationId,
-                assignedByUserId: trainer.id,
-                createdAt: { gte: since },
-              },
-            }),
-            this.prisma.dietAssignment.count({
-              where: {
-                organizationId,
-                assignedByUserId: trainer.id,
-                createdAt: { gte: since },
-              },
-            }),
-          ]);
-        return {
-          userId: trainer.id,
-          firstName: trainer.firstName,
-          lastName: trainer.lastName,
-          assignedMemberCount,
-          workoutPlansAssignedLast30Days: workoutPlansAssigned,
-          dietPlansAssignedLast30Days: dietPlansAssigned,
-        };
+    if (trainers.length === 0) {
+      return { trainers: [], notComputable: NOT_COMPUTABLE };
+    }
+    const trainerIds = trainers.map((trainer) => trainer.id);
+    // Three grouped counts for every trainer at once, not three counts
+    // per trainer.
+    const [members, workouts, diets] = await Promise.all([
+      this.prisma.member.groupBy({
+        by: ['assignedTrainerId'],
+        where: {
+          organizationId,
+          assignedTrainerId: { in: trainerIds },
+          status: 'ACTIVE',
+        },
+        _count: true,
       }),
+      this.prisma.workoutAssignment.groupBy({
+        by: ['assignedByUserId'],
+        where: {
+          organizationId,
+          assignedByUserId: { in: trainerIds },
+          createdAt: { gte: since },
+        },
+        _count: true,
+      }),
+      this.prisma.dietAssignment.groupBy({
+        by: ['assignedByUserId'],
+        where: {
+          organizationId,
+          assignedByUserId: { in: trainerIds },
+          createdAt: { gte: since },
+        },
+        _count: true,
+      }),
+    ]);
+    const memberCount = new Map(
+      members.map((row) => [row.assignedTrainerId, row._count]),
     );
+    const workoutCount = new Map(
+      workouts.map((row) => [row.assignedByUserId, row._count]),
+    );
+    const dietCount = new Map(
+      diets.map((row) => [row.assignedByUserId, row._count]),
+    );
+
+    const workload = trainers.map((trainer) => ({
+      userId: trainer.id,
+      firstName: trainer.firstName,
+      lastName: trainer.lastName,
+      assignedMemberCount: memberCount.get(trainer.id) ?? 0,
+      workoutPlansAssignedLast30Days: workoutCount.get(trainer.id) ?? 0,
+      dietPlansAssignedLast30Days: dietCount.get(trainer.id) ?? 0,
+    }));
 
     return {
       trainers: workload.sort(

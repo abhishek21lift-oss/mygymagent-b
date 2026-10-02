@@ -26,7 +26,7 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Marks a follow-up as having come from the member app, so a second
  * tap finds the first request instead of queueing another. */
-const RENEWAL_FOLLOW_UP_PREFIX = 'Renewal requested: ';
+export const RENEWAL_FOLLOW_UP_PREFIX = 'Renewal requested: ';
 
 /**
  * Everything a member can see about themselves, and nothing else.

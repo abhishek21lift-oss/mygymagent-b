@@ -572,6 +572,32 @@ describe('Member portal (e2e, F-P0-1)', () => {
       expect(open).toBe(1);
     });
 
+    it("reaches the owner's dashboard, not only the member's own page", async () => {
+      const briefing = await asOwner(
+        request(app.getHttpServer()).get('/briefing/daily'),
+      ).expect(200);
+      const due = briefing.body.data.memberFollowUpsDue;
+      expect(due).toMatchObject({ count: 1, overdue: 0, renewalRequests: 1 });
+      expect(due.top).toEqual([
+        expect.objectContaining({ memberId, isRenewalRequest: true }),
+      ]);
+
+      // Handled: off the list.
+      await prisma.memberFollowUp.updateMany({
+        where: { memberId, completedAt: null },
+        data: { completedAt: new Date() },
+      });
+      const after = await asOwner(
+        request(app.getHttpServer()).get('/briefing/daily'),
+      ).expect(200);
+      expect(after.body.data.memberFollowUpsDue).toEqual({
+        count: 0,
+        overdue: 0,
+        renewalRequests: 0,
+        top: [],
+      });
+    });
+
     it('refuses a plan that is not theirs to buy', async () => {
       await asMember(
         request(app.getHttpServer())

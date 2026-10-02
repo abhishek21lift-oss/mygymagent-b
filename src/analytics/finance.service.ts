@@ -5,6 +5,7 @@ import {
   zonedMonthKey,
 } from '../common/time/zoned';
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 interface RevenueByCurrency {
@@ -24,7 +25,7 @@ interface RevenueByCurrency {
   netRevenue: string;
 }
 
-interface OutstandingByCurrency {
+export interface OutstandingByCurrency {
   currency: string;
   membershipsWithBalance: number;
   outstandingBalance: string;
@@ -110,10 +111,12 @@ export class FinanceService {
     organizationId: string,
     query: { from?: string; to?: string },
     branchScope: string | null,
+    /// The gym's timezone, when the caller has it already.
+    timezone?: string,
   ): Promise<RevenueSummary> {
     const { from, to } = resolvePeriod(
       query,
-      await organizationTimezone(this.prisma, organizationId),
+      timezone ?? (await organizationTimezone(this.prisma, organizationId)),
     );
     // Payment.amount is always the original charge regardless of refund
     // status (refunds are tracked separately and never mutate it -- see
@@ -342,55 +345,45 @@ export class FinanceService {
   /// into per-currency totals instead of per-membership reminders --
   /// see that scanner's comment for why this isn't an invoice/due-date
   /// system.
-  private async getOutstandingBalances(
+  ///
+  /// One aggregate in the database. It used to load every running
+  /// membership with all its payments and their refunds to subtract in
+  /// memory, on every dashboard load.
+  async getOutstandingBalances(
     organizationId: string,
     branchScope: string | null,
   ): Promise<OutstandingByCurrency[]> {
-    const memberships = await this.prisma.membership.findMany({
-      where: {
-        organizationId,
-        status: { in: ['ACTIVE', 'PENDING'] },
-        startDate: { lte: new Date() },
-        ...(branchScope ? { branchId: branchScope } : {}),
-      },
-      select: {
-        price: true,
-        currency: true,
-        payments: {
-          where: { status: { not: 'FAILED' } },
-          select: { amount: true, refunds: { select: { amount: true } } },
-        },
-      },
-    });
+    const rows = await this.prisma.$queryRaw<
+      { currency: string; memberships: number; total: string }[]
+    >`
+      SELECT currency, COUNT(*)::int AS memberships, SUM(balance)::text AS total
+      FROM (
+        SELECT ms.currency,
+          ms.price
+            - COALESCE((
+                SELECT SUM(p.amount) FROM payments p
+                WHERE p."membershipId" = ms.id AND p.status <> 'FAILED'
+              ), 0)
+            + COALESCE((
+                SELECT SUM(r.amount) FROM refunds r
+                JOIN payments p ON p.id = r."paymentId"
+                WHERE p."membershipId" = ms.id AND p.status <> 'FAILED'
+              ), 0) AS balance
+        FROM memberships ms
+        WHERE ms."organizationId" = ${organizationId}
+          AND ms.status IN ('ACTIVE', 'PENDING')
+          AND ms."startDate" <= ${new Date()}
+          ${branchScope ? Prisma.sql`AND ms."branchId" = ${branchScope}` : Prisma.empty}
+      ) owed
+      WHERE balance > 0
+      GROUP BY currency
+      ORDER BY currency`;
 
-    const byCurrency = new Map<string, { count: number; total: number }>();
-    for (const membership of memberships) {
-      const grossPaid = membership.payments.reduce(
-        (sum, p) => sum + Number(p.amount),
-        0,
-      );
-      const refunded = membership.payments
-        .flatMap((p) => p.refunds)
-        .reduce((sum, r) => sum + Number(r.amount), 0);
-      const outstanding = Number(membership.price) - (grossPaid - refunded);
-      if (outstanding <= 0) continue;
-
-      const entry = byCurrency.get(membership.currency) ?? {
-        count: 0,
-        total: 0,
-      };
-      entry.count += 1;
-      entry.total += outstanding;
-      byCurrency.set(membership.currency, entry);
-    }
-
-    return Array.from(byCurrency.entries()).map(
-      ([currency, { count, total }]) => ({
-        currency,
-        membershipsWithBalance: count,
-        outstandingBalance: total.toFixed(2),
-      }),
-    );
+    return rows.map((row) => ({
+      currency: row.currency,
+      membershipsWithBalance: row.memberships,
+      outstandingBalance: Number(row.total).toFixed(2),
+    }));
   }
 }
 

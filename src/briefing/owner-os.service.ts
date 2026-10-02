@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
+import { FinanceService } from '../analytics/finance.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
 import {
   MemberIntelligenceService,
@@ -62,6 +63,7 @@ function toNumber(decimal: Prisma.Decimal | number): number {
 export class OwnerOsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly finance: FinanceService,
     private readonly memberIntelligence: MemberIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly aiActions: AiActionsService,
@@ -94,7 +96,7 @@ export class OwnerOsService {
       paymentsToday,
       refundsToday,
       expiringSoon,
-      activeWithPayments,
+      outstanding,
       atRisk,
       stockForecast,
       pendingAiActions,
@@ -122,7 +124,7 @@ export class OwnerOsService {
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
-      this.prisma.payment.findMany({
+      this.prisma.payment.aggregate({
         where: {
           organizationId,
           currency,
@@ -136,9 +138,9 @@ export class OwnerOsService {
           createdAt: { gte: startOfToday },
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
-        select: { amount: true },
+        _sum: { amount: true },
       }),
-      this.prisma.refund.findMany({
+      this.prisma.refund.aggregate({
         where: {
           organizationId,
           payment: { currency },
@@ -149,7 +151,7 @@ export class OwnerOsService {
               }
             : {}),
         },
-        select: { amount: true },
+        _sum: { amount: true },
       }),
       this.prisma.membership.count({
         where: {
@@ -165,23 +167,10 @@ export class OwnerOsService {
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
-      this.prisma.membership.findMany({
-        where: {
-          organizationId,
-          status: 'ACTIVE',
-          currency,
-          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
-        },
-        select: {
-          price: true,
-          payments: {
-            select: {
-              amount: true,
-              refunds: { select: { amount: true } },
-            },
-          },
-        },
-      }),
+      // The dashboard's own figure for the gym's currency, so the two
+      // never disagree. This used to count FAILED payments as paid,
+      // ignored PENDING terms, and loaded every membership's payments.
+      this.finance.getOutstandingBalances(organizationId, branchScope ?? null),
       this.memberIntelligence.getAtRiskMembers(
         organizationId,
         branchScope ?? null,
@@ -193,37 +182,15 @@ export class OwnerOsService {
       this.aiActions.countPending(organizationId),
     ]);
 
-    const grossToday = paymentsToday.reduce(
-      (sum, p) => sum.plus(p.amount),
-      new Prisma.Decimal(0),
+    const todayRevenue = toNumber(
+      (paymentsToday._sum.amount ?? new Prisma.Decimal(0)).sub(
+        refundsToday._sum.amount ?? new Prisma.Decimal(0),
+      ),
     );
-    const refundedToday = refundsToday.reduce(
-      (sum, r) => sum.plus(r.amount),
-      new Prisma.Decimal(0),
-    );
-    const todayRevenue = toNumber(grossToday.sub(refundedToday));
 
-    let outstandingPayments = 0;
-    let membershipsWithBalance = 0;
-    for (const membership of activeWithPayments) {
-      const paid = membership.payments.reduce(
-        (sum, payment) =>
-          sum.plus(
-            payment.amount.sub(
-              payment.refunds.reduce(
-                (refundSum, refund) => refundSum.plus(refund.amount),
-                new Prisma.Decimal(0),
-              ),
-            ),
-          ),
-        new Prisma.Decimal(0),
-      );
-      const balance = toNumber(membership.price.sub(paid));
-      if (balance > 0) {
-        outstandingPayments += balance;
-        membershipsWithBalance += 1;
-      }
-    }
+    const owed = outstanding.find((row) => row.currency === currency);
+    const outstandingPayments = Number(owed?.outstandingBalance ?? 0);
+    const membershipsWithBalance = owed?.membershipsWithBalance ?? 0;
 
     const lowStock = stockForecast.filter((p) => p.atOrBelowReorderLevel);
 

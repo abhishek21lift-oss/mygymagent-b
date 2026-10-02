@@ -74,27 +74,31 @@ export class SalesIntelligenceService {
       ...(dateFilter ? { createdAt: dateFilter } : {}),
     };
 
-    const [byStatus, wonLeads, followUps] = await Promise.all([
-      this.prisma.lead.groupBy({
-        by: ['status'],
-        where: leadWhere,
-        _count: true,
-      }),
-      this.prisma.lead.findMany({
-        where: { ...leadWhere, status: 'WON', convertedAt: { not: null } },
-        select: { createdAt: true, convertedAt: true },
-      }),
-      this.prisma.leadFollowUp.findMany({
-        where: {
-          organizationId,
-          lead: {
-            ...(branchScope ? { branchId: branchScope } : {}),
-            ...(dateFilter ? { createdAt: dateFilter } : {}),
-          },
-        },
-        select: { completedAt: true },
-      }),
-    ]);
+    const followUpWhere = {
+      organizationId,
+      lead: {
+        ...(branchScope ? { branchId: branchScope } : {}),
+        ...(dateFilter ? { createdAt: dateFilter } : {}),
+      },
+    };
+
+    const [byStatus, wonLeads, followUpTotal, completedFollowUps] =
+      await Promise.all([
+        this.prisma.lead.groupBy({
+          by: ['status'],
+          where: leadWhere,
+          _count: true,
+        }),
+        this.prisma.lead.findMany({
+          where: { ...leadWhere, status: 'WON', convertedAt: { not: null } },
+          select: { createdAt: true, convertedAt: true },
+        }),
+        // Counted, not loaded row by row.
+        this.prisma.leadFollowUp.count({ where: followUpWhere }),
+        this.prisma.leadFollowUp.count({
+          where: { ...followUpWhere, completedAt: { not: null } },
+        }),
+      ]);
 
     const totalLeads = byStatus.reduce((sum, row) => sum + row._count, 0);
     const wonCount = byStatus.find((row) => row.status === 'WON')?._count ?? 0;
@@ -114,10 +118,6 @@ export class SalesIntelligenceService {
           ) / 10
         : null;
 
-    const completedFollowUps = followUps.filter(
-      (f) => f.completedAt !== null,
-    ).length;
-
     return {
       period: { from: query.from ?? null, to: query.to ?? null },
       byStatus: byStatus.map((row) => ({
@@ -130,11 +130,11 @@ export class SalesIntelligenceService {
         totalLeads > 0 ? ((wonCount / totalLeads) * 100).toFixed(2) : '0.00',
       averageDaysToConversion,
       followUps: {
-        total: followUps.length,
+        total: followUpTotal,
         completed: completedFollowUps,
         completionRatePct:
-          followUps.length > 0
-            ? ((completedFollowUps / followUps.length) * 100).toFixed(2)
+          followUpTotal > 0
+            ? ((completedFollowUps / followUpTotal) * 100).toFixed(2)
             : '0.00',
       },
     };

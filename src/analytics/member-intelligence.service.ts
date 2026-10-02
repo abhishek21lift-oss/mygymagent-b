@@ -105,44 +105,59 @@ export class MemberIntelligenceService {
     branchScope: string | null,
   ): Promise<AtRiskMember[]> {
     const now = new Date();
+    // Last visit on or before this, or none since joining by then.
+    const cutoff = new Date(
+      now.getTime() - AT_RISK_THRESHOLD_DAYS * MS_PER_DAY,
+    );
+    const paying = {
+      organizationId,
+      status: { not: 'INACTIVE' as const },
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      memberships: { some: currentTermWhere(now) },
+    };
+
+    // Counted in the database, not loaded: this used to fetch every
+    // paying member with their attendance to keep the latest visit in
+    // memory, on every dashboard load. Now one aggregate finds the
+    // members whose latest admitted visit is old enough, and only those
+    // members -- plus the ones never admitted at all -- are read.
+    const stale = await this.prisma.attendance.groupBy({
+      by: ['memberId'],
+      where: { deniedReason: null, memberId: { not: null }, member: paying },
+      _max: { checkInAt: true },
+      having: { checkInAt: { _max: { lte: cutoff } } },
+    });
+    const lastVisit = new Map(
+      stale.map((row) => [row.memberId!, row._max.checkInAt!]),
+    );
     const members = await this.prisma.member.findMany({
       where: {
-        organizationId,
-        status: { not: 'INACTIVE' },
-        deletedAt: null,
-        ...(branchScope ? { primaryBranchId: branchScope } : {}),
-        memberships: { some: currentTermWhere(now) },
+        ...paying,
+        OR: [
+          { id: { in: [...lastVisit.keys()] } },
+          {
+            joinedAt: { lte: cutoff },
+            attendances: { none: { deniedReason: null } },
+          },
+        ],
       },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        joinedAt: true,
-        attendances: {
-          where: { deniedReason: null },
-          orderBy: { checkInAt: 'desc' },
-          take: 1,
-          select: { checkInAt: true },
-        },
-      },
+      select: { id: true, firstName: true, lastName: true, joinedAt: true },
     });
 
-    const atRisk: AtRiskMember[] = [];
-    for (const member of members) {
-      const lastVisit = member.attendances[0]?.checkInAt;
-      const reference = lastVisit ?? member.joinedAt;
-      const daysSinceLastVisit = Math.floor(
-        (now.getTime() - reference.getTime()) / MS_PER_DAY,
-      );
-      if (daysSinceLastVisit < AT_RISK_THRESHOLD_DAYS) continue;
-      atRisk.push({
+    const atRisk: AtRiskMember[] = members.map((member) => {
+      const visit = lastVisit.get(member.id);
+      const reference = visit ?? member.joinedAt;
+      return {
         id: member.id,
         firstName: member.firstName,
         lastName: member.lastName,
-        daysSinceLastVisit,
-        neverCheckedIn: !lastVisit,
-      });
-    }
+        daysSinceLastVisit: Math.floor(
+          (now.getTime() - reference.getTime()) / MS_PER_DAY,
+        ),
+        neverCheckedIn: !visit,
+      };
+    });
 
     return atRisk.sort((a, b) => b.daysSinceLastVisit - a.daysSinceLastVisit);
   }
@@ -164,27 +179,61 @@ export class MemberIntelligenceService {
     branchScope: string | null,
   ): Promise<MemberStatusBreakdown[]> {
     const now = new Date();
-    const members = await this.prisma.member.findMany({
-      where: {
-        organizationId,
-        deletedAt: null,
-        ...(branchScope ? { primaryBranchId: branchScope } : {}),
-      },
-      select: {
-        status: true,
-        memberships: {
-          where: { status: { not: 'CANCELLED' } },
-          select: { status: true, startDate: true, endDate: true },
-        },
-      },
-    });
+    // Counted in the database rather than by loading every member with
+    // every term: the same precedence as effectiveMemberStatus(), each
+    // status excluding the ones above it, and EXPIRED what is left.
+    const base = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
+    const live = { ...base, status: { not: 'INACTIVE' as const } };
+    const current = currentTermWhere(now);
+    const frozen = { status: 'FROZEN' as const };
+    const upcoming = {
+      status: { in: ['ACTIVE' as const, 'PENDING' as const] },
+      startDate: { gt: now },
+    };
+    const [inactive, total, active, frozenCount, upcomingCount, none] =
+      await Promise.all([
+        this.prisma.member.count({ where: { ...base, status: 'INACTIVE' } }),
+        this.prisma.member.count({ where: live }),
+        this.prisma.member.count({
+          where: { ...live, memberships: { some: current } },
+        }),
+        this.prisma.member.count({
+          where: {
+            ...live,
+            memberships: { some: frozen, none: current },
+          },
+        }),
+        this.prisma.member.count({
+          where: {
+            ...live,
+            AND: [
+              { memberships: { some: upcoming } },
+              { memberships: { none: current } },
+              { memberships: { none: frozen } },
+            ],
+          },
+        }),
+        this.prisma.member.count({
+          where: {
+            ...live,
+            memberships: { none: { status: { not: 'CANCELLED' } } },
+          },
+        }),
+      ]);
 
-    const counts = new Map<EffectiveMemberStatus, number>();
-    for (const member of members) {
-      const status = effectiveMemberStatus(member, now);
-      counts.set(status, (counts.get(status) ?? 0) + 1);
-    }
-    return STATUS_ORDER.filter((status) => counts.has(status)).map(
+    const counts = new Map<EffectiveMemberStatus, number>([
+      ['ACTIVE', active],
+      ['FROZEN', frozenCount],
+      ['UPCOMING', upcomingCount],
+      ['EXPIRED', total - active - frozenCount - upcomingCount - none],
+      ['NO_MEMBERSHIP', none],
+      ['INACTIVE', inactive],
+    ]);
+    return STATUS_ORDER.filter((status) => counts.get(status)! > 0).map(
       (status) => ({ status, count: counts.get(status)! }),
     );
   }

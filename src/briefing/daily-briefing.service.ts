@@ -28,6 +28,7 @@ import {
   zonedDate,
   zonedMidnight,
 } from '../common/time/zoned';
+import { RENEWAL_FOLLOW_UP_PREFIX } from '../portal/portal.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const TOP_N = 5;
@@ -77,6 +78,26 @@ export interface DailyBriefing {
   /// renewal links back to the term it follows; a cancelled one leaves
   /// the term expiring again.
   expiringSoon: { count: number; withinDays: number };
+  /// Open member follow-ups due by the end of the gym's today, most
+  /// overdue first. A renewal request from the member app is one of
+  /// these, and until now it showed only on that member's own page --
+  /// nobody saw it unless they happened to open that member.
+  memberFollowUpsDue: {
+    count: number;
+    overdue: number;
+    renewalRequests: number;
+    top: MemberFollowUpDue[];
+  };
+}
+
+export interface MemberFollowUpDue {
+  id: string;
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  title: string;
+  dueAt: string | null;
+  isRenewalRequest: boolean;
 }
 
 /**
@@ -131,6 +152,15 @@ export class DailyBriefingService {
         ...(branchScope ? { branchId: branchScope } : {}),
       },
     };
+    const memberFollowUpDue = {
+      organizationId,
+      completedAt: null,
+      dueAt: { lt: startOfTomorrow },
+      member: {
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
+    };
     const monthStart = startOfZonedMonth(now, timezone);
 
     const [
@@ -145,6 +175,10 @@ export class DailyBriefingService {
       stockForecast,
       trainerWorkload,
       pendingAiActions,
+      memberFollowUps,
+      memberFollowUpsOverdue,
+      renewalRequests,
+      memberFollowUpsTop,
     ] = await Promise.all([
       this.prisma.attendance.count({
         where: { ...memberVisitToday, deniedReason: null },
@@ -176,7 +210,7 @@ export class DailyBriefingService {
           },
         },
       }),
-      this.finance.getRevenueSummary(organizationId, {}, branchScope),
+      this.finance.getRevenueSummary(organizationId, {}, branchScope, timezone),
       this.memberIntelligence.getAtRiskMembers(organizationId, branchScope),
       this.salesIntelligence.getFunnel(organizationId, branchScope, {
         from: monthStart.toISOString(),
@@ -184,6 +218,28 @@ export class DailyBriefingService {
       this.inventoryIntelligence.getStockForecast(organizationId, branchScope),
       this.trainerIntelligence.getWorkload(organizationId, branchScope),
       this.aiActions.countPending(organizationId),
+      this.prisma.memberFollowUp.count({ where: memberFollowUpDue }),
+      this.prisma.memberFollowUp.count({
+        where: { ...memberFollowUpDue, dueAt: { lt: startOfToday } },
+      }),
+      this.prisma.memberFollowUp.count({
+        where: {
+          ...memberFollowUpDue,
+          title: { startsWith: RENEWAL_FOLLOW_UP_PREFIX },
+        },
+      }),
+      this.prisma.memberFollowUp.findMany({
+        where: memberFollowUpDue,
+        orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+        take: TOP_N,
+        select: {
+          id: true,
+          memberId: true,
+          title: true,
+          dueAt: true,
+          member: { select: { firstName: true, lastName: true } },
+        },
+      }),
     ]);
 
     const lowStock = stockForecast.filter((p) => p.atOrBelowReorderLevel);
@@ -212,6 +268,20 @@ export class DailyBriefingService {
       expiringSoon: {
         count: expiringSoon,
         withinDays: EXPIRING_WINDOW_DAYS,
+      },
+      memberFollowUpsDue: {
+        count: memberFollowUps,
+        overdue: memberFollowUpsOverdue,
+        renewalRequests,
+        top: memberFollowUpsTop.map((f) => ({
+          id: f.id,
+          memberId: f.memberId,
+          firstName: f.member.firstName,
+          lastName: f.member.lastName,
+          title: f.title,
+          dueAt: f.dueAt?.toISOString() ?? null,
+          isRenewalRequest: f.title.startsWith(RENEWAL_FOLLOW_UP_PREFIX),
+        })),
       },
     };
   }
