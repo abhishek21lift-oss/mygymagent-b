@@ -4,6 +4,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import {
+  BranchFilterQueryDto,
+  effectiveBranch,
+} from '../common/branch/branch-filter';
 import { GetRevenueSummaryQueryDto } from './dto/get-revenue-summary-query.dto';
 import { GetRevenueTrendQueryDto } from './dto/get-revenue-trend-query.dto';
 import { GetSalesFunnelQueryDto } from './dto/get-sales-funnel-query.dto';
@@ -41,7 +45,7 @@ export class AnalyticsController {
     return this.finance.getRevenueSummary(
       user.organizationId!,
       query,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -54,7 +58,7 @@ export class AnalyticsController {
   ) {
     return this.finance.getRevenueTrend(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       query.months ?? 6,
     );
   }
@@ -63,11 +67,12 @@ export class AnalyticsController {
   @RequirePermissions('reports.view')
   getAtRiskMembers(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.memberIntelligence.getAtRiskMembers(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -75,11 +80,12 @@ export class AnalyticsController {
   @RequirePermissions('reports.view')
   getMemberStatusBreakdown(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.memberIntelligence.getStatusBreakdown(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -92,7 +98,7 @@ export class AnalyticsController {
   ) {
     return this.salesIntelligence.getFunnel(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       query,
     );
   }
@@ -106,7 +112,7 @@ export class AnalyticsController {
   ) {
     return this.salesIntelligence.getSourcePerformance(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       query,
     );
   }
@@ -120,7 +126,7 @@ export class AnalyticsController {
   ) {
     return this.salesIntelligence.getLostReasons(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       query,
     );
   }
@@ -134,7 +140,7 @@ export class AnalyticsController {
   ) {
     return this.salesIntelligence.getAssigneePerformance(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       query,
     );
   }
@@ -143,11 +149,12 @@ export class AnalyticsController {
   @RequirePermissions('reports.view')
   getMembershipLifecycle(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.membershipLifecycle.getLifecycle(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -155,17 +162,25 @@ export class AnalyticsController {
   @RequirePermissions('reports.view')
   getTrainerWorkload(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.trainerIntelligence.getWorkload(
       user.organizationId!,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
   @Get('inventory/forecast')
   @RequirePermissions('reports.view')
-  getInventoryForecast(@CurrentUser() user: AuthenticatedUser) {
-    return this.inventoryIntelligence.getStockForecast(user.organizationId!);
+  getInventoryForecast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.inventoryIntelligence.getStockForecast(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
   }
 }

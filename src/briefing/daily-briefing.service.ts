@@ -10,6 +10,7 @@ import {
 } from '../analytics/inventory-intelligence.service';
 import {
   MemberIntelligenceService,
+  currentTermWhere,
   type AtRiskMember,
 } from '../analytics/member-intelligence.service';
 import {
@@ -30,6 +31,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 
 const TOP_N = 5;
+const EXPIRING_WINDOW_DAYS = 7;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface DailyBriefing {
   generatedAt: string;
@@ -69,6 +72,11 @@ export interface DailyBriefing {
     count: number;
     overdue: number;
   };
+  /// Memberships whose running term ends within EXPIRING_WINDOW_DAYS and
+  /// has not been renewed -- the renewal calls to make this week. A
+  /// renewal links back to the term it follows; a cancelled one leaves
+  /// the term expiring again.
+  expiringSoon: { count: number; withinDays: number };
 }
 
 /**
@@ -130,6 +138,7 @@ export class DailyBriefingService {
       deniedCheckIns,
       followUpsDue,
       followUpsOverdue,
+      expiringSoon,
       revenue,
       atRiskMembers,
       salesFunnel,
@@ -149,12 +158,30 @@ export class DailyBriefingService {
       this.prisma.leadFollowUp.count({
         where: { ...openFollowUp, dueAt: { lt: startOfToday } },
       }),
+      this.prisma.membership.count({
+        where: {
+          organizationId,
+          ...currentTermWhere(now),
+          endDate: {
+            gte: now,
+            lte: new Date(now.getTime() + EXPIRING_WINDOW_DAYS * MS_PER_DAY),
+          },
+          OR: [
+            { nextMembership: { is: null } },
+            { nextMembership: { is: { status: 'CANCELLED' } } },
+          ],
+          member: {
+            deletedAt: null,
+            ...(branchScope ? { primaryBranchId: branchScope } : {}),
+          },
+        },
+      }),
       this.finance.getRevenueSummary(organizationId, {}, branchScope),
       this.memberIntelligence.getAtRiskMembers(organizationId, branchScope),
       this.salesIntelligence.getFunnel(organizationId, branchScope, {
         from: monthStart.toISOString(),
       }),
-      this.inventoryIntelligence.getStockForecast(organizationId),
+      this.inventoryIntelligence.getStockForecast(organizationId, branchScope),
       this.trainerIntelligence.getWorkload(organizationId, branchScope),
       this.aiActions.countPending(organizationId),
     ]);
@@ -182,6 +209,10 @@ export class DailyBriefingService {
       },
       pendingAiActions,
       followUpsDue: { count: followUpsDue, overdue: followUpsOverdue },
+      expiringSoon: {
+        count: expiringSoon,
+        withinDays: EXPIRING_WINDOW_DAYS,
+      },
     };
   }
 }
