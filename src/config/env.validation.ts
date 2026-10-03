@@ -250,9 +250,9 @@ export const envSchema = z
     }
 
     // CORS_ORIGIN is a comma-separated allowlist; every entry must be HTTPS.
-    // Unlike the other fields it is genuinely optional here -- main.ts falls
-    // back to a hardcoded HTTPS origin (and warns) when it is unset, so only
-    // an explicitly configured value needs checking.
+    // Unlike the other fields it is genuinely optional here -- main.ts throws
+    // on a production boot without it and only falls back to localhost
+    // origins in development, so there is no hardcoded origin left to check.
     const corsOrigins = (config.CORS_ORIGIN ?? '')
       .split(',')
       .map((o) => o.trim())

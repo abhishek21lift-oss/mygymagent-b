@@ -75,24 +75,29 @@ async function bootstrap() {
   app.use(cookieParser());
 
   const configuredCors = config.get<string>('CORS_ORIGIN');
-  const fallbackCors = isProduction
-    ? 'https://mygymagent-f.vercel.app'
-    : 'http://localhost:3000,http://localhost:5173';
   if (isProduction && !configuredCors) {
     // Fail fast rather than silently pinning production CORS to a hardcoded
-    // origin that may not match the deployed frontend.
+    // origin that may not match the deployed frontend. Nothing below can
+    // supply a production origin, so this is the only correct behaviour.
     throw new Error(
       'CORS_ORIGIN must be set in production (comma-separated allowed origins).',
     );
   }
-  const origins = (configuredCors || fallbackCors)
+  // Development only. There is deliberately no production fallback: the
+  // throw above means `configuredCors` is always set in prod, and a
+  // hardcoded host here would only ever be dead code that reads like a
+  // guarantee. Real deployments set CORS_ORIGIN to every origin that serves
+  // the frontend -- including the Capacitor WebView origin for the native
+  // build, which is not necessarily the same host as the website.
+  const devFallbackCors = 'http://localhost:3000,http://localhost:5173';
+  const origins = (configuredCors ?? devFallbackCors)
     .split(',')
     .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean);
 
   if (!configuredCors) {
     logger.warn(
-      `CORS_ORIGIN is not configured; using safe fallback: ${origins.join(', ')}`,
+      `CORS_ORIGIN is not configured; using development fallback: ${origins.join(', ')}`,
     );
   }
 
