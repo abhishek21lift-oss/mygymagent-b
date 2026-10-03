@@ -36,6 +36,17 @@ import { MemberDirectPushService } from './push/member-direct-push.service';
     MemberPushListener,
     MemberDirectPushService,
   ],
-  exports: [NotificationsService, MemberPushService, MemberDirectPushService],
+  // Re-exported so a monitoring surface can read queue depth without
+  // registering the same queue a second time. A second
+  // `BullModule.registerQueue` for an existing name produces a distinct
+  // Queue object over the same Redis keys, which broke
+  // automation-overview.e2e-spec's `app.get(getQueueToken(AUTOMATION))`
+  // spy: the token resolved to the other instance.
+  exports: [
+    NotificationsService,
+    MemberPushService,
+    MemberDirectPushService,
+    BullModule,
+  ],
 })
 export class NotificationsModule {}

@@ -31,6 +31,7 @@ import { WA_SOCKET_FACTORY } from './whatsapp-web.types';
     WhatsappInboundFiler,
     { provide: WA_SOCKET_FACTORY, useClass: BaileysSocketFactory },
   ],
-  exports: [WhatsappWebSender, WhatsappWebManager],
+  // See the note in notifications.module.ts.
+  exports: [WhatsappWebSender, WhatsappWebManager, BullModule],
 })
 export class WhatsappWebModule {}

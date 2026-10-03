@@ -49,6 +49,7 @@ import { AutomationModule } from './automation/automation.module';
 import { BriefingModule } from './briefing/briefing.module';
 import { Client360Module } from './client-360/client-360.module';
 import { CommunicationsModule } from './communications/communications.module';
+import { CommandCenterModule } from './command-center/command-center.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
@@ -107,6 +108,7 @@ import { PortalModule } from './portal/portal.module';
     AutomationModule,
     BriefingModule,
     CommunicationsModule,
+    CommandCenterModule,
     Client360Module,
     AppointmentsModule,
     ExpensesModule,

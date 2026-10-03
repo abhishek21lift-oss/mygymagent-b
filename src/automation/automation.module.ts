@@ -33,6 +33,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [AutomationController],
+  // See the note in notifications.module.ts: re-exported so the Command
+  // Center reads this module's Queue instance rather than a duplicate.
   providers: [
     AutomationOverviewService,
     AutomationRunService,
@@ -53,5 +55,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PtExpiryScanner,
     WhatsappAutoReplyListener,
   ],
+  exports: [BullModule],
 })
 export class AutomationModule {}
