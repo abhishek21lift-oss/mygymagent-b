@@ -78,6 +78,32 @@ export interface MemberStatusBreakdown {
   count: number;
 }
 
+export type WinBackTier = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface WinBackCandidate {
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  /// Whole days since the last term ended.
+  daysSinceExpiry: number;
+  /// Sum of COMPLETED payment amounts (Decimal-safe string).
+  lifetimePaid: string;
+  currency: string;
+  /// Sum of closed-term lengths in days.
+  tenureDays: number;
+  /// Last admitted visit, null when they never checked in.
+  lastVisitAt: string | null;
+  priorPtPackages: number;
+  tier: WinBackTier;
+  /// Evidence lines, e.g. "Paid ₹45,000 over 210 days".
+  reasons: string[];
+}
+
+export interface WinBackList {
+  items: WinBackCandidate[];
+  counts: { high: number; medium: number; low: number };
+}
+
 /**
  * "What's likely to happen" on top of P1's "what happened" -- real,
  * explainable numbers (every figure traces back to Attendance/Member
@@ -187,5 +213,171 @@ export class MemberIntelligenceService {
     return STATUS_ORDER.filter((status) => counts.has(status)).map(
       (status) => ({ status, count: counts.get(status)! }),
     );
+  }
+
+  /**
+   * Win-back candidates: lapsed members worth re-engaging, ranked by
+   * proven value. Lapsed = effective status EXPIRED with the last term
+   * over 30 days old (recent churn belongs to renewals, not win-back;
+   * members who never bought are prospects, not win-back). Value tiers
+   * are relative — top 20% of this org's lapsed base by lifetime COMPLETED
+   * payments is HIGH — so no currency-amount magic numbers. Capped;
+   * counts cover the ranked set.
+   */
+  async getWinBackCandidates(
+    organizationId: string,
+    branchScope: string | null,
+  ): Promise<WinBackList> {
+    const now = new Date();
+    const lapsedBefore = new Date(now.getTime() - 30 * MS_PER_DAY);
+    const members = await this.prisma.member.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        memberships: { some: { status: { not: 'CANCELLED' } } },
+      },
+      take: 500,
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        memberships: {
+          where: { status: { not: 'CANCELLED' } },
+          select: { status: true, startDate: true, endDate: true },
+        },
+        riskProfile: { select: { riskLevel: true } },
+      },
+    });
+
+    const lapsed = members.filter((m) => {
+      if (effectiveMemberStatus(m, now) !== 'EXPIRED') return false;
+      const lastEnd = Math.max(
+        ...m.memberships.map((t) => t.endDate.getTime()),
+      );
+      return lastEnd < lapsedBefore.getTime();
+    });
+    if (lapsed.length === 0) {
+      return { items: [], counts: { high: 0, medium: 0, low: 0 } };
+    }
+    const ids = lapsed.map((m) => m.id);
+    const [payments, visits, ptCounts] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: { organizationId, memberId: { in: ids }, status: 'COMPLETED' },
+        select: {
+          memberId: true,
+          amount: true,
+          currency: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.attendance.groupBy({
+        by: ['memberId'],
+        where: { organizationId, memberId: { in: ids }, deniedReason: null },
+        _max: { checkInAt: true },
+      }),
+      this.prisma.ptPackage.groupBy({
+        by: ['memberId'],
+        where: { organizationId, memberId: { in: ids } },
+        _count: true,
+      }),
+    ]);
+
+    const paidByMember = new Map<string, { total: number; currency: string }>();
+    for (const p of payments) {
+      const entry = paidByMember.get(p.memberId) ?? {
+        total: 0,
+        currency: p.currency,
+      };
+      entry.total += Number(p.amount);
+      // Currency follows the most recent payment — mixed-currency orgs
+      // rank on the latest denomination, documented, never converted.
+      entry.currency = p.currency;
+      paidByMember.set(p.memberId, entry);
+    }
+    const visitByMember = new Map(
+      visits.map((v) => [v.memberId, v._max.checkInAt]),
+    );
+    const ptByMember = new Map(ptCounts.map((r) => [r.memberId, r._count]));
+
+    const ranked = lapsed
+      .map((m) => {
+        const lastEnd = Math.max(
+          ...m.memberships.map((t) => t.endDate.getTime()),
+        );
+        const tenureDays = Math.max(
+          0,
+          Math.round(
+            m.memberships.reduce(
+              (sum, t) =>
+                sum +
+                Math.max(
+                  0,
+                  (Math.min(t.endDate.getTime(), now.getTime()) -
+                    t.startDate.getTime()) /
+                    MS_PER_DAY,
+                ),
+              0,
+            ),
+          ),
+        );
+        const paid = paidByMember.get(m.id) ?? { total: 0, currency: '' };
+        const lastVisit = visitByMember.get(m.id) ?? null;
+        return { m, lastEnd, tenureDays, paid, lastVisit };
+      })
+      .sort((a, b) => b.paid.total - a.paid.total)
+      .slice(0, 100);
+
+    const highCut = Math.max(1, Math.ceil(ranked.length * 0.2));
+    const mediumCut = highCut + Math.ceil(ranked.length * 0.3);
+    const items: WinBackCandidate[] = ranked.map((entry, index) => {
+      const { m, lastEnd, tenureDays, paid, lastVisit } = entry;
+      const daysSinceExpiry = Math.max(
+        0,
+        Math.floor((now.getTime() - lastEnd) / MS_PER_DAY),
+      );
+      const ptPackages = ptByMember.get(m.id) ?? 0;
+      const reasons = [
+        `Paid ${paid.total.toLocaleString()}${paid.currency ? ` ${paid.currency}` : ''} over ${tenureDays} days`,
+        lastVisit
+          ? `Last visit ${Math.floor((now.getTime() - lastVisit.getTime()) / MS_PER_DAY)} days ago`
+          : 'Never checked in',
+      ];
+      if (ptPackages > 0) reasons.push(`${ptPackages} prior PT packages`);
+      if (
+        m.riskProfile &&
+        (m.riskProfile.riskLevel === 'HIGH' ||
+          m.riskProfile.riskLevel === 'CRITICAL')
+      ) {
+        reasons.push(`Was ${m.riskProfile.riskLevel} risk before lapsing`);
+      }
+      return {
+        memberId: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        daysSinceExpiry,
+        lifetimePaid: paid.total.toFixed(2),
+        currency: paid.currency,
+        tenureDays,
+        lastVisitAt: lastVisit ? lastVisit.toISOString() : null,
+        priorPtPackages: ptPackages,
+        tier: (index < highCut
+          ? 'HIGH'
+          : index < mediumCut
+            ? 'MEDIUM'
+            : 'LOW') as WinBackTier,
+        reasons,
+      };
+    });
+    return {
+      items,
+      counts: {
+        high: items.filter((i) => i.tier === 'HIGH').length,
+        medium: items.filter((i) => i.tier === 'MEDIUM').length,
+        low: items.filter((i) => i.tier === 'LOW').length,
+      },
+    };
   }
 }

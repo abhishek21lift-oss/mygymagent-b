@@ -18,6 +18,24 @@ export interface TrainerIntelligence {
   notComputable: { key: string; reason: string }[];
 }
 
+export interface PtOpportunity {
+  packageId: string;
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  packageName: string;
+  sessionsRemaining: number;
+  /// Whole days left, 0 when past endDate.
+  daysLeft: number;
+  reason: 'EXPIRING_WITH_SESSIONS' | 'NEVER_STARTED';
+}
+
+export interface PtOpportunities {
+  expiring: PtOpportunity[];
+  neverStarted: PtOpportunity[];
+  counts: { expiring: number; neverStarted: number; activePackages: number };
+}
+
 const NOT_COMPUTABLE = [
   {
     key: 'ptSessionUtilization',
@@ -107,6 +125,100 @@ export class TrainerIntelligenceService {
         (a, b) => b.assignedMemberCount - a.assignedMemberCount,
       ),
       notComputable: NOT_COMPUTABLE,
+    };
+  }
+
+  /**
+   * PT renewal opportunities from package rows, not guesses. Expiring =
+   * ACTIVE packages ending within 14 days with sessions still unused;
+   * never-started = ACTIVE packages untouched 14 days after start. Both
+   * are capped; counts cover the full scope.
+   */
+  async getPtOpportunities(
+    organizationId: string,
+    branchScope: string | null,
+  ): Promise<PtOpportunities> {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 14 * MS_PER_DAY);
+    const staleSince = new Date(now.getTime() - 14 * MS_PER_DAY);
+    const scoped = {
+      organizationId,
+      ...(branchScope ? { branchId: branchScope } : {}),
+    };
+    const [expiring, neverStarted, activePackages] = await Promise.all([
+      this.prisma.ptPackage.findMany({
+        where: { ...scoped, status: 'ACTIVE', endDate: { lte: horizon } },
+        orderBy: { endDate: 'asc' },
+        take: 50,
+        include: {
+          member: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.ptPackage.findMany({
+        where: {
+          ...scoped,
+          status: 'ACTIVE',
+          usedSessions: 0,
+          startDate: { lte: staleSince },
+        },
+        orderBy: { startDate: 'asc' },
+        take: 50,
+        include: {
+          member: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.ptPackage.count({
+        where: { ...scoped, status: 'ACTIVE' },
+      }),
+    ]);
+    const [expiringCount, neverStartedCount] = await Promise.all([
+      this.prisma.ptPackage.count({
+        where: { ...scoped, status: 'ACTIVE', endDate: { lte: horizon } },
+      }),
+      this.prisma.ptPackage.count({
+        where: {
+          ...scoped,
+          status: 'ACTIVE',
+          usedSessions: 0,
+          startDate: { lte: staleSince },
+        },
+      }),
+    ]);
+
+    const toOpportunity = (
+      p: (typeof expiring)[number],
+      reason: PtOpportunity['reason'],
+    ): PtOpportunity | null => {
+      const remaining = p.totalSessions - p.usedSessions;
+      if (reason === 'EXPIRING_WITH_SESSIONS' && remaining <= 0) return null;
+      return {
+        packageId: p.id,
+        memberId: p.member.id,
+        firstName: p.member.firstName,
+        lastName: p.member.lastName,
+        packageName: p.name,
+        sessionsRemaining: Math.max(0, remaining),
+        daysLeft: Math.max(
+          0,
+          Math.ceil((p.endDate.getTime() - now.getTime()) / MS_PER_DAY),
+        ),
+        reason,
+      };
+    };
+    const expiringOpportunities = expiring
+      .map((p) => toOpportunity(p, 'EXPIRING_WITH_SESSIONS'))
+      .filter((o): o is PtOpportunity => o !== null);
+    const neverStartedOpportunities = neverStarted
+      .map((p) => toOpportunity(p, 'NEVER_STARTED'))
+      .filter((o): o is PtOpportunity => o !== null);
+    return {
+      expiring: expiringOpportunities,
+      neverStarted: neverStartedOpportunities,
+      counts: {
+        expiring: expiringCount,
+        neverStarted: neverStartedCount,
+        activePackages,
+      },
     };
   }
 }

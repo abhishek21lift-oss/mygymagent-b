@@ -89,6 +89,19 @@ export class AnalyticsController {
     );
   }
 
+  @Get('members/win-back')
+  @RequirePermissions('reports.view')
+  getWinBackCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.memberIntelligence.getWinBackCandidates(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
   @Get('sales/funnel')
   @RequirePermissions('reports.view')
   getSalesFunnel(
@@ -100,6 +113,19 @@ export class AnalyticsController {
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
       query,
+    );
+  }
+
+  @Get('sales/priority')
+  @RequirePermissions('reports.view')
+  getSalesPriority(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getSalesPriority(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -158,6 +184,19 @@ export class AnalyticsController {
     );
   }
 
+  @Get('memberships/renewal-pipeline')
+  @RequirePermissions('reports.view')
+  getRenewalPipeline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipLifecycle.getRenewalPipeline(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
   @Get('trainers/workload')
   @RequirePermissions('reports.view')
   getTrainerWorkload(
@@ -166,6 +205,19 @@ export class AnalyticsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.trainerIntelligence.getWorkload(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('trainers/pt-opportunities')
+  @RequirePermissions('reports.view')
+  getPtOpportunities(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.trainerIntelligence.getPtOpportunities(
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
     );

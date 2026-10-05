@@ -30,6 +30,26 @@ export interface MembershipLifecycle {
   }[];
 }
 
+export interface RenewalPipelineItem {
+  membershipId: string;
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  planName: string;
+  /// Plan price at sale, Decimal-safe string; per-currency, never summed.
+  price: string;
+  currency: string;
+  endDate: string;
+  daysUntilExpiry: number;
+}
+
+export interface RenewalPipeline {
+  upcoming: RenewalPipelineItem[];
+  overdue: RenewalPipelineItem[];
+  highValue: RenewalPipelineItem[];
+  counts: { upcoming: number; overdue: number };
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -200,6 +220,97 @@ export class MembershipLifecycleService {
           outstandingBalance: entry.balance.toFixed(2),
         }),
       ),
+    };
+  }
+
+  /**
+   * Renewal pipeline: who to contact now. Upcoming = ACTIVE terms ending
+   * within 30 days (ordered soonest first, capped); overdue = terms that
+   * expired in the last 30 days with no ACTIVE successor row; highValue =
+   * top upcoming by price. Values are plan prices (Decimal-safe strings),
+   * never summed across currencies here — callers bucket per currency.
+   */
+  async getRenewalPipeline(
+    organizationId: string,
+    branchScope: string | null,
+  ): Promise<RenewalPipeline> {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 30 * MS_PER_DAY);
+    const lookback = new Date(now.getTime() - 30 * MS_PER_DAY);
+    const scoped = {
+      organizationId,
+      ...(branchScope ? { branchId: branchScope } : {}),
+    };
+    const [upcoming, recentlyExpired, activeMemberIds] = await Promise.all([
+      this.prisma.membership.findMany({
+        where: {
+          ...scoped,
+          status: 'ACTIVE',
+          endDate: { gte: now, lte: horizon },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 50,
+        include: {
+          membershipPlan: { select: { name: true } },
+          member: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.membership.findMany({
+        where: {
+          ...scoped,
+          status: 'EXPIRED',
+          endDate: { gte: lookback, lte: now },
+        },
+        orderBy: { endDate: 'desc' },
+        take: 50,
+        include: {
+          membershipPlan: { select: { name: true } },
+          member: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.membership
+        .findMany({
+          where: { ...scoped, status: 'ACTIVE' },
+          select: { memberId: true },
+        })
+        .then((rows) => new Set(rows.map((r) => r.memberId))),
+    ]);
+
+    const toItem = (m: (typeof upcoming)[number]): RenewalPipelineItem => ({
+      membershipId: m.id,
+      memberId: m.member.id,
+      firstName: m.member.firstName,
+      lastName: m.member.lastName,
+      planName: m.membershipPlan.name,
+      price: m.price.toString(),
+      currency: m.currency,
+      endDate: m.endDate.toISOString(),
+      daysUntilExpiry: Math.max(
+        0,
+        Math.ceil((m.endDate.getTime() - now.getTime()) / MS_PER_DAY),
+      ),
+    });
+    // An expired term whose member holds no ACTIVE term is a lost renewal
+    // until someone acts — members who already renewed are not "overdue".
+    // Sorted here as well as in the query so the contract holds even if
+    // the ordering clause ever changes.
+    const overdue = recentlyExpired
+      .filter((m) => !activeMemberIds.has(m.member.id))
+      .map(toItem);
+    const byExpiry = (items: RenewalPipelineItem[]) =>
+      [...items].sort(
+        (a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime(),
+      );
+    const priced = (rows: (typeof upcoming)[number][]) =>
+      rows
+        .map(toItem)
+        .sort((a, b) => Number(b.price) - Number(a.price))
+        .slice(0, 5);
+    return {
+      upcoming: byExpiry(upcoming.map(toItem)),
+      overdue: byExpiry(overdue),
+      highValue: priced(upcoming),
+      counts: { upcoming: upcoming.length, overdue: overdue.length },
     };
   }
 }
