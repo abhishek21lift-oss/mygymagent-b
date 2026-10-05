@@ -1,7 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
@@ -99,6 +103,22 @@ export class AnalyticsController {
     return this.memberIntelligence.getWinBackCandidates(
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('pt-adherence')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
+  getPtAdherence(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('memberId') memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.memberIntelligence.getPtAdherence(
+      user.organizationId!,
+      memberId,
+      branchScope,
+      assignmentScope,
     );
   }
 

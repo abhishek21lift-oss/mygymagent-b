@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const AT_RISK_THRESHOLD_DAYS = 14;
@@ -76,6 +76,20 @@ export interface AtRiskMember {
 export interface MemberStatusBreakdown {
   status: string;
   count: number;
+}
+
+export interface PtAdherence {
+  memberId: string;
+  windowDays: number;
+  /// Completed / (completed + cancelled + no-show) over 90 days, null
+  /// when fewer than 3 decided sessions — a percentage off two sessions
+  /// is noise, not adherence.
+  ptAdherencePct: number | null;
+  workoutsCompleted30d: number;
+  visits30d: number;
+  /// Consecutive weeks (up to 12) ending this week with ≥1 admitted visit.
+  weeklyStreak: number;
+  insufficientData: boolean;
 }
 
 export type WinBackTier = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -378,6 +392,108 @@ export class MemberIntelligenceService {
         medium: items.filter((i) => i.tier === 'MEDIUM').length,
         low: items.filter((i) => i.tier === 'LOW').length,
       },
+    };
+  }
+
+  /**
+   * PT adherence from records, not estimates. PT completion rate over 90
+   * days (null under 3 decided sessions), workouts completed and admitted
+   * visits over 30 days, plus a capped weekly visit streak. Assignment-
+   * and branch-scoped like the workout history reads.
+   */
+  async getPtAdherence(
+    organizationId: string,
+    memberId: string,
+    branchScope: string | null,
+    assignmentScope: string | null,
+  ): Promise<PtAdherence> {
+    const member = await this.prisma.member.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+      },
+      select: { id: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    const now = new Date();
+    const since90 = new Date(now.getTime() - 90 * MS_PER_DAY);
+    const since30 = new Date(now.getTime() - 30 * MS_PER_DAY);
+    const since84 = new Date(now.getTime() - 84 * MS_PER_DAY);
+    const [ptOutcomes, workouts30, visits30, visits84] = await Promise.all([
+      this.prisma.ptSession.groupBy({
+        by: ['status'],
+        where: { organizationId, memberId, startTime: { gte: since90 } },
+        _count: true,
+      }),
+      this.prisma.workoutSession.count({
+        where: {
+          organizationId,
+          memberId,
+          status: 'COMPLETED',
+          sessionDate: { gte: since30 },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          organizationId,
+          memberId,
+          deniedReason: null,
+          checkInAt: { gte: since30 },
+        },
+      }),
+      this.prisma.attendance.findMany({
+        where: {
+          organizationId,
+          memberId,
+          deniedReason: null,
+          checkInAt: { gte: since84 },
+        },
+        select: { checkInAt: true },
+        orderBy: { checkInAt: 'asc' },
+      }),
+    ]);
+
+    const decided = ptOutcomes
+      .filter((r) => r.status !== 'SCHEDULED')
+      .reduce((sum, r) => sum + r._count, 0);
+    const completed =
+      ptOutcomes.find((r) => r.status === 'COMPLETED')?._count ?? 0;
+    const ptAdherencePct =
+      decided >= 3 ? Math.round((completed / decided) * 100) : null;
+
+    const weeks = new Set<string>();
+    for (const visit of visits84) {
+      const d = new Date(visit.checkInAt);
+      const monday = new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+      );
+      monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+      weeks.add(monday.toISOString().slice(0, 10));
+    }
+    let weeklyStreak = 0;
+    const cursor = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    cursor.setUTCDate(cursor.getUTCDate() - ((cursor.getUTCDay() + 6) % 7));
+    for (let i = 0; i < 12; i++) {
+      if (!weeks.has(cursor.toISOString().slice(0, 10))) break;
+      weeklyStreak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 7);
+    }
+
+    return {
+      memberId,
+      windowDays: 30,
+      ptAdherencePct,
+      workoutsCompleted30d: workouts30,
+      visits30d: visits30,
+      weeklyStreak,
+      insufficientData:
+        ptAdherencePct === null && workouts30 === 0 && visits30 === 0,
     };
   }
 }

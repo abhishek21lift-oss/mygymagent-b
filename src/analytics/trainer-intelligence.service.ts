@@ -11,6 +11,12 @@ export interface TrainerWorkload {
   assignedMemberCount: number;
   workoutPlansAssignedLast30Days: number;
   dietPlansAssignedLast30Days: number;
+  /// PT sessions completed in the window (startTime-based).
+  sessionsCompleted30d: number;
+  /// NO_SHOW sessions in the window.
+  sessionsNoShow30d: number;
+  /// Completed / (completed + cancelled + no-show), null under 3 decided.
+  sessionCompletionPct: number | null;
 }
 
 export interface TrainerIntelligence {
@@ -40,7 +46,7 @@ const NOT_COMPUTABLE = [
   {
     key: 'ptSessionUtilization',
     reason:
-      "No PT session/package data model exists (see src/automation/README.md's PT-expiry note for the same gap) -- there is no record of scheduled vs. delivered PT sessions to compute utilization from.",
+      'Package-level utilization (used vs. total sessions) exists per package, but is not yet aggregated per trainer.',
   },
   {
     key: 'ptRevenuePerTrainer',
@@ -78,37 +84,70 @@ export class TrainerIntelligenceService {
           ...(branchScope ? { branchId: branchScope } : {}),
         },
       },
-      select: { id: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        staffProfile: { select: { id: true } },
+      },
     });
 
     const since = new Date(Date.now() - ACTIVITY_WINDOW_DAYS * MS_PER_DAY);
 
     const workload = await Promise.all(
       trainers.map(async (trainer) => {
-        const [assignedMemberCount, workoutPlansAssigned, dietPlansAssigned] =
-          await Promise.all([
-            this.prisma.member.count({
-              where: {
-                organizationId,
-                assignedTrainerId: trainer.id,
-                status: 'ACTIVE',
-              },
-            }),
-            this.prisma.workoutAssignment.count({
-              where: {
-                organizationId,
-                assignedByUserId: trainer.id,
-                createdAt: { gte: since },
-              },
-            }),
-            this.prisma.dietAssignment.count({
-              where: {
-                organizationId,
-                assignedByUserId: trainer.id,
-                createdAt: { gte: since },
-              },
-            }),
-          ]);
+        const profileId = (
+          trainer as typeof trainer & {
+            staffProfile: { id: string } | null;
+          }
+        ).staffProfile?.id;
+        const [
+          assignedMemberCount,
+          workoutPlansAssigned,
+          dietPlansAssigned,
+          sessionOutcomes,
+        ] = await Promise.all([
+          this.prisma.member.count({
+            where: {
+              organizationId,
+              assignedTrainerId: trainer.id,
+              status: 'ACTIVE',
+            },
+          }),
+          this.prisma.workoutAssignment.count({
+            where: {
+              organizationId,
+              assignedByUserId: trainer.id,
+              createdAt: { gte: since },
+            },
+          }),
+          this.prisma.dietAssignment.count({
+            where: {
+              organizationId,
+              assignedByUserId: trainer.id,
+              createdAt: { gte: since },
+            },
+          }),
+          // PtSession.trainerId is the StaffProfile id, not the User id.
+          profileId
+            ? this.prisma.ptSession.groupBy({
+                by: ['status'],
+                where: {
+                  organizationId,
+                  trainerId: profileId,
+                  startTime: { gte: since },
+                },
+                _count: true,
+              })
+            : [],
+        ]);
+        const decided = sessionOutcomes
+          .filter((r) => r.status !== 'SCHEDULED')
+          .reduce((sum, r) => sum + r._count, 0);
+        const completed =
+          sessionOutcomes.find((r) => r.status === 'COMPLETED')?._count ?? 0;
+        const noShow =
+          sessionOutcomes.find((r) => r.status === 'NO_SHOW')?._count ?? 0;
         return {
           userId: trainer.id,
           firstName: trainer.firstName,
@@ -116,6 +155,10 @@ export class TrainerIntelligenceService {
           assignedMemberCount,
           workoutPlansAssignedLast30Days: workoutPlansAssigned,
           dietPlansAssignedLast30Days: dietPlansAssigned,
+          sessionsCompleted30d: completed,
+          sessionsNoShow30d: noShow,
+          sessionCompletionPct:
+            decided >= 3 ? Math.round((completed / decided) * 100) : null,
         };
       }),
     );

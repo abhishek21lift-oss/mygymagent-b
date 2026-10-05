@@ -108,6 +108,8 @@ export class ToolExecutorService {
         return this.readMember(rawArgs, context);
       case 'read_workout_history':
         return this.readWorkoutHistory(rawArgs, context);
+      case 'prepare_session_brief':
+        return this.prepareSessionBrief(rawArgs, context);
       case 'read_attendance':
         return this.readAttendance(rawArgs, context);
       case 'create_workout_draft':
@@ -203,14 +205,76 @@ export class ToolExecutorService {
       organizationId,
       { page: 1, pageSize: 20 },
       memberId,
-      branchScope,
       assignmentScope,
+      branchScope,
     );
     return assignments.items.map((a) => ({
       planName: a.workoutPlan.name,
       status: a.status,
       startDate: a.startDate,
     }));
+  }
+
+  /**
+   * Session-prep brief: profile, active program, adherence and open
+   * follow-ups, all from scoped reads. Evidence only — the model turns
+   * it into coaching advice; nothing here is a recommendation itself.
+   */
+  private async prepareSessionBrief(
+    rawArgs: unknown,
+    { organizationId, userId, requestedBranchId }: ToolCallContext,
+  ) {
+    const { memberId } = validateToolArgs(MemberIdArgsDto, rawArgs);
+    const { branchScope, matchedKey } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['workouts.read', 'workouts.read_assigned'],
+    );
+    const assignmentScope =
+      matchedKey === 'workouts.read_assigned' ? userId : null;
+    const [member, adherence, assignments, followUps] = await Promise.all([
+      this.readMember(rawArgs, { organizationId, userId, requestedBranchId }),
+      this.memberIntelligence.getPtAdherence(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
+      this.workoutAssignmentsService.list(
+        organizationId,
+        { page: 1, pageSize: 5 },
+        memberId,
+        assignmentScope,
+        branchScope,
+      ),
+      this.memberFollowUpsService.list(
+        organizationId,
+        memberId,
+        branchScope,
+        assignmentScope,
+      ),
+    ]);
+    return {
+      member,
+      activeAssignment:
+        assignments.items
+          .filter((a) => a.status === 'ACTIVE')
+          .map((a) => ({
+            planName: a.workoutPlan.name,
+            startDate: a.startDate,
+          }))[0] ?? null,
+      adherence: {
+        ptAdherencePct: adherence.ptAdherencePct,
+        workoutsCompleted30d: adherence.workoutsCompleted30d,
+        visits30d: adherence.visits30d,
+        weeklyStreak: adherence.weeklyStreak,
+        insufficientData: adherence.insufficientData,
+      },
+      openFollowUps: followUps
+        .filter((f) => f.completedAt === null)
+        .map((f) => ({ dueAt: f.dueAt, title: f.title })),
+    };
   }
 
   private async readAttendance(

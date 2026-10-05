@@ -67,3 +67,12 @@ The analytics README's `notComputable` list is authoritative.
 | Win-back candidates + tiers | `GET /analytics/members/win-back` (`MemberIntelligenceService`) | EXPIRED status, last term ended >30d ago; value = COMPLETED payments sum; tiers = top 20% HIGH / next 30% MEDIUM by paid; capped 100 | org + branch |
 | Renewal pipeline UI | existing Phase-2 endpoint (unchanged) | surfaced on /intelligence with upcoming/overdue/high-value | org + branch |
 | Priority actions + outcomes | dashboard composes renewal/sales/PT/outstanding/risk/AI reads | deterministic rows with evidence + links; outcomes = ai-actions EXECUTED/REJECTED totals | per-row route perms |
+
+## Phase 4 — PT OS (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Session wallet (totals + ledger) | `GET /pt-packages/:id/wallet` (`PtPackagesService`) | counters from package row; scheduled/completed/cancelled/no-show = member sessions in package window; ledger = consumption table (idempotent unique) | org + branch |
+| PT adherence (+streak) | `GET /analytics/pt-adherence?memberId` | completed/(completed+cancelled+no-show) 90d, null if <3 decided; workouts/visits 30d; weekly streak ≤12 | org + branch + assignment |
+| Trainer delivery (completed, no-show %, completion %) | `GET /analytics/trainers/workload` (extended) | ptSession groupBy status 30d by StaffProfile id; completion null if <3 decided | org + branch |
+| Session prep brief | `prepare_session_brief` AI tool | profile + active assignment + adherence + open follow-ups, scoped reads only | workouts.read + members.read |
