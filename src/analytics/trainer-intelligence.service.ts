@@ -129,17 +129,17 @@ export class TrainerIntelligenceService {
             },
           }),
           // PtSession.trainerId is the StaffProfile id, not the User id.
-          profileId
-            ? this.prisma.ptSession.groupBy({
-                by: ['status'],
-                where: {
-                  organizationId,
-                  trainerId: profileId,
-                  startTime: { gte: since },
-                },
-                _count: true,
-              })
-            : [],
+          // A trainer without a profile matches nothing by construction
+          // (single call shape, so groupBy typing stays uniform).
+          this.prisma.ptSession.groupBy({
+            by: ['status'],
+            where: {
+              organizationId,
+              trainerId: profileId ?? '__no-profile__',
+              startTime: { gte: since },
+            },
+            _count: true,
+          }),
         ]);
         const decided = sessionOutcomes
           .filter((r) => r.status !== 'SCHEDULED')
