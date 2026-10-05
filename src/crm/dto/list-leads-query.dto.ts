@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString } from 'class-validator';
 import type { LeadStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
@@ -19,4 +19,14 @@ export class ListLeadsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   assignedToUserId?: string;
+
+  /** Inclusive start day (org timezone) on Lead.createdAt. */
+  @IsOptional()
+  @IsDateString()
+  createdFrom?: string;
+
+  /** Inclusive end day (org timezone) on Lead.createdAt. */
+  @IsOptional()
+  @IsDateString()
+  createdTo?: string;
 }

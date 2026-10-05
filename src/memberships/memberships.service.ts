@@ -5,11 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import {
-  PaginationQueryDto,
-  paginate,
-  skipTake,
-} from '../common/dto/pagination-query.dto';
+import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import {
   DomainEvent,
   type MembershipCancelledEvent,
@@ -20,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CancelMembershipDto } from './dto/cancel-membership.dto';
 import type { CreateMembershipDto } from './dto/create-membership.dto';
 import type { FreezeMembershipDto } from './dto/freeze-membership.dto';
+import type { ListMembershipsQueryDto } from './dto/list-memberships-query.dto';
 import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { bookedFreezeDays } from './freeze-days';
 import { shiftLaterTerms } from './later-terms';
@@ -55,17 +52,30 @@ export class MembershipsService {
 
   async list(
     organizationId: string,
-    query: PaginationQueryDto,
+    query: ListMembershipsQueryDto,
     memberId?: string,
     branchScope: string | null = null,
     assignmentScope: string | null = null,
   ) {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
     const where = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(branchScope ? { branchId: branchScope } : {}),
       ...(assignmentScope
         ? { member: { assignedTrainerId: assignmentScope } }
+        : {}),
+      ...(query.createdFrom || query.createdTo
+        ? {
+            createdAt: {
+              ...(query.createdFrom
+                ? { gte: zonedBound(query.createdFrom, timezone, 'from') }
+                : {}),
+              ...(query.createdTo
+                ? { lt: zonedBound(query.createdTo, timezone, 'to') }
+                : {}),
+            },
+          }
         : {}),
     };
     const [items, total] = await Promise.all([

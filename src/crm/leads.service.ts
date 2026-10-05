@@ -6,6 +6,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Prisma } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
+import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { CommunicationsService } from '../communications/communications.service';
 import {
   DomainEvent,
@@ -40,6 +41,7 @@ export class LeadsService {
     query: ListLeadsQueryDto,
     branchScope: string | null = null,
   ) {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
     const where: Prisma.LeadWhereInput = {
       organizationId,
       ...(query.status ? { status: query.status } : {}),
@@ -47,6 +49,18 @@ export class LeadsService {
         ? { assignedToUserId: query.assignedToUserId }
         : {}),
       ...(branchScope ? { branchId: branchScope } : {}),
+      ...(query.createdFrom || query.createdTo
+        ? {
+            createdAt: {
+              ...(query.createdFrom
+                ? { gte: zonedBound(query.createdFrom, timezone, 'from') }
+                : {}),
+              ...(query.createdTo
+                ? { lt: zonedBound(query.createdTo, timezone, 'to') }
+                : {}),
+            },
+          }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.lead.findMany({
