@@ -55,6 +55,7 @@ export class MembershipPlansService {
       where: { id: organizationId },
       select: { currency: true },
     });
+    await this.assertBranchInTenant(organizationId, dto.branchId);
     return this.prisma.membershipPlan.create({
       data: {
         ...dto,
@@ -70,7 +71,25 @@ export class MembershipPlansService {
     dto: UpdateMembershipPlanDto,
   ) {
     await this.getOne(organizationId, id);
+    await this.assertBranchInTenant(organizationId, dto.branchId);
     return this.prisma.membershipPlan.update({ where: { id }, data: dto });
+  }
+
+  /**
+   * A plan scoped to another tenant's branch would silently sell the wrong
+   * location's inventory. Scoped lookup, same as branches themselves: a
+   * foreign id simply doesn't match.
+   */
+  private async assertBranchInTenant(
+    organizationId: string,
+    branchId: string | undefined,
+  ) {
+    if (!branchId) return;
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, organizationId },
+      select: { id: true },
+    });
+    if (!branch) throw new NotFoundException('Branch not found');
   }
 
   async remove(organizationId: string, id: string) {

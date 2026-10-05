@@ -1034,12 +1034,20 @@ model MembershipPlan {
 
   name          String
   description   String?
+  /// Optional SKU shown on cards and receipts. Null = none assigned.
+  code          String?
+  /// Free-form grouping label ("Weight loss", "Premium"). Null = uncategorised.
+  category      String?
   durationDays  Int
   price         Decimal  @db.Decimal(10, 2)
   currency      String   @default("USD")
   benefits      String[] @default([])
   maxFreezeDays Int      @default(0)
   isActive      Boolean  @default(true)
+  /// Badged on cards; purely presentational, never gates a sale.
+  isFeatured    Boolean  @default(false)
+  /// False hides the plan from member-facing surfaces; sales flow unaffected.
+  isPublic      Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

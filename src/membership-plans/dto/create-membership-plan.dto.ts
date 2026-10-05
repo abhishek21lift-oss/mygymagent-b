@@ -1,11 +1,13 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -13,7 +15,18 @@ import {
 export class CreateMembershipPlanDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  category?: string;
 
   @IsOptional()
   @IsString()
@@ -47,4 +60,12 @@ export class CreateMembershipPlanDto {
   @Min(0)
   @Type(() => Number)
   maxFreezeDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
 }
