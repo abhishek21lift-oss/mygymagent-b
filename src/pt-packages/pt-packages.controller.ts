@@ -34,6 +34,16 @@ export class PtPackagesController {
     return this.service.getOne(user.organizationId ?? '', id, branchScope);
   }
 
+  @Get(':id/wallet')
+  @RequirePermissions('pt-packages.read')
+  getWallet(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null = null,
+  ) {
+    return this.service.getWallet(user.organizationId ?? '', id, branchScope);
+  }
+
   @Post()
   @RequirePermissions('pt-packages.create')
   create(

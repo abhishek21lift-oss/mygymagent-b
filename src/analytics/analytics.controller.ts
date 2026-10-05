@@ -1,7 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
@@ -89,6 +93,35 @@ export class AnalyticsController {
     );
   }
 
+  @Get('members/win-back')
+  @RequirePermissions('reports.view')
+  getWinBackCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.memberIntelligence.getWinBackCandidates(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('pt-adherence')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
+  getPtAdherence(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('memberId') memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.memberIntelligence.getPtAdherence(
+      user.organizationId!,
+      memberId,
+      branchScope,
+      assignmentScope,
+    );
+  }
+
   @Get('sales/funnel')
   @RequirePermissions('reports.view')
   getSalesFunnel(
@@ -100,6 +133,19 @@ export class AnalyticsController {
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
       query,
+    );
+  }
+
+  @Get('sales/priority')
+  @RequirePermissions('reports.view')
+  getSalesPriority(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.salesIntelligence.getSalesPriority(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
@@ -158,6 +204,19 @@ export class AnalyticsController {
     );
   }
 
+  @Get('memberships/renewal-pipeline')
+  @RequirePermissions('reports.view')
+  getRenewalPipeline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.membershipLifecycle.getRenewalPipeline(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
   @Get('trainers/workload')
   @RequirePermissions('reports.view')
   getTrainerWorkload(
@@ -166,6 +225,19 @@ export class AnalyticsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.trainerIntelligence.getWorkload(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('trainers/pt-opportunities')
+  @RequirePermissions('reports.view')
+  getPtOpportunities(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.trainerIntelligence.getPtOpportunities(
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
     );

@@ -65,6 +65,72 @@ export class PtPackagesService {
     return withRemaining(pkg);
   }
 
+  /**
+   * Session wallet: one read for the package card. Totals come from the
+   * package counters (the same numbers `list` shows) plus live session
+   * counts inside the package window; the ledger is the consumption
+   * table, so it can never disagree with what was actually deducted.
+   * Scheduled/completed/cancelled/no-show are the member's sessions in
+   * the window — sessions link to a package only on completion, so a
+   * scheduled session is honestly member-scoped, not package-scoped.
+   */
+  async getWallet(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    const pkg = await this.getOne(organizationId, id, branchScope);
+    const window = { gte: pkg.startDate, lt: pkg.endDate };
+    const sessionScope = {
+      organizationId,
+      memberId: pkg.memberId,
+      startTime: window,
+    };
+    const [scheduled, completed, cancelled, noShow, ledger] = await Promise.all(
+      [
+        this.prisma.ptSession.count({
+          where: { ...sessionScope, status: 'SCHEDULED' },
+        }),
+        this.prisma.ptSession.count({
+          where: { ...sessionScope, status: 'COMPLETED' },
+        }),
+        this.prisma.ptSession.count({
+          where: { ...sessionScope, status: 'CANCELLED' },
+        }),
+        this.prisma.ptSession.count({
+          where: { ...sessionScope, status: 'NO_SHOW' },
+        }),
+        this.prisma.ptSessionConsumption.findMany({
+          where: { organizationId, packageId: pkg.id },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            ptSession: { select: { id: true, startTime: true, status: true } },
+          },
+        }),
+      ],
+    );
+    const totals = {
+      total: pkg.totalSessions,
+      used: pkg.usedSessions,
+      remaining: pkg.remainingSessions,
+      scheduled,
+      completed,
+      cancelled,
+      noShow,
+    };
+    return {
+      package: pkg,
+      totals,
+      ledger: ledger.map((entry) => ({
+        sessionId: entry.ptSession.id,
+        date: entry.ptSession.startTime.toISOString(),
+        status: entry.ptSession.status,
+        sessions: entry.sessions,
+      })),
+    };
+  }
+
   async create(
     organizationId: string,
     dto: CreatePtPackageDto,

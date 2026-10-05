@@ -1,5 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { organizationTimezone, startOfZonedDay } from '../common/time/zoned';
+
+export type SalesPrioritySeverity = 'hot' | 'warm' | 'watch';
+
+export interface SalesPriorityItem {
+  leadId: string;
+  firstName: string;
+  lastName: string;
+  source: string | null;
+  status: string;
+  severity: SalesPrioritySeverity;
+  /// Evidence lines, e.g. "Follow-up overdue by 2 days".
+  reasons: string[];
+  followUpDueAt: string | null;
+  overdueFollowUps: number;
+}
+
+export interface SalesPriority {
+  items: SalesPriorityItem[];
+  counts: { hot: number; warm: number; watch: number };
+}
 
 export interface SalesFunnel {
   period: { from: string | null; to: string | null };
@@ -307,5 +328,116 @@ export class SalesIntelligenceService {
             : '0.00',
       }))
       .sort((a, b) => b.totalLeads - a.totalLeads);
+  }
+
+  /**
+   * Sales priority queue: open leads ranked by follow-up discipline and
+   * freshness, each with evidence lines instead of a black-box score.
+   * Hot = an overdue or due-today follow-up; warm = fresh or qualified
+   * but unscheduled; everything else is watch. Capped; counts cover the
+   * ranking only, not the whole pipeline (funnel owns totals).
+   */
+  async getSalesPriority(
+    organizationId: string,
+    branchScope: string | null,
+  ): Promise<SalesPriority> {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
+    const now = new Date();
+    const todayStart = startOfZonedDay(now, timezone);
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        status: { in: ['NEW', 'CONTACTED', 'QUALIFIED', 'TRIAL'] },
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        followUps: {
+          where: { completedAt: null },
+          select: { dueAt: true },
+          orderBy: { dueAt: 'asc' },
+        },
+      },
+    });
+
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const items: SalesPriorityItem[] = leads.map((lead) => {
+      const overdue = lead.followUps.filter((f) => f.dueAt < todayStart);
+      const dueToday = lead.followUps.filter(
+        (f) => f.dueAt >= todayStart && f.dueAt < tomorrowStart,
+      );
+      const ageDays = Math.floor(
+        (now.getTime() - lead.createdAt.getTime()) / MS_PER_DAY,
+      );
+      const reasons: string[] = [];
+      let severity: SalesPrioritySeverity = 'watch';
+      if (overdue.length > 0) {
+        const oldest = Math.floor(
+          (todayStart.getTime() -
+            Math.min(...overdue.map((f) => f.dueAt.getTime()))) /
+            MS_PER_DAY,
+        );
+        severity = 'hot';
+        reasons.push(
+          `Follow-up overdue by ${oldest} day${oldest === 1 ? '' : 's'}`,
+        );
+      } else if (dueToday.length > 0) {
+        severity = 'hot';
+        reasons.push('Follow-up due today');
+      } else {
+        if (ageDays <= 3) {
+          severity = 'warm';
+          reasons.push('New lead — contact within 24 hours');
+        }
+        if (
+          (lead.status === 'QUALIFIED' || lead.status === 'TRIAL') &&
+          lead.followUps.length === 0
+        ) {
+          severity = 'warm';
+          reasons.push(
+            `${lead.status === 'QUALIFIED' ? 'Qualified' : 'Trialing'} with no follow-up scheduled`,
+          );
+        }
+        if (reasons.length === 0) {
+          reasons.push(
+            lead.followUps.length > 0
+              ? 'Follow-up scheduled'
+              : 'No follow-up scheduled',
+          );
+        }
+      }
+      const nextDue = [...overdue, ...dueToday].sort(
+        (a, b) => a.dueAt.getTime() - b.dueAt.getTime(),
+      )[0];
+      return {
+        leadId: lead.id,
+        firstName: lead.firstName,
+        lastName: lead.lastName,
+        source: lead.source,
+        status: lead.status,
+        severity,
+        reasons,
+        followUpDueAt: nextDue ? nextDue.dueAt.toISOString() : null,
+        overdueFollowUps: overdue.length,
+      };
+    });
+
+    const rank: Record<SalesPrioritySeverity, number> = {
+      hot: 0,
+      warm: 1,
+      watch: 2,
+    };
+    items.sort((a, b) => rank[a.severity] - rank[b.severity]);
+    const top = items.slice(0, 25);
+    return {
+      items: top,
+      counts: {
+        hot: items.filter((i) => i.severity === 'hot').length,
+        warm: items.filter((i) => i.severity === 'warm').length,
+        watch: items.filter((i) => i.severity === 'watch').length,
+      },
+    };
   }
 }

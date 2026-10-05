@@ -30,7 +30,6 @@ embeds `revenueAtRisk` (see below) so the dashboard needs one request.
 | bySegment | same grouped by risk level | HIGH/CRITICAL/MEDIUM/LOW mrr + memberCount | org + branch |
 
 ## Reused (owned elsewhere, referenced — do NOT duplicate)
-
 | Metric | Owner endpoint | Used by |
 |---|---|---|
 | Net/gross/refunded/outstanding | `GET /analytics/revenue` (`FinanceService`) | finance KPIs, health inputs |
@@ -51,3 +50,29 @@ embeds `revenueAtRisk` (see below) so the dashboard needs one request.
 PT revenue per trainer, commission earned, discount impact, payroll,
 expenses-in-score, ML predictions — no source model or link exists.
 The analytics README's `notComputable` list is authoritative.
+
+## Phase 2 — Revenue + Retention OS (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Renewal pipeline (upcoming ≤30d, overdue, high-value) | `GET /analytics/memberships/renewal-pipeline` (`MembershipLifecycleService`) | ACTIVE ending ≤30d ordered soonest; EXPIRED ≤30d ago with no ACTIVE successor; top-5 upcoming by price; capped 50 | org + branch |
+| PT opportunities (expiring ≤14d w/ sessions left, never-started) | `GET /analytics/trainers/pt-opportunities` (`TrainerIntelligenceService`) | ACTIVE packages endDate ≤14d with remaining > 0; ACTIVE usedSessions = 0 started >14d ago; capped 50, honest counts | org + branch |
+| Sales priority (hot/warm/watch + evidence) | `GET /analytics/sales/priority` (`SalesIntelligenceService`) | open leads (NEW/CONTACTED/QUALIFIED/TRIAL, latest 200): overdue follow-up → hot, due-today → hot, ≤3d fresh or qualified-unscheduled → warm, else watch; capped 25 | org + branch |
+| Action outcomes (executed/rejected totals) | `GET /ai-actions?status=` (existing) | list totals; no date scope — labeled as all-time counts | org + `ai.approve` |
+
+## Phase 3 — Retention OS (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Win-back candidates + tiers | `GET /analytics/members/win-back` (`MemberIntelligenceService`) | EXPIRED status, last term ended >30d ago; value = COMPLETED payments sum; tiers = top 20% HIGH / next 30% MEDIUM by paid; capped 100 | org + branch |
+| Renewal pipeline UI | existing Phase-2 endpoint (unchanged) | surfaced on /intelligence with upcoming/overdue/high-value | org + branch |
+| Priority actions + outcomes | dashboard composes renewal/sales/PT/outstanding/risk/AI reads | deterministic rows with evidence + links; outcomes = ai-actions EXECUTED/REJECTED totals | per-row route perms |
+
+## Phase 4 — PT OS (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Session wallet (totals + ledger) | `GET /pt-packages/:id/wallet` (`PtPackagesService`) | counters from package row; scheduled/completed/cancelled/no-show = member sessions in package window; ledger = consumption table (idempotent unique) | org + branch |
+| PT adherence (+streak) | `GET /analytics/pt-adherence?memberId` | completed/(completed+cancelled+no-show) 90d, null if <3 decided; workouts/visits 30d; weekly streak ≤12 | org + branch + assignment |
+| Trainer delivery (completed, no-show %, completion %) | `GET /analytics/trainers/workload` (extended) | ptSession groupBy status 30d by StaffProfile id; completion null if <3 decided | org + branch |
+| Session prep brief | `prepare_session_brief` AI tool | profile + active assignment + adherence + open follow-ups, scoped reads only | workouts.read + members.read |

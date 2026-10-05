@@ -214,6 +214,21 @@ export const AI_TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'prepare_session_brief',
+      description:
+        "Assemble a trainer's session-prep brief for one member from records only: profile, active membership, active workout assignment, PT adherence (null when too little history), and open follow-ups. Every field traces to a row; nothing is inferred. Use it to answer 'what should I focus on today' with evidence, then recommend — never invent measurements, PRs, injuries or history.",
+      parameters: {
+        type: 'object',
+        properties: {
+          memberId: { type: 'string', description: 'The member id' },
+        },
+        required: ['memberId'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'propose_assign_workout_plan',
       description:
         "Propose assigning an existing workout plan to a member. This does NOT assign it immediately -- it creates a pending proposal a staff member with workout-assignment permission must approve before the member's program actually changes. Tell the user it's pending approval, not that it's done.",

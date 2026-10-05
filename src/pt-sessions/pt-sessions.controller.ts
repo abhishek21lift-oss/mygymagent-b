@@ -13,6 +13,7 @@ import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator'
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { ListPtSessionsDto } from './dto/list-pt-sessions.dto';
+import { Audited } from '../common/decorators/audited.decorator';
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PtSessionsService } from './pt-sessions.service';
@@ -73,6 +74,7 @@ export class PtSessionsController {
 
   @Post()
   @RequirePermissions('pt-sessions.create')
+  @Audited({ resource: 'pt_session', action: 'book' })
   async book(
     @Body() dto: BookPtSessionDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -82,6 +84,7 @@ export class PtSessionsController {
 
   @Patch(':id')
   @RequirePermissions('pt-sessions.update')
+  @Audited({ resource: 'pt_session', action: 'update' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePtSessionDto,
@@ -92,6 +95,7 @@ export class PtSessionsController {
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
+  @Audited({ resource: 'pt_session', action: 'complete' })
   async complete(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -101,6 +105,7 @@ export class PtSessionsController {
 
   @Patch(':id/cancel')
   @RequirePermissions('pt-sessions.update')
+  @Audited({ resource: 'pt_session', action: 'cancel' })
   async cancel(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -116,6 +121,7 @@ export class PtSessionsController {
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
+  @Audited({ resource: 'pt_session', action: 'no-show' })
   async markNoShow(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
