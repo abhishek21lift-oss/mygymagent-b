@@ -36,6 +36,10 @@ export interface RevenueAtRisk {
     mrr: number;
     memberCount: number;
   }[];
+  /// Per-currency splits. Totals above blend currencies for backward
+  /// compatibility — exact only when `mixed` is false.
+  byCurrency: { currency: string; totalMRR: number; atRiskMRR: number }[];
+  mixed: boolean;
 }
 
 export interface BranchRiskSummary {
@@ -208,7 +212,7 @@ export class IntelligenceAnalyticsService {
           status: { in: ['ACTIVE', 'PENDING'] },
           ...memberFilter,
         },
-        select: { price: true, memberId: true },
+        select: { price: true, memberId: true, currency: true },
       }),
       this.prisma.memberRiskProfile.findMany({
         where: { organizationId, ...memberFilter },
@@ -233,10 +237,23 @@ export class IntelligenceAnalyticsService {
       HIGH: { mrr: 0, memberCount: 0 },
       CRITICAL: { mrr: 0, memberCount: 0 },
     };
+    // Per-currency buckets alongside the legacy cross-currency totals.
+    // Totals are exact for single-currency orgs (the product's norm);
+    // multi-currency orgs must read byCurrency — never the blended sum.
+    const byCurrency = new Map<
+      string,
+      { totalMRR: number; atRiskMRR: number }
+    >();
 
     for (const membership of activeMemberships) {
       const mrr = Number(membership.price);
       totalMRR += mrr;
+
+      const bucket = byCurrency.get(membership.currency) ?? {
+        totalMRR: 0,
+        atRiskMRR: 0,
+      };
+      bucket.totalMRR += mrr;
 
       const risk = riskByMember.get(membership.memberId);
       if (
@@ -244,14 +261,21 @@ export class IntelligenceAnalyticsService {
         (risk.riskLevel === 'HIGH' || risk.riskLevel === 'CRITICAL')
       ) {
         atRiskMRR += mrr;
+        bucket.atRiskMRR += mrr;
         bySegment[risk.riskLevel].mrr += mrr;
         bySegment[risk.riskLevel].memberCount++;
       } else if (risk) {
         bySegment[risk.riskLevel].mrr += mrr;
         bySegment[risk.riskLevel].memberCount++;
       }
+      byCurrency.set(membership.currency, bucket);
     }
 
+    const currencies = [...byCurrency.entries()].map(([currency, bucket]) => ({
+      currency,
+      totalMRR: bucket.totalMRR,
+      atRiskMRR: bucket.atRiskMRR,
+    }));
     return {
       totalMRR,
       atRiskMRR,
@@ -263,6 +287,8 @@ export class IntelligenceAnalyticsService {
           memberCount: bySegment[level].memberCount,
         }),
       ),
+      byCurrency: currencies,
+      mixed: currencies.length > 1,
     };
   }
 
