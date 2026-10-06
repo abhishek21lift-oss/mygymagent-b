@@ -53,10 +53,12 @@ export interface CardDefinition {
 }
 
 export const TELEMETRY_CONTRACT = {
-  /** Reuses the existing readiness probe's dependencies. */
+  /** Reuses the existing readiness probe's dependencies. Database
+   * round-trip latency is carried here (`latencyMs.database`). */
   readiness: {
     scope: 'platform',
-    required: ['database', 'queue'],
+    required: ['database', 'queue', 'latencyMs'],
+    nested: { latencyMs: ['database', 'queue'] },
   },
 
   /** BullMQ depth per queue, via the single shared QueueConnection. */
@@ -66,12 +68,6 @@ export const TELEMETRY_CONTRACT = {
     nested: {
       totals: ['waiting', 'active', 'failed', 'delayed', 'completed'],
     },
-  },
-
-  /** Connection round-trip latency and pool occupancy. */
-  database: {
-    scope: 'platform',
-    required: ['latencyMs', 'reachable'],
   },
 
   /** In-process HTTP request timings from LoggingInterceptor's ring. */
@@ -91,24 +87,123 @@ export const TELEMETRY_CONTRACT = {
    */
   ai: {
     scope: 'platform',
-    required: ['requests', 'success', 'errors', 'costUsd', 'tokens'],
+    required: ['requests', 'success', 'errors', 'costUsd', 'tokens', 'actions'],
     nested: {
       tokens: ['prompt', 'completion', 'total'],
-      latencyMs: ['p50', 'p95'],
+      // Approval-queue depth rides on the AI card rather than a card of
+      // its own: it is read from the same tables in the same pass.
+      actions: [
+        'pendingApproval',
+        'approved',
+        'rejected',
+        'executed',
+        'failed',
+      ],
     },
-  },
-
-  /** Counts of pending approvals and execution outcomes. */
-  aiActions: {
-    scope: 'platform',
-    required: ['pendingApproval', 'approved', 'rejected', 'executed', 'failed'],
   },
 
   /** Background scanner outcomes, from AutomationRun. */
   automation: {
     scope: 'platform',
-    required: ['sent', 'skipped', 'failed', 'windowMs'],
+    required: ['sent', 'skipped', 'failed', 'windowMs', 'byKey'],
+  },
+
+  /** Platform-wide WhatsApp: links by state, sends, replies, broken gyms. */
+  whatsapp: {
+    scope: 'platform',
+    required: [
+      'connectedGyms',
+      'cloudApi',
+      'web',
+      'messages',
+      'inbound',
+      'windowMs',
+      'attention',
+    ],
+    nested: {
+      cloudApi: [
+        'connected',
+        'disconnected',
+        'error',
+        'notConnected',
+        'tokensExpiringSoon',
+      ],
+      web: [
+        'connected',
+        'pairing',
+        'loggedOut',
+        'disconnected',
+        'sendingEnabled',
+      ],
+      messages: [
+        'pending',
+        'sent',
+        'delivered',
+        'read',
+        'failed',
+        'total',
+        'failureRate',
+      ],
+      inbound: ['received', 'matchedToMember'],
+    },
+  },
+
+  /** Outbound delivery per channel, from MessageLog. */
+  messaging: {
+    scope: 'platform',
+    required: ['channels', 'totals', 'windowMs'],
+    nested: {
+      channels: ['EMAIL', 'WHATSAPP', 'SMS', 'PUSH'],
+      totals: [
+        'pending',
+        'sent',
+        'delivered',
+        'read',
+        'failed',
+        'total',
+        'failureRate',
+      ],
+    },
+  },
+
+  /** The tenant base by lifecycle state. */
+  tenants: {
+    scope: 'platform',
+    required: [
+      'total',
+      'trial',
+      'active',
+      'suspended',
+      'cancelled',
+      'newLast7Days',
+    ],
   },
 } as const satisfies Record<string, CardDefinition>;
 
 export type CardName = keyof typeof TELEMETRY_CONTRACT;
+
+/**
+ * The contract keys a card value is missing, as dotted paths. Empty means
+ * the console can render it. Enforced by `telemetry-contract.spec.ts`
+ * against every registered collector, so a rename fails a test instead of
+ * blanking a number.
+ */
+export function missingContractKeys(card: CardName, value: unknown): string[] {
+  const definition: CardDefinition = TELEMETRY_CONTRACT[card];
+  if (value === null || typeof value !== 'object')
+    return [...definition.required];
+  const record = value as Record<string, unknown>;
+  const missing = definition.required.filter((key) => !(key in record));
+  for (const [parent, keys] of Object.entries(definition.nested ?? {})) {
+    const child = record[parent];
+    if (child === null || typeof child !== 'object') {
+      if (!missing.includes(parent)) missing.push(parent);
+      continue;
+    }
+    for (const key of keys) {
+      if (!(key in (child as Record<string, unknown>)))
+        missing.push(`${parent}.${key}`);
+    }
+  }
+  return missing;
+}

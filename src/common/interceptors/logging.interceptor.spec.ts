@@ -1,6 +1,8 @@
 import { LoggingInterceptor } from './logging.interceptor';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { of, throwError } from 'rxjs';
+import { HttpException } from '@nestjs/common';
+import { HTTP_METRICS } from '../../command-center/collectors/http-metrics.ring';
 
 describe('LoggingInterceptor', () => {
   let interceptor: LoggingInterceptor;
@@ -69,5 +71,36 @@ describe('LoggingInterceptor', () => {
     expect(errorSpy).toHaveBeenCalled();
     expect(logSpy).not.toHaveBeenCalled();
     expect(mockCallHandler.handle).toHaveBeenCalled();
+  });
+
+  it('records the real HTTP status into the latency ring, by route pattern', async () => {
+    const before = HTTP_METRICS.summarize().status['2xx'];
+    const context = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method: 'GET',
+          url: '/members/8f2c1b7a-0000-4000-8000-000000000000',
+          route: { path: '/members/:id' },
+        }),
+        getResponse: () => ({ statusCode: 201 }),
+      }),
+    } as unknown as ExecutionContext;
+    (mockCallHandler.handle as jest.Mock).mockReturnValue(of({ id: 'x' }));
+    await interceptor.intercept(context, mockCallHandler).toPromise();
+    const after = HTTP_METRICS.summarize();
+    expect(after.status['2xx']).toBe(before + 1);
+    expect(after.slowestEndpoints.map((e) => e.path)).toContain('/members/:id');
+  });
+
+  it('records a thrown HttpException with its own status', async () => {
+    const before = HTTP_METRICS.summarize().status['4xx'];
+    (mockCallHandler.handle as jest.Mock).mockReturnValue(
+      throwError(() => new HttpException('nope', 404)),
+    );
+    await interceptor
+      .intercept(mockExecutionContext, mockCallHandler)
+      .toPromise()
+      .catch(() => undefined);
+    expect(HTTP_METRICS.summarize().status['4xx']).toBe(before + 1);
   });
 });

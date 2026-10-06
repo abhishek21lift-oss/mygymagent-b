@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { missingContractKeys } from '../src/command-center/telemetry-contract';
 import request from 'supertest';
 import * as argon2 from 'argon2';
 import { PrismaClient } from '@prisma/client';
@@ -13,6 +14,18 @@ import { createTestApp } from './utils/test-app';
  * read with no `organizationId` to blame. The guard is the only thing
  * standing between them and it, so it is tested rather than assumed.
  */
+/** Every card the snapshot carries; see TELEMETRY_CONTRACT. */
+const ALL_CARDS = [
+  'readiness',
+  'queues',
+  'ai',
+  'http',
+  'whatsapp',
+  'messaging',
+  'automation',
+  'tenants',
+] as const;
+
 describe('Command Center (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaClient;
@@ -85,6 +98,22 @@ describe('Command Center (e2e)', () => {
     expect(body.ai).toBeDefined();
   });
 
+  it('satisfies the telemetry contract on every measured card, against real Postgres', async () => {
+    const res = await snapshot()
+      .set('Authorization', `Bearer ${platformToken}`)
+      .query({ refresh: 'true' })
+      .expect(200);
+
+    for (const card of ALL_CARDS) {
+      const result = res.body.data[card];
+      if (result.status === 'unavailable') continue;
+      expect({
+        card,
+        missing: missingContractKeys(card, result.value),
+      }).toEqual({ card, missing: [] });
+    }
+  });
+
   it('grades every card rather than failing the whole snapshot', async () => {
     const res = await snapshot()
       .set('Authorization', `Bearer ${platformToken}`)
@@ -93,7 +122,7 @@ describe('Command Center (e2e)', () => {
     // Each card carries its own verdict and its own timestamp. A snapshot
     // that threw on one dead dependency would be useless exactly when it is
     // needed, so per-card degradation is the contract, not a nicety.
-    for (const card of ['readiness', 'queues', 'ai']) {
+    for (const card of ALL_CARDS) {
       expect(['ok', 'degraded', 'unavailable']).toContain(
         res.body.data[card].status,
       );
@@ -106,7 +135,7 @@ describe('Command Center (e2e)', () => {
       .set('Authorization', `Bearer ${platformToken}`)
       .expect(200);
 
-    for (const card of ['readiness', 'queues', 'ai']) {
+    for (const card of ALL_CARDS) {
       if (res.body.data[card].status === 'unavailable') {
         expect(res.body.data[card].value).toBeNull();
         expect(res.body.data[card].unavailableReason).toBeTruthy();
