@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
+import { effectiveBranch } from '../common/branch/branch-filter';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -38,7 +39,7 @@ export class MembershipsController {
       user.organizationId!,
       query,
       query.memberId,
-      branchScope,
+      effectiveBranch(branchScope, query.branchId),
       assignmentScope,
     );
   }

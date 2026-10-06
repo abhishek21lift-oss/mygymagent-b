@@ -12,6 +12,12 @@ import {
   type WorkoutSessionStartedEvent,
 } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  organizationTimezone,
+  startOfZonedDay,
+  zonedDate,
+  zonedMidnight,
+} from '../common/time/zoned';
 import type { LogWorkoutSetDto } from './dto/log-workout-set.dto';
 
 /**
@@ -47,15 +53,28 @@ export class WorkoutSessionsService {
     'notes',
   ] as const;
 
-  async listToday(organizationId: string, assignmentScope: string | null) {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  /**
+   * Sessions on the gym's own calendar day. This used the server's local
+   * midnight -- UTC in production -- so an IST gym's "today" ran from
+   * 05:30 to 05:30. `branchId` is the caller's enforced branch scope or a
+   * narrowing they are allowed to make (see `effectiveBranch`).
+   */
+  async listToday(
+    organizationId: string,
+    assignmentScope: string | null,
+    branchId: string | null = null,
+  ) {
+    const timezone = await organizationTimezone(this.prisma, organizationId);
+    const now = new Date();
+    const startOfDay = startOfZonedDay(now, timezone);
+    const { year, month, day } = zonedDate(now, timezone);
+    const endOfDay = zonedMidnight(year, month, day + 1, timezone);
 
     const sessions = await this.prisma.workoutSession.findMany({
       where: {
         organizationId,
         sessionDate: { gte: startOfDay, lt: endOfDay },
+        ...(branchId ? { branchId } : {}),
         ...(assignmentScope
           ? { member: { assignedTrainerId: assignmentScope } }
           : {}),

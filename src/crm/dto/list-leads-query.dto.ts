@@ -1,4 +1,10 @@
-import { IsDateString, IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import type { LeadStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
@@ -29,4 +35,10 @@ export class ListLeadsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsDateString()
   createdTo?: string;
+
+  /** Narrow to one branch. Only ever a narrowing: an enforced branch
+   * scope always wins -- see `effectiveBranch`. */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }
