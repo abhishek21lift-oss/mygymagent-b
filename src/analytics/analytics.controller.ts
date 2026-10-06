@@ -19,6 +19,7 @@ import { FinanceService } from './finance.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
 import { MembershipLifecycleService } from './membership-lifecycle.service';
+import { OperationsIntelligenceService } from './operations-intelligence.service';
 import { SalesIntelligenceService } from './sales-intelligence.service';
 import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
@@ -37,6 +38,7 @@ export class AnalyticsController {
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly membershipLifecycle: MembershipLifecycleService,
+    private readonly operations: OperationsIntelligenceService,
   ) {}
 
   @Get('revenue')
@@ -101,6 +103,45 @@ export class AnalyticsController {
     @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.memberIntelligence.getWinBackCandidates(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('operations-health')
+  @RequirePermissions('reports.view')
+  getOperationsHealth(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.operations.getOperationsHealth(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('classes/capacity')
+  @RequirePermissions('reports.view')
+  getClassCapacity(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.operations.getClassCapacity(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
+  @Get('scheduling/conflicts')
+  @RequirePermissions('reports.view')
+  getSchedulingConflicts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.operations.getSchedulingConflicts(
       user.organizationId!,
       effectiveBranch(branchScope, query.branchId),
     );

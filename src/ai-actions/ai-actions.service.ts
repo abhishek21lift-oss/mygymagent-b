@@ -79,6 +79,50 @@ export class AiActionsService {
     });
   }
 
+  /**
+   * Effectiveness roll-up for AI performance views: raw status counts
+   * plus acceptance/execution rates that are null (not 0) when their
+   * denominator is empty.
+   */
+  async effectiveness(organizationId: string): Promise<{
+    total: number;
+    pending: number;
+    approved: number;
+    executed: number;
+    rejected: number;
+    failed: number;
+    acceptanceRate: number | null;
+    executionRate: number | null;
+  }> {
+    const rows = await this.prisma.aiAction.groupBy({
+      by: ['status'],
+      where: { organizationId },
+      _count: true,
+    });
+    const count = (status: string) =>
+      rows.find((r) => r.status === status)?._count ?? 0;
+    const total = rows.reduce((sum, r) => sum + r._count, 0);
+    const pending = count('PENDING_APPROVAL');
+    const approved = count('APPROVED');
+    const executed = count('EXECUTED');
+    const rejected = count('REJECTED');
+    const decided = executed + rejected;
+    return {
+      total,
+      pending,
+      approved,
+      executed,
+      rejected,
+      failed: count('FAILED'),
+      acceptanceRate:
+        decided > 0 ? Math.round((executed / decided) * 1000) / 10 : null,
+      executionRate:
+        approved + executed > 0
+          ? Math.round((executed / (approved + executed)) * 1000) / 10
+          : null,
+    };
+  }
+
   /** Called by the `propose_assign_workout_plan`/`propose_assign_diet_plan`
    * AI tools -- confirms the member and plan are real before drafting a
    * proposal about them (a proposal for a nonexistent member helps no

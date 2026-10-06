@@ -362,6 +362,32 @@ export class ToolExecutorService {
       requestedBranchId,
       ['leads.manage'],
     );
+    // Replay guard: an LLM retry after a timeout must not double-create.
+    // An identical OPEN follow-up created in the last 10 minutes is the
+    // same intent — return it instead of a duplicate.
+    const recent = await this.leadsService.listFollowUps(
+      organizationId,
+      { status: 'OPEN', pageSize: 100 },
+      branchScope,
+    );
+    const duplicate = recent.items.find(
+      (item) =>
+        item.leadId === leadId &&
+        item.note === note &&
+        item.dueAt?.getTime() === new Date(dueAt).getTime() &&
+        Date.now() - new Date(item.createdAt).getTime() < 10 * 60 * 1000,
+    );
+    if (duplicate) {
+      await this.audit.record({
+        organizationId,
+        actorUserId: userId,
+        action: 'ai_tool.create_followup',
+        resource: 'lead_follow_up',
+        resourceId: duplicate.id,
+        afterState: { leadId, note, dueAt, deduped: true },
+      });
+      return { id: duplicate.id, dueAt: duplicate.dueAt };
+    }
     const followUp = await this.leadsService.addFollowUp(
       organizationId,
       leadId,
@@ -593,6 +619,43 @@ export class ToolExecutorService {
       requestedBranchId,
       ['members.update'],
     );
+    // Same replay guard as lead follow-ups: an identical open item from
+    // the last 10 minutes is the same intent, not a second task. There
+    // is no members.update_assigned grant, so assignment scope stays null
+    // exactly as the create call below already does.
+    const existing = await this.memberFollowUpsService.list(
+      organizationId,
+      memberId,
+      branchScope,
+    );
+    const duplicate = dueAt
+      ? existing.find(
+          (item) =>
+            item.completedAt === null &&
+            item.title === title &&
+            (item.description ?? '') === (description ?? '') &&
+            item.dueAt?.getTime() === new Date(dueAt).getTime() &&
+            Date.now() - new Date(item.createdAt).getTime() < 10 * 60 * 1000,
+        )
+      : existing.find(
+          (item) =>
+            item.completedAt === null &&
+            item.title === title &&
+            (item.description ?? '') === (description ?? '') &&
+            !item.dueAt &&
+            Date.now() - new Date(item.createdAt).getTime() < 10 * 60 * 1000,
+        );
+    if (duplicate) {
+      await this.audit.record({
+        organizationId,
+        actorUserId: userId,
+        action: 'ai_tool.create_member_followup',
+        resource: 'member_follow_up',
+        resourceId: duplicate.id,
+        afterState: { memberId, title, deduped: true },
+      });
+      return { id: duplicate.id, title: duplicate.title };
+    }
     const followUp = await this.memberFollowUpsService.create(
       organizationId,
       memberId,

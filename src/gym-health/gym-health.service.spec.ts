@@ -141,6 +141,7 @@ describe('GymHealthService', () => {
     expect(health.opportunity).toBe('sales');
     expect(health.revenueAtRisk.atRiskMRR).toBe(10);
     expect(health.branchId).toBeNull();
+    expect(health.mixedCurrencies).toBe(false);
     expect(typeof health.computedAt).toBe('string');
   });
 });

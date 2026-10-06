@@ -28,6 +28,12 @@ export class AiActionsController {
     return this.aiActions.list(user.organizationId!, query);
   }
 
+  @Get('effectiveness')
+  @RequirePermissions('ai.approve')
+  effectiveness(@CurrentUser() user: AuthenticatedUser) {
+    return this.aiActions.effectiveness(user.organizationId!);
+  }
+
   @Get(':id')
   @RequirePermissions('ai.approve')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

@@ -79,6 +79,14 @@ export class GymHealthService {
       lowStockProducts,
     });
 
+    // Ratios blend whatever currencies the rows carry. Single-currency
+    // orgs (the norm) are exact; mixed orgs get a flag, never a guess.
+    const mixedCurrencies =
+      new Set([
+        ...summary.revenue.map((r) => r.currency),
+        ...summary.outstanding.map((r) => r.currency),
+      ]).size > 1;
+
     return {
       score,
       status: healthStatus(score),
@@ -86,6 +94,7 @@ export class GymHealthService {
       components,
       branchId: branchScope,
       computedAt: new Date().toISOString(),
+      mixedCurrencies,
       revenueAtRisk,
     };
   }

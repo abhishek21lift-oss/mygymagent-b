@@ -355,3 +355,124 @@ export const AI_TOOL_DEFINITIONS = [
 
 export type AiToolName =
   (typeof AI_TOOL_DEFINITIONS)[number]['function']['name'];
+
+/**
+ * Governance companion to the allowlist above: every tool declares its
+ * action level, risk, approval requirement and audit coverage in one
+ * place so reviewers (and the COO layer) never infer policy from code
+ * paths. Levels mirror the product action policy:
+ * 0 read · 1 low-risk write · 2 communication · 3 business change.
+ * Nothing here executes — the executor + RBAC enforce at runtime.
+ */
+export type AiActionLevel = 0 | 1 | 2 | 3;
+
+export interface AiToolPolicy {
+  level: AiActionLevel;
+  risk: 'low' | 'medium' | 'high';
+  approval: 'none' | 'pending-proposal';
+  audited: boolean;
+}
+
+export const AI_TOOL_POLICIES: Record<AiToolName, AiToolPolicy> = {
+  read_member: { level: 0, risk: 'low', approval: 'none', audited: false },
+  read_workout_history: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  read_attendance: { level: 0, risk: 'low', approval: 'none', audited: false },
+  create_workout_draft: {
+    level: 1,
+    risk: 'low',
+    approval: 'none',
+    audited: true,
+  },
+  create_diet_draft: { level: 1, risk: 'low', approval: 'none', audited: true },
+  create_followup: {
+    level: 2,
+    risk: 'medium',
+    approval: 'none',
+    audited: true,
+  },
+  get_revenue_summary: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_at_risk_members: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_sales_funnel: { level: 0, risk: 'low', approval: 'none', audited: false },
+  get_trainer_workload: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_inventory_forecast: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_daily_briefing: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  prepare_session_brief: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  propose_assign_workout_plan: {
+    level: 3,
+    risk: 'high',
+    approval: 'pending-proposal',
+    audited: true,
+  },
+  propose_assign_diet_plan: {
+    level: 3,
+    risk: 'high',
+    approval: 'pending-proposal',
+    audited: true,
+  },
+  get_todays_schedule: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_expense_summary: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_membership_lifecycle: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  get_owner_briefing: {
+    level: 0,
+    risk: 'low',
+    approval: 'none',
+    audited: false,
+  },
+  create_member_followup: {
+    level: 2,
+    risk: 'medium',
+    approval: 'none',
+    audited: true,
+  },
+  get_lead_score: { level: 0, risk: 'low', approval: 'none', audited: false },
+};

@@ -4,6 +4,7 @@ import { FinanceService } from './finance.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
 import { MembershipLifecycleService } from './membership-lifecycle.service';
+import { OperationsIntelligenceService } from './operations-intelligence.service';
 import { SalesIntelligenceService } from './sales-intelligence.service';
 import { TrainerIntelligenceService } from './trainer-intelligence.service';
 
@@ -21,6 +22,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
     TrainerIntelligenceService,
     InventoryIntelligenceService,
     MembershipLifecycleService,
+    OperationsIntelligenceService,
   ],
   exports: [
     FinanceService,
@@ -29,6 +31,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
     TrainerIntelligenceService,
     InventoryIntelligenceService,
     MembershipLifecycleService,
+    OperationsIntelligenceService,
   ],
 })
 export class AnalyticsModule {}

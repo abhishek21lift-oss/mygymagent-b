@@ -42,6 +42,9 @@ export interface GymHealth {
   components: HealthComponent[];
   branchId: string | null;
   computedAt: string;
+  /// True when rows carried more than one currency — ratios then blend
+  /// denominations and the UI must say so instead of implying precision.
+  mixedCurrencies: boolean;
 }
 
 const WEIGHTS: Record<HealthComponent['key'], number> = {

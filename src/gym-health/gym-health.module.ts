@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { AiActionsModule } from '../ai-actions/ai-actions.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { MemberIntelligenceModule } from '../member-intelligence/member-intelligence.module';
+import { CooBriefingService } from './coo-briefing.service';
+import { CooTrendsService } from './coo-trends.service';
 import { GymHealthController } from './gym-health.controller';
 import { GymHealthService } from './gym-health.service';
 
@@ -10,8 +13,8 @@ import { GymHealthService } from './gym-health.service';
  * the other) avoids a module cycle via AiModule.
  */
 @Module({
-  imports: [AnalyticsModule, MemberIntelligenceModule],
+  imports: [AnalyticsModule, MemberIntelligenceModule, AiActionsModule],
   controllers: [GymHealthController],
-  providers: [GymHealthService],
+  providers: [GymHealthService, CooBriefingService, CooTrendsService],
 })
 export class GymHealthModule {}

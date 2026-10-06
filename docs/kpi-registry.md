@@ -76,3 +76,29 @@ The analytics README's `notComputable` list is authoritative.
 | PT adherence (+streak) | `GET /analytics/pt-adherence?memberId` | completed/(completed+cancelled+no-show) 90d, null if <3 decided; workouts/visits 30d; weekly streak ≤12 | org + branch + assignment |
 | Trainer delivery (completed, no-show %, completion %) | `GET /analytics/trainers/workload` (extended) | ptSession groupBy status 30d by StaffProfile id; completion null if <3 decided | org + branch |
 | Session prep brief | `prepare_session_brief` AI tool | profile + active assignment + adherence + open follow-ups, scoped reads only | workouts.read + members.read |
+
+## Phase 5 — Operations OS (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Operations health (score + dimensions) | `GET /analytics/operations-health` | classes 30 (avg 7d utilization) + scheduling 25 (100 − 15×conflicts) + attendance 20 (admitted share today) + inventory 15 (healthy-stock share); weight-renormalized; tasks/SOP/equipment/facility/staff-score explicit nulls | org + branch |
+| Class capacity (7d + 8-week demand) | `GET /analytics/classes/capacity` | booked = BOOKED+ATTENDED; util = booked/capacity (null when unset); bands 40/90/100+waitlist; demand = mean over sessions w/ capacity | org + branch |
+| Scheduling conflicts | `GET /analytics/scheduling/conflicts` | instructor overlaps across classes/PT/appointments ≤7d (PT matched via StaffProfile→User); capped 20 | org + branch |
+| Staff away today | embedded in operations-health | APPROVED leave covering today + names | org + branch |
+
+## Phase 7 — AI COO (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| COO briefing (health + today + deltas + outcomes + spend) | `GET /analytics/coo-briefing` | gym-health + finance today/yesterday + gate counts + ai-actions counts + usage aggregate; day deltas null off zero | org + branch, `reports.view` |
+| AI action outcomes (executed/rejected) | `AiActionsService.countOutcomes` | status counts; APPROVED transient, not an outcome | org |
+| Tool governance | `AI_TOOL_POLICIES` registry | every allowlisted tool carries level/risk/approval/audit; mutating tools approved or audited by construction | n/a (static) |
+
+## Phase 7 P1 — Maturity (2026-10-06)
+
+| Metric | Source endpoint | Formula | Scope |
+|---|---|---|---|
+| Revenue/risk trends | `GET /analytics/coo-trends` | last 2 complete months net (org currency), % change null off zero; risk avg first vs last point | org + branch |
+| Revenue forecast | `GET /analytics/coo-forecast` | moving avg + min-max band over ≤6 complete months; high ≥6 pts, moderate 3–5, insufficient <3 | org + branch |
+| AI effectiveness | `GET /ai-actions/effectiveness` | acceptance = executed ÷ decided, execution = executed ÷ (approved + executed), null off zero | org, `ai.approve` |
+| Renewal uplift scenario | frontend pure fn over renewal-pipeline | upcoming × uplift% × avg price, per currency; labeled hypothetical | client-side |
