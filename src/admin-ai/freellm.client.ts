@@ -50,6 +50,22 @@ export class FreellmClient {
     );
   }
 
+  /**
+   * Whether the base URL still points at this machine. The env default is
+   * `http://127.0.0.1:3001`, which only works when FreeLLMAPI runs beside
+   * the API; on a hosted deploy it means the variable was never set. A
+   * boolean, never the URL itself -- the console must not learn internal
+   * hostnames.
+   */
+  usesLoopbackBaseUrl(): boolean {
+    try {
+      const host = new URL(this.baseUrl()).hostname;
+      return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(host);
+    } catch {
+      return false;
+    }
+  }
+
   private baseUrl(): string {
     return (
       this.config.get<string>('FREELLM_BASE_URL') ?? 'http://127.0.0.1:3001'
