@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { FreellmClient } from './freellm.client';
 import { WRITABLE_SETTINGS_SECTIONS } from './dto';
@@ -97,14 +97,27 @@ export class AdminAiService {
   }
 
   // -- Gateway -----------------------------------------------------------
+  /**
+   * Gateway state plus a safe diagnosis of WHY it is in that state, so the
+   * console can say "credentials are not set" or "the base URL still points
+   * at localhost" instead of a bare "Offline". Reasons are this module's own
+   * fixed messages (see FreellmClient), never upstream bodies or URLs.
+   */
   async gateway(): Promise<unknown> {
+    const failed = (err: unknown) => ({
+      status: 'unavailable',
+      reason: err instanceof HttpException ? err.message : 'unreachable',
+    });
+    let providersError: string | null = null;
     const [live, ready, ping, providers] = await Promise.all([
-      this.freellm.getPublic('/livez').catch(() => ({ status: 'unavailable' })),
-      this.freellm
-        .getPublic('/readyz')
-        .catch(() => ({ status: 'unavailable' })),
+      this.freellm.getPublic('/livez').catch(failed),
+      this.freellm.getPublic('/readyz').catch(failed),
       this.freellm.getPublic('/api/ping').catch(() => null),
-      this.freellm.get('/api/keys/providers').catch(() => null),
+      this.freellm.get('/api/keys/providers').catch((err: unknown) => {
+        providersError =
+          err instanceof HttpException ? err.message : 'unreachable';
+        return null;
+      }),
     ]);
     const readyStatus = (ready as { status?: string })?.status;
     const liveStatus = (live as { status?: string })?.status;
@@ -113,7 +126,18 @@ export class AdminAiService {
     else if (readyStatus !== 'ok') state = 'Critical';
     else if (JSON.stringify(providers ?? '').includes('rate_limited'))
       state = 'Warning';
-    return sanitizeUnknown({ state, live, ready, ping, providers });
+    return sanitizeUnknown({
+      state,
+      live,
+      ready,
+      ping,
+      providers,
+      diagnosis: {
+        credentialsConfigured: this.freellm.isConfigured(),
+        loopbackBaseUrl: this.freellm.usesLoopbackBaseUrl(),
+        providersError,
+      },
+    });
   }
 
   providers(): Promise<unknown> {

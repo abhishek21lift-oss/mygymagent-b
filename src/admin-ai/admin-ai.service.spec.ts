@@ -51,6 +51,68 @@ describe('sanitizeUnknown', () => {
 });
 
 describe('AdminAiService', () => {
+  describe('gateway diagnosis', () => {
+    function gatewayClient(opts: {
+      publicFails?: Error;
+      getFails?: Error;
+      configured?: boolean;
+      loopback?: boolean;
+    }) {
+      return {
+        ...mockClient({
+          getPublic: opts.publicFails
+            ? jest.fn().mockRejectedValue(opts.publicFails)
+            : jest.fn().mockResolvedValue({ status: 'ok' }),
+          get: opts.getFails
+            ? jest.fn().mockRejectedValue(opts.getFails)
+            : jest.fn().mockResolvedValue([{ platform: 'openai' }]),
+        }),
+        isConfigured: () => opts.configured ?? true,
+        usesLoopbackBaseUrl: () => opts.loopback ?? false,
+      } as unknown as FreellmClient;
+    }
+
+    it('says why the gateway is offline, without leaking the URL', async () => {
+      const service = new AdminAiService(
+        gatewayClient({
+          publicFails: new BadGatewayException('FreeLLMAPI is unreachable'),
+          getFails: new ServiceUnavailableException(
+            'FREELLM_EMAIL/FREELLM_PASSWORD are not configured',
+          ),
+          configured: false,
+          loopback: true,
+        }),
+        mockAudit() as never,
+      );
+      const out = (await service.gateway()) as Record<string, unknown>;
+      expect(out.state).toBe('Offline');
+      expect(out.live).toEqual({
+        status: 'unavailable',
+        reason: 'FreeLLMAPI is unreachable',
+      });
+      expect(out.diagnosis).toEqual({
+        credentialsConfigured: false,
+        loopbackBaseUrl: true,
+        providersError: 'FREELLM_EMAIL/FREELLM_PASSWORD are not configured',
+      });
+      expect(JSON.stringify(out)).not.toMatch(/127\.0\.0\.1|http:/);
+    });
+
+    it('reports a healthy gateway with a clean diagnosis', async () => {
+      const service = new AdminAiService(
+        gatewayClient({}),
+        mockAudit() as never,
+      );
+      const out = (await service.gateway()) as Record<string, unknown>;
+      expect(out.state).toBe('Healthy');
+      expect(out.diagnosis).toEqual({
+        credentialsConfigured: true,
+        loopbackBaseUrl: false,
+        providersError: null,
+      });
+    });
+  });
+
   it('analytics requests strip clientIp/UA and truncate errors', async () => {
     const client = mockClient({
       get: jest.fn().mockResolvedValue({
