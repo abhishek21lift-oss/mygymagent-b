@@ -159,3 +159,12 @@ type HttpMetricsRingEntry = {
   method: string;
   at: number;
 };
+
+/**
+ * The one ring for this process. LoggingInterceptor is constructed with
+ * `new` in main.ts, outside the Nest container, so it cannot be handed a
+ * provider; both it and the Command Center's HttpCollector use this
+ * instance instead (the module registers it with `useValue`), which keeps
+ * writer and reader on the same samples.
+ */
+export const HTTP_METRICS = new HttpMetricsRing();

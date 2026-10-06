@@ -13,9 +13,23 @@ One endpoint returning every card, each graded independently:
 | `readiness` | the same two dependencies `GET /ready` probes | can this instance serve traffic |
 | `queues` | BullMQ depth via the existing shared `QueueConnection` | is the work keeping up |
 | `ai` | `AiUsageLog` + `AiAction` | what is AI costing, and what is waiting on a human |
+| `http` | in-process ring fed by `LoggingInterceptor` (`HTTP_METRICS`) | is the API slow or erroring — this instance, since its last restart |
+| `whatsapp` | `WhatsappIntegration`, `WhatsappWebSession`, `WhatsappCredential`, `MessageLog` (WHATSAPP), `InboundMessage` | how many gyms are connected, how sends are faring, which links have broken |
+| `messaging` | `MessageLog` grouped by channel | are messages to members getting out, per channel (email, WhatsApp, SMS, push) |
+| `automation` | `AutomationRun` | what the daily scanners sent, skipped and failed, per automation |
+| `tenants` | `Organization` | the tenant base by lifecycle state, and signups this week |
 
-Deliberately **not** built yet: host CPU/memory/disk, Docker, and HTTP request
-latency. See "What is deliberately absent".
+Deliberately **not** built yet: host CPU/memory/disk and Docker. See "What is
+deliberately absent".
+
+### WhatsApp card notes
+
+Delivery receipts (`DELIVERED`/`READ`) exist only for Cloud API sends; a
+linked-number (Baileys) send stops at `SENT`. The card therefore reports a
+**failure rate** over settled sends, never a "delivery rate" that would
+undercount every linked-number gym. `attention` lists gyms whose link is
+broken (Cloud API `ERROR`/`DISCONNECTED`, linked number `LOGGED_OUT`), hard
+errors first, with the provider's error text truncated to 160 characters.
 
 ## The one rule everything else serves
 
@@ -38,9 +52,10 @@ Three states, and the difference is visible without reading prose:
 training an operator to ignore the one card that genuinely is red is worse than
 the ambiguity.
 
-`telemetry-contract.ts` lists the keys each card must keep carrying. A *rename*
-during a refactor breaks that list rather than silently blanking a number on
-the console — which is the failure mode a `unknown` payload type produces, and
+`telemetry-contract.ts` lists the keys each card must keep carrying, and
+`telemetry-contract.spec.ts` (unit) plus `test/command-center.e2e-spec.ts`
+(real Postgres) hold every collector to it. A *rename* during a refactor fails
+those tests rather than silently blanking a number on the console — which is the failure mode a `unknown` payload type produces, and
 the reason this file exists.
 
 ## Cost is never estimated
@@ -90,7 +105,6 @@ modules now re-export `BullModule`.
 |---|---|
 | Host CPU / memory / disk | needs the Docker socket or host `/proc` mounted in. Production's compose file is **not in this repository**, so whether that is possible is unknown. A card that guessed would be worse than no card. |
 | Docker / container state | same |
-| HTTP request latency | a bounded in-process ring exists (`collectors/http-metrics.ring.ts`) and is tested, but nothing feeds it yet, so no card reports it. The UI says so rather than showing a placeholder. |
 | SSE / WebSocket | polling is enough at 30s and needs no new transport, no nginx `Upgrade`, and no socket-auth story. |
 | Actions (pause queue, retry failed) | Phase 4. When they land they must be allow-listed, audited, and confirm-gated. Note MY PT STUDIO's `flush cache` was a data-loss bug there: Redis held only BullMQ, so `FLUSHDB` would have deleted pending renewal emails. Same shape here — the queue actions must never grow into a Redis flush. |
 

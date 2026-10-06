@@ -10,6 +10,12 @@ import {
   QUEUE_DEPTH_QUEUES,
 } from './collectors/queue.collector';
 import { ReadinessCollector } from './collectors/readiness.collector';
+import { WhatsappCollector } from './collectors/whatsapp.collector';
+import { MessagingCollector } from './collectors/messaging.collector';
+import { AutomationCollector } from './collectors/automation.collector';
+import { TenantsCollector } from './collectors/tenants.collector';
+import { HttpCollector } from './collectors/http.collector';
+import { HTTP_METRICS, HttpMetricsRing } from './collectors/http-metrics.ring';
 import {
   COMMAND_CENTER_CACHE,
   COMMAND_CENTER_COLLECTORS,
@@ -67,7 +73,16 @@ const queueMapProvider: Provider = {
 const collectorListProvider: Provider = {
   provide: COMMAND_CENTER_COLLECTORS,
   useFactory: (...collectors: Collector[]): Collector[] => collectors,
-  inject: [ReadinessCollector, QueueDepthCollector, AiUsageCollector],
+  inject: [
+    ReadinessCollector,
+    QueueDepthCollector,
+    AiUsageCollector,
+    HttpCollector,
+    WhatsappCollector,
+    MessagingCollector,
+    AutomationCollector,
+    TenantsCollector,
+  ],
 };
 
 /**
@@ -102,6 +117,13 @@ const collectorListProvider: Provider = {
     ReadinessCollector,
     QueueDepthCollector,
     AiUsageCollector,
+    HttpCollector,
+    WhatsappCollector,
+    MessagingCollector,
+    AutomationCollector,
+    TenantsCollector,
+    // The process-wide ring LoggingInterceptor writes to; see HTTP_METRICS.
+    { provide: HttpMetricsRing, useValue: HTTP_METRICS },
     queueMapProvider,
     collectorListProvider,
     { provide: COMMAND_CENTER_CACHE, useClass: InMemorySnapshotCache },
