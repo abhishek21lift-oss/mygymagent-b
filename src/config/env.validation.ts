@@ -40,6 +40,15 @@ export const envSchema = z
     OPENROUTER_API_KEY: z.string().optional(),
     OPENROUTER_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
 
+    // FreeLLMAPI management integration -- optional server-side only.
+    // Dashboard session (email+password) is held ONLY in this backend and
+    // never sent to the browser; unset means /admin/ai/* returns 503.
+    // No NEXT_PUBLIC_* variable may ever carry these values.
+    FREELLM_BASE_URL: z.string().url().default('http://127.0.0.1:3001'),
+    FREELLM_EMAIL: z.string().email().optional(),
+    FREELLM_PASSWORD: z.string().min(1).optional(),
+    FREELLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+
     // Redis, for the BullMQ job queue (src/queue/). Defaults to a local
     // instance so dev/test never need to set this explicitly; every
     // deployment (Render, CI) must set a real REDIS_URL. Connection failures

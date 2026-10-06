@@ -61,6 +61,7 @@ import { DataModule } from './data/data.module';
 import { ClassesModule } from './classes/classes.module';
 import { BusinessOsModule } from './business-os/business-os.module';
 import { PortalModule } from './portal/portal.module';
+import { AdminAiModule } from './admin-ai/admin-ai.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { PortalModule } from './portal/portal.module';
     ClassesModule,
     BusinessOsModule,
     PortalModule,
+    AdminAiModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: TestableThrottlerGuard },
