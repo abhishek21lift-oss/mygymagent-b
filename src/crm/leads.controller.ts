@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import { effectiveBranch } from '../common/branch/branch-filter';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -37,7 +38,11 @@ export class LeadsController {
     @Query() query: ListLeadsQueryDto,
     @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.leadsService.list(user.organizationId!, query, branchScope);
+    return this.leadsService.list(
+      user.organizationId!,
+      query,
+      effectiveBranch(branchScope, query.branchId),
+    );
   }
 
   @Get(':id')

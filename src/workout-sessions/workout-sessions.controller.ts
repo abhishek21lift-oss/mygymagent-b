@@ -8,6 +8,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
+import {
+  BranchFilterQueryDto,
+  effectiveBranch,
+} from '../common/branch/branch-filter';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -36,10 +40,13 @@ export class WorkoutSessionsController {
   listToday(
     @CurrentUser() user: AuthenticatedUser,
     @CurrentAssignmentScope() assignmentScope: string | null,
+    @CurrentBranchScope() branchScope: string | null,
+    @Query() query: BranchFilterQueryDto,
   ) {
     return this.workoutSessionsService.listToday(
       user.organizationId!,
       assignmentScope,
+      effectiveBranch(branchScope, query.branchId),
     );
   }
 
