@@ -18,3 +18,9 @@ export class CreateMemberDocumentDto {
   @IsString()
   description?: string;
 }
+
+export class SubmitMemberDocumentDto {
+  @IsOptional()
+  @IsString()
+  changeNotes?: string;
+}

@@ -39,6 +39,7 @@ export const envSchema = z
     // failing to boot over a missing optional integration.
     OPENROUTER_API_KEY: z.string().optional(),
     OPENROUTER_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
+    OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai'),
 
     // FreeLLMAPI management integration -- optional server-side only.
     // Dashboard session (email+password) is held ONLY in this backend and

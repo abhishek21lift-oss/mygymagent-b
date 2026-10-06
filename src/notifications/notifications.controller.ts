@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import {
   BadRequestException,
   Body,
@@ -12,6 +11,7 @@ import {
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { NOTIFICATION_CATEGORIES } from './notification-categories';
+import { SnoozeNotificationDto } from './dto/snooze-notification.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { NotificationsService } from './notifications.service';
 
@@ -75,9 +75,9 @@ export class NotificationsController {
   snooze(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() body: { until?: string },
+    @Body() dto: SnoozeNotificationDto,
   ) {
-    const until = new Date(body.until ?? '');
+    const until = new Date(dto.until);
     if (!Number.isFinite(until.getTime()))
       throw new BadRequestException('until must be a valid ISO date');
     return this.notifications.snooze(user.id, user.organizationId!, id, until);

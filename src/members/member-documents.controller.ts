@@ -20,7 +20,10 @@ import {
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
-import { CreateMemberDocumentDto } from './dto/member-document.dto';
+import {
+  CreateMemberDocumentDto,
+  SubmitMemberDocumentDto,
+} from './dto/member-document.dto';
 import {
   ReviewMemberDocumentDto,
   UploadDocumentVersionDto,
@@ -111,6 +114,7 @@ export class MemberDocumentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
     @Param('documentId') documentId: string,
+    @Body() dto: SubmitMemberDocumentDto,
     @CurrentBranchScope() branchScope: string | null,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
@@ -118,6 +122,7 @@ export class MemberDocumentsController {
       user.organizationId!,
       memberId,
       documentId,
+      dto?.changeNotes,
       branchScope,
       assignmentScope,
     );

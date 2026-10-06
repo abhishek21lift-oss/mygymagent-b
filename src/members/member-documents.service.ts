@@ -222,8 +222,9 @@ export class MemberDocumentsService {
     organizationId: string,
     memberId: string,
     documentId: string,
-    branchScope: string | null,
-    assignmentScope: string | null,
+    changeNotes?: string,
+    branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     await this.assertMemberVisible(
       organizationId,
@@ -239,9 +240,17 @@ export class MemberDocumentsService {
       throw new BadRequestException(
         'Only draft or rejected documents can be submitted for review',
       );
-    return this.prisma.memberDocument.update({
-      where: { id: documentId },
-      data: { status: 'SUBMITTED', submittedAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      if (changeNotes) {
+        await tx.memberDocumentVersion.updateMany({
+          where: { documentId, version: document.currentVersion },
+          data: { changeNotes },
+        });
+      }
+      return tx.memberDocument.update({
+        where: { id: documentId },
+        data: { status: 'SUBMITTED', submittedAt: new Date() },
+      });
     });
   }
 

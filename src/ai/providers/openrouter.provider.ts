@@ -148,8 +148,11 @@ export class OpenRouterProvider {
   ): Promise<OpenRouterCompletion> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const baseUrl = (
+      this.config.get<string>('OPENROUTER_BASE_URL') ?? 'https://openrouter.ai'
+    ).replace(/\/$/, '');
     try {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const res = await fetch(`${baseUrl}/api/v1/chat/completions`, {
         method: 'POST',
         signal: controller.signal,
         headers: {
