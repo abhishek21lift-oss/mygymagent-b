@@ -382,4 +382,40 @@ describe('Notification centre (e2e)', () => {
     });
     expect(staffUnread).toBeGreaterThan(0);
   });
+
+  it('lists archived notifications on their own, and restores one', async () => {
+    const list = await asOwner(
+      request(app.getHttpServer()).get('/notifications'),
+    ).expect(200);
+    const id = list.body.data.items[0].id as string;
+    await asOwner(
+      request(app.getHttpServer()).patch(`/notifications/${id}/archive`),
+    ).expect(200);
+
+    const archived = await asOwner(
+      request(app.getHttpServer())
+        .get('/notifications')
+        .query({ archivedOnly: 'true' }),
+    ).expect(200);
+    const archivedIds = archived.body.data.items.map(
+      (n: { id: string }) => n.id,
+    );
+    expect(archivedIds).toEqual([id]);
+    const active = await asOwner(
+      request(app.getHttpServer()).get('/notifications'),
+    ).expect(200);
+    expect(
+      active.body.data.items.map((n: { id: string }) => n.id),
+    ).not.toContain(id);
+
+    await asOwner(
+      request(app.getHttpServer()).patch(`/notifications/${id}/unarchive`),
+    ).expect(200);
+    const after = await asOwner(
+      request(app.getHttpServer())
+        .get('/notifications')
+        .query({ archivedOnly: 'true' }),
+    ).expect(200);
+    expect(after.body.data.items).toHaveLength(0);
+  });
 });

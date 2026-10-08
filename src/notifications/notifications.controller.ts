@@ -30,11 +30,14 @@ export class NotificationsController {
     @Query('search') search?: string,
     @Query('cursor') cursor?: string,
     @Query('includeArchived') includeArchived?: string,
+    @Query('archivedOnly') archivedOnly?: string,
   ) {
     if (unreadOnly && !['true', 'false'].includes(unreadOnly))
       throw new BadRequestException('unreadOnly must be true or false');
     if (includeArchived && !['true', 'false'].includes(includeArchived))
       throw new BadRequestException('includeArchived must be true or false');
+    if (archivedOnly && !['true', 'false'].includes(archivedOnly))
+      throw new BadRequestException('archivedOnly must be true or false');
     const parsedLimit = Number.parseInt(rawLimit ?? '50', 10);
     const limit = Number.isFinite(parsedLimit) ? parsedLimit : 50;
     return this.notifications.list(
@@ -48,6 +51,7 @@ export class NotificationsController {
       category,
       priority,
       includeArchived === 'true',
+      archivedOnly === 'true',
     );
   }
 
