@@ -43,6 +43,7 @@ const EXEMPT: Record<string, string> = {
   PlatformInvoice: 'cross-tenant platform billing',
   PlatformUsageRecord: 'cross-tenant platform billing',
   InvoicePayment: 'reached only through an org-scoped Invoice',
+  WaAuthKey: 'reached only through an org-scoped WaSession',
   DunningAttempt: 'reached only through an org-scoped Invoice',
   AiMessage: 'reached only through an org-scoped AiConversation',
   InventoryPurchaseOrderItem:
