@@ -146,6 +146,27 @@ export class FileStorageService {
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
   }
+
+  /**
+   * Reads an object's bytes back (P1: image for a WhatsApp send). Only
+   * for server-side use -- bytes go to a provider socket, never to a
+   * client (clients get `getSignedUrl`).
+   */
+  async download(key: string): Promise<{ bytes: Buffer; mimeType?: string }> {
+    const client = this.assertConfigured();
+    const out = await client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    const chunks: Buffer[] = [];
+    const body = out.Body as unknown as AsyncIterable<Uint8Array> | undefined;
+    if (body) {
+      for await (const chunk of body) chunks.push(Buffer.from(chunk));
+    }
+    return {
+      bytes: Buffer.concat(chunks),
+      mimeType: out.ContentType,
+    };
+  }
 }
 
 function sanitizeFilename(name: string): string {
