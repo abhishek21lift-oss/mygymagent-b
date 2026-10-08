@@ -122,6 +122,28 @@ export class WhatsappController {
     return this.scheduled.cancel(user.organizationId!, id);
   }
 
+  @Get('contacts')
+  @RequirePermissions('whatsapp.read')
+  listContacts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const limit = limitRaw ? Number(limitRaw) : 100;
+    return this.whatsapp.listContacts(
+      user.organizationId!,
+      Number.isFinite(limit) ? limit : 100,
+    );
+  }
+
+  @Get('contacts/:jid/picture')
+  @RequirePermissions('whatsapp.read')
+  contactPicture(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('jid') jid: string,
+  ) {
+    return this.whatsapp.contactPicture(user.organizationId!, jid);
+  }
+
   @Get('logs')
   @RequirePermissions('whatsapp.read')
   listLogs(

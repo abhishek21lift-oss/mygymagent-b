@@ -17,16 +17,18 @@ function service(session: unknown) {
       (session as any)?.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
     ),
     disconnect: jest.fn(async () => undefined),
+    contactPicture: jest.fn(async () => 'https://pic'),
   };
   const prisma = {
     waSession: { findUnique: jest.fn(async () => session) },
+    waContact: { findMany: jest.fn(async () => []) },
   };
   const svc = new WhatsappService(
     prisma as never,
     {} as never,
     manager as never,
   );
-  return { svc, manager };
+  return { svc, manager, prisma };
 }
 
 describe('WhatsappService.getIntegration', () => {
@@ -59,5 +61,35 @@ describe('WhatsappService.disconnect', () => {
       credentialRemoved: false,
     });
     expect(manager.disconnect).toHaveBeenCalledWith('org_123');
+  });
+});
+
+describe('WhatsappService.listContacts', () => {
+  it('lists the session address book, empty when never linked', async () => {
+    const { svc, prisma } = service(liveSession);
+    (prisma.waContact.findMany as jest.Mock).mockResolvedValueOnce([
+      { jid: '9198@s.whatsapp.net', name: 'Asha' },
+    ]);
+    await expect(svc.listContacts('org_123')).resolves.toEqual([
+      { jid: '9198@s.whatsapp.net', name: 'Asha' },
+    ]);
+    const { svc: unlinked } = service(null);
+    await expect(unlinked.listContacts('org_123')).resolves.toEqual([]);
+  });
+});
+
+describe('WhatsappService.contactPicture', () => {
+  it('returns the live picture URL', async () => {
+    const { svc } = service(liveSession);
+    await expect(
+      svc.contactPicture('org_123', '9198@s.whatsapp.net'),
+    ).resolves.toEqual({ url: 'https://pic' });
+  });
+
+  it('rejects non-chat JIDs', async () => {
+    const { svc } = service(liveSession);
+    await expect(svc.contactPicture('org_123', 'group@g.us')).rejects.toThrow(
+      /JID/,
+    );
   });
 });

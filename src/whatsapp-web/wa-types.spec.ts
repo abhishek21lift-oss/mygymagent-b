@@ -19,6 +19,7 @@ describe('wa-types P1 rich-send', () => {
       requestPairingCode: async () => '123-456',
       logout: async () => undefined,
       end: () => undefined,
+      profilePictureUrl: async () => null,
     };
     const content: WaSendContent = {
       image: Buffer.from('fake-bytes'),

@@ -3085,6 +3085,7 @@ model WaSession {
   connectedAt DateTime?
 
   authKeys WaAuthKey[]
+  contacts WaContact[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3146,6 +3147,27 @@ model ScheduledMessage {
   @@map("scheduled_messages")
 }
 
+/// One WhatsApp-side contact on a linked number: the name WhatsApp
+/// shows (contact name, else push notify name). Synced from the socket's
+/// `contacts.upsert`/`contacts.update` events; pictures are fetched live,
+/// never stored. Cascade deletes with the session.
+model WaContact {
+  id        String    @id @default(uuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Full JID (`<digits>@s.whatsapp.net`).
+  jid    String
+  name   String?
+  notify String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, jid])
+  @@map("wa_contacts")
+}
+
 /// One inbound WhatsApp text message received on an org's connected number
 /// (via POST /whatsapp/webhook). `matchedMemberId` is set when the
 /// sender's number matches a Member's phone by digits-suffix, else null --
@@ -3158,6 +3180,9 @@ model InboundMessage {
 
   from String
   body String
+  /// The sender's push name (`~Firstname`) as WhatsApp reported it:
+  /// name fallback when no contact row exists. Never matched on.
+  pushName String?
 
   matchedMemberId String?
   matchedMember   Member? @relation(fields: [matchedMemberId], references: [id], onDelete: SetNull)
