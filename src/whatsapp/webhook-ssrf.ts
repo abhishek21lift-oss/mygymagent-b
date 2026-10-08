@@ -1,4 +1,5 @@
 import dns from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
 import net from 'node:net';
 
 export class WebhookBlockedError extends Error {
@@ -51,7 +52,7 @@ export async function assertPublicUrl(rawUrl: string): Promise<string> {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new WebhookBlockedError(`protocol "${url.protocol}" not allowed`);
   }
-  let records: dns.LookupAddress[];
+  let records: LookupAddress[];
   try {
     records = await dns.lookup(url.hostname, { all: true });
   } catch {

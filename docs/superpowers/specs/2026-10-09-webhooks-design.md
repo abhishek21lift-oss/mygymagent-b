@@ -71,8 +71,8 @@ concurrency 5; per-org ordering not guaranteed (documented).
 - **Secret hygiene.** Auto-generated, returned once at create;
   `GET` list/detail never includes it; `POST /:id/regenerate` rotates.
 - **Abuse caps.** Max 10 subscriptions per org; dispatch fan-out capped
-  at 10 jobs per event; BullMQ `limiter: { max: 20, duration: 1_000 }`
-  on the queue registration so a flapping receiver can't cause a retry
+  at 10 jobs per event; BullMQ worker `limiter: { max: 20, duration: 1_000 }`
+  on the delivery processor so a flapping receiver can't cause a retry
   storm. Controller throttled like the auto-replies one.
 - **PII.** Bodies travel to the user's own URL (their choice) but are
   never persisted in delivery rows or logs.
