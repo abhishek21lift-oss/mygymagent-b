@@ -150,12 +150,13 @@ export const envSchema = z
     SMTP_PASSWORD: z.string().optional(),
     SMTP_FROM_ADDRESS: z.string().optional(),
 
-    // WhatsApp Business onboarding (src/whatsapp/), via Meta Cloud API --
-    // all optional. Unset means POST /whatsapp/integration/embedded-signup
-    // returns a clear 503 naming the missing variables instead of failing
-    // mid-exchange, the same check-together-at-call-time pattern SMTP uses.
-    META_APP_ID: z.string().optional(),
-    META_APP_SECRET: z.string().optional(),
+    // WA-AKG gateway (src/whatsapp/wa-akg.provider.ts) -- optional.
+    // Unset means WHATSAPP sends return a clear 503 naming the missing
+    // variables instead of failing mid-send, the same
+    // check-together-at-call-time pattern SMTP uses.
+    WA_AKG_BASE_URL: z.string().url().optional(),
+    WA_AKG_API_KEY: z.string().optional(),
+    WA_AKG_WEBHOOK_SECRET: z.string().optional(),
     WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
     // WS-2 vault + webhook verify tokens (src/whatsapp/). Both optional at
     // boot, same check-together-at-call-time pattern as META_APP_ID above:

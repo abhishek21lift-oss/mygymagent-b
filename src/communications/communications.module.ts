@@ -9,9 +9,7 @@ import {
   WHATSAPP_PROVIDER,
 } from './communications.service';
 import { MessageTemplateService } from './message-template.service';
-import { MetaWhatsappProvider } from './providers/meta-whatsapp.provider';
-import { WhatsappRouterProvider } from './providers/whatsapp-router.provider';
-import { WhatsappWebModule } from '../whatsapp-web/whatsapp-web.module';
+import { WaAkgProvider } from '../whatsapp/wa-akg.provider';
 import { Msg91SmsProvider } from './providers/msg91-sms.provider';
 import { FcmPushProvider } from './providers/fcm-push.provider';
 import { HttpChannelProvider } from './providers/http-channel.provider';
@@ -30,20 +28,18 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
  * explicitly, the same way AiModule imports MembersModule.
  */
 @Module({
-  imports: [WhatsappWebModule],
   controllers: [CommunicationsController],
   providers: [
     CommunicationsService,
     MessageTemplateService,
-    MetaWhatsappProvider,
+    WaAkgProvider,
     Msg91SmsProvider,
     FcmPushProvider,
     { provide: EMAIL_PROVIDER, useClass: SmtpEmailProvider },
-    // Meta Cloud API, or the gym's own number linked through WhatsApp
-    // Web -- per gym, see WhatsappRouterProvider.
+    // Shared WA-AKG gateway, one session per gym (see WaAkgProvider).
     {
       provide: WHATSAPP_PROVIDER,
-      useClass: WhatsappRouterProvider,
+      useClass: WaAkgProvider,
     },
     // MSG91 rather than the generic HttpChannelProvider: SMS on this
     // deployment is an Indian, DLT-registered channel, which is a shape

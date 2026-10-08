@@ -27,3 +27,4 @@ npm-debug.log*
 dump.rdb
 
 .worktrees/
+.superpowers/
