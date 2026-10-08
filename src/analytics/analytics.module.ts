@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AnalyticsController } from './analytics.controller';
 import { FinanceService } from './finance.service';
+import { TodayFiguresService } from './today-figures.service';
 import { InventoryIntelligenceService } from './inventory-intelligence.service';
 import { MemberIntelligenceService } from './member-intelligence.service';
 import { MembershipLifecycleService } from './membership-lifecycle.service';
@@ -17,6 +18,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
   controllers: [AnalyticsController],
   providers: [
     FinanceService,
+    TodayFiguresService,
     MemberIntelligenceService,
     SalesIntelligenceService,
     TrainerIntelligenceService,
@@ -26,6 +28,7 @@ import { TrainerIntelligenceService } from './trainer-intelligence.service';
   ],
   exports: [
     FinanceService,
+    TodayFiguresService,
     MemberIntelligenceService,
     SalesIntelligenceService,
     TrainerIntelligenceService,

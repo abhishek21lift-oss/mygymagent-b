@@ -24,7 +24,7 @@ interface RevenueByCurrency {
   netRevenue: string;
 }
 
-interface OutstandingByCurrency {
+export interface OutstandingByCurrency {
   currency: string;
   membershipsWithBalance: number;
   outstandingBalance: string;
@@ -362,7 +362,7 @@ export class FinanceService {
   /// into per-currency totals instead of per-membership reminders --
   /// see that scanner's comment for why this isn't an invoice/due-date
   /// system.
-  private async getOutstandingBalances(
+  async getOutstandingBalances(
     organizationId: string,
     branchScope: string | null,
   ): Promise<OutstandingByCurrency[]> {
