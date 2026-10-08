@@ -144,6 +144,19 @@ export class WhatsappController {
     return this.broadcasts.progress(user.organizationId!, id);
   }
 
+  @Get('broadcasts')
+  @RequirePermissions('whatsapp.read')
+  listBroadcasts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const limit = limitRaw ? Number(limitRaw) : 50;
+    return this.broadcasts.list(
+      user.organizationId!,
+      Number.isFinite(limit) ? limit : 50,
+    );
+  }
+
   @Delete('broadcasts/:id')
   @RequirePermissions('whatsapp.manage')
   @Audited({ resource: 'whatsapp_broadcast', action: 'cancel' })

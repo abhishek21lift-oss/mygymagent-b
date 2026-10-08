@@ -114,10 +114,12 @@ export class BroadcastService {
 
     let queued = 0;
     let failed = 0;
-    let extraSkipped = 0;
     for (const m of emailable) {
+      // Outcomes are counted at settle time, not here: SKIPPED inside
+      // sendAdHoc, SENT/FAILED in the wa-send processor, trigger failures
+      // below. Only a throw here means no job ever existed.
       try {
-        const row = await this.communications.sendAdHoc({
+        await this.communications.sendAdHoc({
           organizationId,
           channel: 'WHATSAPP',
           category: 'TRANSACTIONAL',
@@ -128,11 +130,7 @@ export class BroadcastService {
           mediaKey: dto.mediaKey,
           broadcastId: broadcast.id,
         });
-        if ((row as { status?: string })?.status === 'SKIPPED_NO_CONSENT') {
-          extraSkipped += 1;
-        } else {
-          queued += 1;
-        }
+        queued += 1;
       } catch (error) {
         failed += 1;
         this.logger.warn(
@@ -140,14 +138,13 @@ export class BroadcastService {
         );
       }
     }
-    const done = failed + skipped + extraSkipped >= emailable.length;
+    const settled = failed + skipped >= emailable.length;
     return this.prisma.broadcast.update({
       where: { id: broadcast.id },
       data: {
         queued,
         failed,
-        skipped: skipped + extraSkipped,
-        status: done ? 'DONE' : 'SENDING',
+        status: settled ? 'DONE' : 'SENDING',
       },
     });
   }
@@ -158,6 +155,15 @@ export class BroadcastService {
     });
     if (!row) throw new NotFoundException('Broadcast not found');
     return row;
+  }
+
+  list(organizationId: string, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 200);
+    return this.prisma.broadcast.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
   }
 
   /**
