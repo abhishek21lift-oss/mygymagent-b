@@ -1,8 +1,4 @@
-import {
-  messageText,
-  type WaSocket,
-  type WaSendContent,
-} from './wa-types';
+import { messageText, type WaSocket, type WaSendContent } from './wa-types';
 
 describe('wa-types P1 rich-send', () => {
   it('messageText still reads an image caption', () => {
