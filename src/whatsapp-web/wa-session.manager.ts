@@ -15,6 +15,8 @@ import { QueueConnection } from '../queue/queue.module';
 import { queuePrefix } from '../queue/queue-prefix';
 import { WhatsappInboundFiler } from '../whatsapp/whatsapp-inbound.filer';
 import {
+  groupSender,
+  isGroupJid,
   jidDigits,
   messageText,
   NotLinkedError,
@@ -478,10 +480,25 @@ export class WaSessionManager
     for (const message of messages) {
       if (message.key.fromMe) continue;
       const text = messageText(message.message);
+      if (!text) continue;
+      // Group chats: the sender is the participant, replies go to the
+      // group; a LID-only sender has no number to match or bill.
+      if (isGroupJid(message.key.remoteJid)) {
+        const sender = groupSender(message.key);
+        if (!sender) continue;
+        await this.inbound.fileGroup(
+          organizationId,
+          message.key.remoteJid!,
+          sender,
+          text,
+          message.pushName,
+        );
+        continue;
+      }
       const from = phoneJid(message.key);
-      // Group chats, broadcasts and senders WhatsApp only identifies by
-      // LID have no phone number to match to a member.
-      if (!text || !from) continue;
+      // Broadcasts and senders WhatsApp only identifies by LID have no
+      // phone number to match to a member.
+      if (!from) continue;
       await this.inbound.file(
         organizationId,
         jidDigits(from)!,
