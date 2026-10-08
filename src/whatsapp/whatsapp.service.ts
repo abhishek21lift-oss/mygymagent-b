@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
 import { WaSessionManager } from '../whatsapp-web/wa-session.manager';
 import type {
   SendWhatsAppMessageDto,
@@ -30,7 +29,6 @@ export class WhatsappService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
-    private readonly inbound: WhatsappInboundFiler,
     private readonly manager: WaSessionManager,
   ) {}
 

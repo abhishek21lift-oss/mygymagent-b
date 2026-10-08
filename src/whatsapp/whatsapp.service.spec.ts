@@ -24,7 +24,6 @@ function service(session: unknown) {
   const svc = new WhatsappService(
     prisma as never,
     {} as never,
-    {} as never,
     manager as never,
   );
   return { svc, manager };

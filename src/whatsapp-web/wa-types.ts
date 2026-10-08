@@ -13,8 +13,43 @@ export interface WaConnectionUpdate {
   lastDisconnect?: { error?: unknown };
 }
 
+export interface WaMessageKey {
+  id?: string | null;
+  fromMe?: boolean | null;
+  remoteJid?: string | null;
+  /** Baileys 7 addresses chats by LID and carries the phone JID here. */
+  remoteJidAlt?: string | null;
+  senderPn?: string | null;
+}
+
+/** The parts of a Baileys message body this app reads. */
+export interface WaMessageContent {
+  conversation?: string | null;
+  extendedTextMessage?: { text?: string | null } | null;
+  imageMessage?: { caption?: string | null } | null;
+  videoMessage?: { caption?: string | null } | null;
+  documentMessage?: { caption?: string | null } | null;
+  /** Disappearing-messages chats wrap every message in this. */
+  ephemeralMessage?: { message?: WaMessageContent | null } | null;
+  viewOnceMessage?: { message?: WaMessageContent | null } | null;
+  viewOnceMessageV2?: { message?: WaMessageContent | null } | null;
+  documentWithCaptionMessage?: { message?: WaMessageContent | null } | null;
+}
+
+export interface WaMessage {
+  key: WaMessageKey;
+  message?: WaMessageContent | null;
+}
+
+export interface WaMessageUpdate {
+  key: WaMessageKey;
+  update: { status?: number | null };
+}
+
 export interface WaEventMap {
   'connection.update': WaConnectionUpdate;
+  'messages.upsert': { messages: WaMessage[]; type: string };
+  'messages.update': WaMessageUpdate[];
 }
 
 export interface WaSocket {
@@ -49,6 +84,9 @@ export interface WaSocketFactory {
 
 export const WA_SOCKET_FACTORY = Symbol('WA_SOCKET_FACTORY');
 
+/** WhatsApp's receipt levels, as Baileys reports them on `messages.update`. */
+export const WA_ACK = { SERVER: 2, DELIVERED: 3, READ: 4, PLAYED: 5 } as const;
+
 /** Disconnect reasons this module acts on (Baileys' `DisconnectReason`). */
 export const WA_DISCONNECT = {
   LOGGED_OUT: 401,
@@ -71,4 +109,44 @@ export class NotLinkedError extends Error {
     super(message);
     this.name = 'NotLinkedError';
   }
+}
+
+/**
+ * The words in a message: a plain or quoted text, or the caption on a
+ * photo, video or document -- inside the wrapper WhatsApp puts around
+ * every message in a disappearing-messages chat, or a view-once one.
+ */
+export function messageText(
+  content: WaMessageContent | null | undefined,
+  depth = 0,
+): string | null {
+  if (!content || depth > 3) return null;
+  const inner =
+    content.ephemeralMessage?.message ??
+    content.viewOnceMessage?.message ??
+    content.viewOnceMessageV2?.message ??
+    content.documentWithCaptionMessage?.message;
+  if (inner) return messageText(inner, depth + 1);
+  const text =
+    content.conversation ??
+    content.extendedTextMessage?.text ??
+    content.imageMessage?.caption ??
+    content.videoMessage?.caption ??
+    content.documentMessage?.caption;
+  return text?.trim() ? text : null;
+}
+
+/** The chat's phone-number JID, whichever field Baileys put it in. */
+export function phoneJid(key: WaMessageKey): string | null {
+  for (const jid of [key.remoteJid, key.remoteJidAlt, key.senderPn]) {
+    if (jid?.endsWith('@s.whatsapp.net')) return jid;
+  }
+  return null;
+}
+
+/** `919812345678:12@s.whatsapp.net` -> `919812345678`. */
+export function jidDigits(jid: string | null | undefined): string | null {
+  if (!jid) return null;
+  const digits = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+  return digits || null;
 }

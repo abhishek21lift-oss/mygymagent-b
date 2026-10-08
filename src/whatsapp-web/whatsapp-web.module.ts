@@ -1,7 +1,9 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { WaAkgProvider } from '../whatsapp/wa-akg.provider';
+import { WhatsappInboundFiler } from '../whatsapp/whatsapp-inbound.filer';
 import { BaileysSocketFactory } from './baileys-socket.factory';
 import { WaSendProcessor } from './wa-send.processor';
 import { WaSender } from './wa-sender.service';
@@ -16,7 +18,10 @@ import { WA_SOCKET_FACTORY } from './wa-types';
  * `WaAkgProvider` the WHATSAPP channel sends through.
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.WA_SEND })],
+  imports: [
+    EventEmitterModule,
+    BullModule.registerQueue({ name: QUEUE_NAMES.WA_SEND }),
+  ],
   controllers: [WhatsappWebController],
   providers: [
     WaSessionManager,
@@ -25,6 +30,7 @@ import { WA_SOCKET_FACTORY } from './wa-types';
     WhatsappWebService,
     WaAkgProvider,
     BaileysSocketFactory,
+    WhatsappInboundFiler,
     { provide: WA_SOCKET_FACTORY, useClass: BaileysSocketFactory },
   ],
   exports: [WaSessionManager, WaSender, WaAkgProvider],

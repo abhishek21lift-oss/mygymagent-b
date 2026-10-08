@@ -79,13 +79,15 @@ function setup(sharedRedis?: ReturnType<typeof memoryRedis>) {
   const prisma = { waSession, waAuthKey };
   const config = { get: jest.fn(() => undefined) };
   const factory = { create: jest.fn(async () => fakeSocket()) };
+  const inbound = { file: jest.fn(async () => ({ id: 'in-1' })) };
   const manager = new WaSessionManager(
     prisma as never,
     config as never,
     queue as never,
     factory as never,
+    inbound as never,
   );
-  return { manager, redis, prisma, factory };
+  return { manager, redis, prisma, factory, inbound };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -188,5 +190,118 @@ describe('WaSessionManager bootstrap', () => {
     }
     expect(factory.create).toHaveBeenCalledTimes(1);
     await manager.onApplicationShutdown();
+  });
+});
+
+describe('WaSessionManager inbound', () => {
+  async function linked() {
+    const ctx = setup();
+    await ctx.manager.connect('o1');
+    const socket = (ctx.manager as any).entries.get('o1').socket as WaSocket;
+    const fire = (event: string, arg: any) => {
+      for (const [name, listener] of (socket.ev.on as jest.Mock).mock.calls) {
+        if (name === event) (listener as (a: any) => void)(arg);
+      }
+    };
+    return { ...ctx, socket, fire };
+  }
+
+  it('files an inbound text through the filer', async () => {
+    const { inbound, fire, manager } = await linked();
+    fire('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '919876543210@s.whatsapp.net', fromMe: false },
+          message: { conversation: 'What are the timings?' },
+        },
+      ],
+    });
+    await flush();
+    expect(inbound.file).toHaveBeenCalledWith(
+      'o1',
+      '919876543210',
+      'What are the timings?',
+    );
+    await manager.onApplicationShutdown();
+  });
+
+  it('skips echoes, groups, LID-only senders and non-texts', async () => {
+    const { inbound, fire, manager } = await linked();
+    fire('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '9198@s.whatsapp.net', fromMe: true },
+          message: { conversation: 'echo' },
+        },
+        {
+          key: { remoteJid: 'group@g.us', participant: '9198@s.whatsapp.net' },
+          message: { conversation: 'group hi' },
+        },
+        {
+          key: { remoteJid: '123@lid', fromMe: false },
+          message: { conversation: 'lid hi' },
+        },
+        {
+          key: { remoteJid: '9198@s.whatsapp.net', fromMe: false },
+          message: { stickerMessage: {} },
+        },
+      ],
+    });
+    await flush();
+    expect(inbound.file).not.toHaveBeenCalled();
+    await manager.onApplicationShutdown();
+  });
+
+  it('reads captions and unwraps ephemeral messages', async () => {
+    const { inbound, fire, manager } = await linked();
+    fire('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '9198@s.whatsapp.net', fromMe: false },
+          message: {
+            ephemeralMessage: { message: { conversation: 'wrapped hi' } },
+          },
+        },
+      ],
+    });
+    await flush();
+    expect(inbound.file).toHaveBeenCalledWith('o1', '9198', 'wrapped hi');
+    await manager.onApplicationShutdown();
+  });
+});
+
+describe('WaSessionManager receipts', () => {
+  it('advances SENT to DELIVERED and never steps back', async () => {
+    const ctx = setup();
+    await ctx.manager.connect('o1');
+    const socket = (ctx.manager as any).entries.get('o1').socket as WaSocket;
+    const updates: any[] = [];
+    (ctx.prisma as any).messageLog = {
+      updateMany: jest.fn(async (args: any) => {
+        updates.push(args);
+        return { count: 1 };
+      }),
+    };
+    for (const [name, listener] of (socket.ev.on as jest.Mock).mock.calls) {
+      if (name === 'messages.update')
+        (listener as (a: any) => void)([
+          { key: { id: 'WAID1', fromMe: true }, update: { status: 3 } },
+        ]);
+    }
+    await flush();
+    expect(updates).toEqual([
+      {
+        where: {
+          organizationId: 'o1',
+          providerMessageId: 'waakg:WAID1',
+          status: { in: ['SENT'] },
+        },
+        data: { status: 'DELIVERED' },
+      },
+    ]);
+    await ctx.manager.onApplicationShutdown();
   });
 });

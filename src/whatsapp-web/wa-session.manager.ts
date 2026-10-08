@@ -13,12 +13,19 @@ import { sessionIdFor } from '../whatsapp/wa-akg.provider';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueConnection } from '../queue/queue.module';
 import { queuePrefix } from '../queue/queue-prefix';
+import { WhatsappInboundFiler } from '../whatsapp/whatsapp-inbound.filer';
 import {
+  jidDigits,
+  messageText,
   NotLinkedError,
   NotOnWhatsappError,
+  phoneJid,
+  WA_ACK,
   WA_DISCONNECT,
   WA_SOCKET_FACTORY,
   type WaConnectionUpdate,
+  type WaMessage,
+  type WaMessageUpdate,
   type WaSocket,
   type WaSocketFactory,
 } from './wa-types';
@@ -84,6 +91,7 @@ export class WaSessionManager
     private readonly config: ConfigService,
     private readonly queue: QueueConnection,
     @Inject(WA_SOCKET_FACTORY) private readonly factory: WaSocketFactory,
+    private readonly inbound: WhatsappInboundFiler,
   ) {
     this.prefix = `wa-session:${queuePrefix({
       QUEUE_PREFIX: config.get<string>('QUEUE_PREFIX'),
@@ -222,6 +230,19 @@ export class WaSessionManager
             this.logger.error(
               `WhatsApp connection handling failed for ${organizationId}: ${describe(error)}`,
             ),
+        ),
+    );
+    socket.ev.on('messages.upsert', ({ messages, type }) => {
+      if (type !== 'notify') return;
+      void this.onMessages(organizationId, messages).catch((error: unknown) =>
+        this.logger.warn(`Inbound filing failed: ${describe(error)}`),
+      );
+    });
+    socket.ev.on(
+      'messages.update',
+      (updates) =>
+        void this.onReceipts(organizationId, updates).catch((error: unknown) =>
+          this.logger.warn(`Receipt handling failed: ${describe(error)}`),
         ),
     );
     await this.armWatchdog(organizationId, entry);
@@ -439,6 +460,42 @@ export class WaSessionManager
     );
   }
 
+  // -- inbound and receipts ------------------------------------------------
+
+  private async onMessages(organizationId: string, messages: WaMessage[]) {
+    for (const message of messages) {
+      if (message.key.fromMe) continue;
+      const text = messageText(message.message);
+      const from = phoneJid(message.key);
+      // Group chats, broadcasts and senders WhatsApp only identifies by
+      // LID have no phone number to match to a member.
+      if (!text || !from) continue;
+      await this.inbound.file(organizationId, jidDigits(from)!, text);
+    }
+  }
+
+  private async onReceipts(organizationId: string, updates: WaMessageUpdate[]) {
+    for (const { key, update } of updates) {
+      if (!key.fromMe || !key.id || update.status == null) continue;
+      const status =
+        update.status >= WA_ACK.READ
+          ? 'READ'
+          : update.status >= WA_ACK.DELIVERED
+            ? 'DELIVERED'
+            : null;
+      if (!status) continue;
+      // Forward only: a late "delivered" must not undo "read".
+      await this.prisma.messageLog.updateMany({
+        where: {
+          organizationId,
+          providerMessageId: `waakg:${key.id}`,
+          status: { in: status === 'READ' ? ['SENT', 'DELIVERED'] : ['SENT'] },
+        },
+        data: { status },
+      });
+    }
+  }
+
   // -- linking watchdog ----------------------------------------------------
 
   /**
@@ -623,13 +680,6 @@ function statusCode(error: unknown): number | undefined {
   const output = (error as { output?: { statusCode?: number } } | undefined)
     ?.output;
   return output?.statusCode;
-}
-
-/** `919812345678:12@s.whatsapp.net` -> `919812345678`. */
-function jidDigits(jid: string | null | undefined): string | null {
-  if (!jid) return null;
-  const digits = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
-  return digits || null;
 }
 
 function describe(error: unknown): string {
