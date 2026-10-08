@@ -96,7 +96,7 @@ describe('WhatsappService.handleWebhook', () => {
     expect(filed).toEqual([
       {
         organizationId: 'org_1',
-        from: '919876543210@s.whatsapp.net',
+        from: '919876543210',
         body: 'Hi, what are your timings?',
       },
     ]);

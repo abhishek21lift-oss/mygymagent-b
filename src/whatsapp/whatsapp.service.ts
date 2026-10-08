@@ -105,10 +105,15 @@ export class WhatsappService {
   }
 
   async disconnect(organizationId: string) {
-    // Unlink the number remotely: from this point no send can succeed
-    // for the org. Errors propagate -- a failed unlink must not report
-    // success while the session still sends.
-    await this.waAkg.performAction(sessionIdFor(organizationId), 'logout');
+    // Nothing linked, nothing to unlink: report success like the old
+    // vault path did, instead of 404ing inside the gateway.
+    const sessionId = sessionIdFor(organizationId);
+    if (await this.waAkg.getSession(sessionId)) {
+      // Unlink the number remotely: from this point no send can succeed
+      // for the org. Errors propagate -- a failed unlink must not report
+      // success while the session still sends.
+      await this.waAkg.performAction(sessionId, 'logout');
+    }
     return { disconnected: true, credentialRemoved: false };
   }
 
@@ -328,7 +333,11 @@ export class WhatsappService {
     // the CRM queue (same rule the old Baileys path applied).
     if (!data?.from || data.isGroup || data.key?.fromMe) return;
     if (data.type !== 'TEXT' || !data.content?.trim()) return;
-    await this.inbound.file(organizationId, data.from, data.content);
+    // Digits only, like the old Baileys path filed: the CRM matches rows
+    // by exact `from`/`recipient`, and sends are logged as digits.
+    const from = data.from.split('@')[0];
+    if (!from) return;
+    await this.inbound.file(organizationId, from, data.content);
   }
 
   private tokensEqual(a: string, b: string): boolean {

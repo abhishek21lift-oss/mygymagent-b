@@ -50,3 +50,23 @@ describe('WhatsappService.completeEmbeddedSignup', () => {
     await expect(svc.completeEmbeddedSignup()).rejects.toThrow(/removed|gone/i);
   });
 });
+
+describe('WhatsappService.disconnect', () => {
+  it('unlinks the live session through the gateway', async () => {
+    const { svc, waAkg } = service(connectedSession);
+    await expect(svc.disconnect('org_123')).resolves.toEqual({
+      disconnected: true,
+      credentialRemoved: false,
+    });
+    expect(waAkg.performAction).toHaveBeenCalledWith('gym-org_123', 'logout');
+  });
+
+  it('reports success without calling the gateway when nothing is linked', async () => {
+    const { svc, waAkg } = service(null);
+    await expect(svc.disconnect('org_123')).resolves.toEqual({
+      disconnected: true,
+      credentialRemoved: false,
+    });
+    expect(waAkg.performAction).not.toHaveBeenCalled();
+  });
+});
