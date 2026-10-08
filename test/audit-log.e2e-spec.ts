@@ -59,22 +59,28 @@ describe('Audit log (e2e)', () => {
       }),
     ).expect(201);
 
-    const logs = await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .get('/audit-logs')
-        .query({ resource: 'member' }),
-    ).expect(200);
-
-    const entry = (
-      logs.body.data.items as Array<{
-        action: string;
-        resource: string;
-        resourceId: string | null;
-        actorUserId: string | null;
-        actorName: string | null;
-        createdAt: string;
-      }>
-    ).find((row) => row.resourceId === member.body.data.id);
+    type Row = {
+      action: string;
+      resource: string;
+      resourceId: string | null;
+      actorUserId: string | null;
+      actorName: string | null;
+      createdAt: string;
+    };
+    // The interceptor writes the entry after the response has gone out,
+    // so give it a moment to land rather than reading it straight away.
+    let entry: Row | undefined;
+    for (let attempt = 0; attempt < 20 && !entry; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 100));
+      const logs = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .get('/audit-logs')
+          .query({ resource: 'member' }),
+      ).expect(200);
+      entry = (logs.body.data.items as Row[]).find(
+        (row) => row.resourceId === member.body.data.id,
+      );
+    }
 
     expect(entry).toBeDefined();
     expect(entry!.action).toBe('create');
