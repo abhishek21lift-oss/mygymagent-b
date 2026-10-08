@@ -52,6 +52,20 @@ export interface WaEventMap {
   'messages.update': WaMessageUpdate[];
 }
 
+/** What P1 can send through the gym's linked number: a plain text, or an
+ * image with an optional caption. `replyToMessageId` quotes an earlier
+ * message (WhatsApp provider id); an unknown id sends without a quote
+ * rather than failing. */
+export type WaSendContent =
+  | { text: string; image?: undefined; replyToMessageId?: string }
+  | {
+      text?: undefined;
+      image: Buffer;
+      caption?: string;
+      mimetype?: string;
+      replyToMessageId?: string;
+    };
+
 export interface WaSocket {
   ev: {
     on<E extends keyof WaEventMap>(
@@ -62,7 +76,7 @@ export interface WaSocket {
   user?: { id: string } | null;
   sendMessage(
     jid: string,
-    content: { text: string },
+    content: WaSendContent,
   ): Promise<{ key?: { id?: string | null } } | undefined>;
   onWhatsApp(
     ...jids: string[]
