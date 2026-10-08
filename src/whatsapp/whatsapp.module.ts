@@ -5,6 +5,7 @@ import { CommunicationsModule } from '../communications/communications.module';
 import { MemberIntelligenceModule } from '../member-intelligence/member-intelligence.module';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { BroadcastService } from './broadcast.service';
+import { AutoRepliesController } from './auto-replies.controller';
 import { ScheduledMessageProcessor } from './scheduled-message.processor';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappController } from './whatsapp.controller';
@@ -24,7 +25,7 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     MemberIntelligenceModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_SCHEDULED }),
   ],
-  controllers: [WhatsappController],
+  controllers: [WhatsappController, AutoRepliesController],
   providers: [
     WhatsappService,
     WhatsappInboundFiler,
@@ -34,6 +35,11 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
   ],
   // BullModule re-exported so the Command Center reads this module's
   // `wa-scheduled` Queue instance rather than registering a duplicate.
-  exports: [BullModule, WhatsappService, ScheduledMessageService, BroadcastService],
+  exports: [
+    BullModule,
+    WhatsappService,
+    ScheduledMessageService,
+    BroadcastService,
+  ],
 })
 export class WhatsappModule {}
