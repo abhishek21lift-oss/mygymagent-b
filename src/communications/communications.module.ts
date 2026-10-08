@@ -10,6 +10,7 @@ import {
 } from './communications.service';
 import { MessageTemplateService } from './message-template.service';
 import { WaAkgProvider } from '../whatsapp/wa-akg.provider';
+import { WhatsappWebModule } from '../whatsapp-web/whatsapp-web.module';
 import { Msg91SmsProvider } from './providers/msg91-sms.provider';
 import { FcmPushProvider } from './providers/fcm-push.provider';
 import { HttpChannelProvider } from './providers/http-channel.provider';
@@ -17,7 +18,7 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
 /**
  * Real, provider-backed communications -- see README.md for what's built
- * (EMAIL, WHATSAPP via the Meta Cloud API, real templates, per-org
+ * (EMAIL, WHATSAPP via the gym's linked number, real templates, per-org
  * branding, MARKETING-consent enforcement, delivery logging) vs.
  * SMS via MSG91, PUSH via FCM). An unconfigured provider throws rather
  * than silently no-opping, so the failure lands in MessageLog.
@@ -28,15 +29,15 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
  * explicitly, the same way AiModule imports MembersModule.
  */
 @Module({
+  imports: [WhatsappWebModule],
   controllers: [CommunicationsController],
   providers: [
     CommunicationsService,
     MessageTemplateService,
-    WaAkgProvider,
     Msg91SmsProvider,
     FcmPushProvider,
     { provide: EMAIL_PROVIDER, useClass: SmtpEmailProvider },
-    // Shared WA-AKG gateway, one session per gym (see WaAkgProvider).
+    // The gym's linked number, served in-process (see WhatsappWebModule).
     {
       provide: WHATSAPP_PROVIDER,
       useClass: WaAkgProvider,
@@ -62,7 +63,7 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     CommunicationsService,
     Msg91SmsProvider,
     FcmPushProvider,
-    WaAkgProvider,
+    WhatsappWebModule,
   ],
 })
 export class CommunicationsModule {}

@@ -10,9 +10,16 @@ function provider(env: Record<string, string | undefined> = {}) {
   const prisma = {
     organization: { findUnique: jest.fn().mockResolvedValue(india) },
   };
+  const sender = {
+    enqueue: jest.fn(async () => ({
+      queued: true,
+      providerMessageId: 'waakg:queued:log-1',
+    })),
+  };
   return {
-    provider: new WaAkgProvider(config as never, prisma as never),
+    provider: new WaAkgProvider(config as never, prisma as never, sender as never),
     prisma,
+    sender,
   };
 }
 
@@ -54,41 +61,31 @@ describe('WaAkgProvider', () => {
     jest.restoreAllMocks();
   });
 
-  it('is not configured without base URL and API key', () => {
+  it('is not configured without the session vault key', () => {
     const { provider: p } = provider({});
     expect(p.isConfigured()).toBe(false);
   });
 
-  it('sends text through the org session and returns the waakg id', async () => {
-    const { provider: p } = provider({
-      WA_AKG_BASE_URL: 'http://wa-akg:3000',
-      WA_AKG_API_KEY: 'wag_test',
-    });
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: true,
-        data: { key: { id: 'ABC' } },
-      }),
-    });
-    global.fetch = fetchMock as never;
+  it('enqueues normalized text on the linked number', async () => {
+    const { provider: p, sender } = provider({ WA_AUTH_KEY: 'ab'.repeat(32) });
 
-    const id = await p.send({
+    const result = await p.send({
       to: '98765 43210',
       text: 'Hello',
       organizationId: 'org_123',
+      messageLogId: 'log-1',
     });
 
-    expect(id).toBe('waakg:ABC');
-    const [url, init] = fetchMock.mock.calls.at(-1)!;
-    expect(url).toBe(
-      'http://wa-akg:3000/api/messages/gym-org_123/919876543210%40s.whatsapp.net/send',
-    );
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBe(
-      'wag_test',
-    );
-    expect(JSON.parse(init.body as string)).toEqual({
-      message: { text: 'Hello' },
+    expect(result).toEqual({
+      queued: true,
+      providerMessageId: 'waakg:queued:log-1',
+    });
+    expect(sender.enqueue).toHaveBeenCalledWith({
+      organizationId: 'org_123',
+      to: '919876543210@s.whatsapp.net',
+      text: 'Hello',
+      category: undefined,
+      messageLogId: 'log-1',
     });
   });
 
@@ -102,6 +99,7 @@ describe('WaAkgProvider', () => {
   it('returns the session on GET success', async () => {
     const { provider: p } = provider({
       WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AUTH_KEY: 'ab'.repeat(32),
       WA_AKG_API_KEY: 'wag_test',
     });
     global.fetch = jest.fn().mockResolvedValue({
@@ -117,6 +115,7 @@ describe('WaAkgProvider', () => {
   it('returns null when the session does not exist yet', async () => {
     const { provider: p } = provider({
       WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AUTH_KEY: 'ab'.repeat(32),
       WA_AKG_API_KEY: 'wag_test',
     });
     global.fetch = jest.fn().mockResolvedValue({
@@ -129,6 +128,7 @@ describe('WaAkgProvider', () => {
   it('starts the session through the action endpoint', async () => {
     const { provider: p } = provider({
       WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AUTH_KEY: 'ab'.repeat(32),
       WA_AKG_API_KEY: 'wag_test',
     });
     const fetchMock = jest.fn().mockResolvedValue({

@@ -5,8 +5,13 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { MessageCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import type { MessageProvider } from '../communications/interfaces/message-provider.interface';
+import type {
+  MessageProvider,
+  QueuedSend,
+} from '../communications/interfaces/message-provider.interface';
+import { WaSender } from '../whatsapp-web/wa-sender.service';
 
 const SEND_TIMEOUT_MS = 8_000;
 
@@ -63,10 +68,9 @@ export function toJid(
 }
 
 /**
- * The WHATSAPP channel, served by the shared WA-AKG gateway instead of
- * the removed Meta Cloud API / in-process Baileys stack: one WA-AKG
- * session per gym, free-form text sends, provider id `waakg:<id>` on
- * MessageLog for the status webhook to advance.
+ * The WHATSAPP channel, served by the gym's linked number in-process:
+ * one WA-AKG session per gym, free-form text sends, provider id
+ * `waakg:<id>` on MessageLog for the status webhook to advance.
  */
 @Injectable()
 export class WaAkgProvider implements MessageProvider {
@@ -75,10 +79,13 @@ export class WaAkgProvider implements MessageProvider {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly sender: WaSender,
   ) {}
 
   isConfigured(): boolean {
-    return !!(this.baseUrl() && this.apiKey());
+    return !!(
+      this.config.get<string>('WA_AUTH_KEY', '') ?? ''
+    ).trim();
   }
 
   private baseUrl(): string {
@@ -96,7 +103,9 @@ export class WaAkgProvider implements MessageProvider {
     to: string;
     text: string;
     organizationId?: string;
-  }): Promise<string> {
+    category?: MessageCategory;
+    messageLogId?: string;
+  }): Promise<string | QueuedSend> {
     const notConfigured = new ServiceUnavailableException(
       "WhatsApp sending isn't configured",
     );
@@ -110,21 +119,13 @@ export class WaAkgProvider implements MessageProvider {
     // A missing org row degrades to non-Indian: full international numbers
     // still send, local ones fail with the country-code error below.
     const jid = toJid(message.to, organization);
-    const sessionId = sessionIdFor(organizationId);
-    await this.ensureSession(sessionId);
-
-    const res = await this.post(
-      `/api/messages/${encodeURIComponent(sessionId)}/${encodeURIComponent(jid)}/send`,
-      { message: { text: message.text } },
-    );
-    const data = (res ?? {}) as {
-      key?: { id?: string };
-      id?: string;
-      messageId?: string;
-    };
-    const id = data.key?.id ?? data.id ?? data.messageId;
-    if (!id) throw new Error('WhatsApp send failed: no message id returned');
-    return `waakg:${id}`;
+    return this.sender.enqueue({
+      organizationId,
+      to: jid,
+      text: message.text,
+      category: message.category,
+      messageLogId: message.messageLogId,
+    });
   }
 
   /**
