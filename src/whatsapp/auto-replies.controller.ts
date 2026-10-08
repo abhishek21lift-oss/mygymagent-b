@@ -8,6 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -15,16 +16,51 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-class AutoReplyRuleDto {
+class CreateAutoReplyRuleDto {
+  @IsString()
   keyword!: string;
+
+  @IsString()
   matchType!: 'EXACT' | 'CONTAINS' | 'REGEX';
+
+  @IsString()
   scope!: 'ALL' | 'PRIVATE' | 'GROUP';
+
+  @IsString()
   answer!: string;
+
+  @IsOptional()
+  @IsBoolean()
   enabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
   priority?: number;
 }
 
-function validate(dto: AutoReplyRuleDto): void {
+class UpdateAutoReplyRuleDto {
+  @IsString()
+  keyword!: string;
+
+  @IsString()
+  matchType!: 'EXACT' | 'CONTAINS' | 'REGEX';
+
+  @IsString()
+  scope!: 'ALL' | 'PRIVATE' | 'GROUP';
+
+  @IsString()
+  answer!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  priority?: number;
+}
+
+function validate(dto: CreateAutoReplyRuleDto): void {
   const keyword = (dto.keyword ?? '').trim();
   const answer = (dto.answer ?? '').trim();
   if (!keyword || keyword.length > 200) {
@@ -70,7 +106,7 @@ export class AutoRepliesController {
   @Audited({ resource: 'whatsapp_auto_reply', action: 'create' })
   create(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: AutoReplyRuleDto,
+    @Body() dto: CreateAutoReplyRuleDto,
   ) {
     validate(dto);
     return this.prisma.autoReplyRule.create({
@@ -93,7 +129,7 @@ export class AutoRepliesController {
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: AutoReplyRuleDto,
+    @Body() dto: UpdateAutoReplyRuleDto,
   ) {
     validate(dto);
     // Org-scoped by id: another gym's rule is 404, never 403.

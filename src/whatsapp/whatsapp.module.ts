@@ -6,6 +6,9 @@ import { MemberIntelligenceModule } from '../member-intelligence/member-intellig
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { BroadcastService } from './broadcast.service';
 import { AutoRepliesController } from './auto-replies.controller';
+import { WebhookDeliveryProcessor } from './webhook-delivery.processor';
+import { WebhookDispatcherService } from './webhook-dispatcher.service';
+import { WebhooksController } from './webhooks.controller';
 import { ScheduledMessageProcessor } from './scheduled-message.processor';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappController } from './whatsapp.controller';
@@ -24,14 +27,17 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     CommunicationsModule,
     MemberIntelligenceModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_SCHEDULED }),
+    BullModule.registerQueue({ name: QUEUE_NAMES.WA_WEBHOOKS }),
   ],
-  controllers: [WhatsappController, AutoRepliesController],
+  controllers: [WhatsappController, AutoRepliesController, WebhooksController],
   providers: [
     WhatsappService,
     WhatsappInboundFiler,
     ScheduledMessageService,
     ScheduledMessageProcessor,
     BroadcastService,
+    WebhookDispatcherService,
+    WebhookDeliveryProcessor,
   ],
   // BullModule re-exported so the Command Center reads this module's
   // `wa-scheduled` Queue instance rather than registering a duplicate.

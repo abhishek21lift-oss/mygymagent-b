@@ -88,6 +88,7 @@ function setup(sharedRedis?: ReturnType<typeof memoryRedis>) {
     queue as never,
     factory as never,
     inbound as never,
+    { emit: jest.fn() } as never,
   );
   return { manager, redis, prisma, factory, inbound };
 }

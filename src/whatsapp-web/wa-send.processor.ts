@@ -1,10 +1,15 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UnrecoverableError, type Job } from 'bullmq';
 import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
-import { noteBroadcastSettled } from '../whatsapp/broadcast-counters';
+import {
+  announceBroadcastFinished,
+  noteBroadcastSettled,
+} from '../whatsapp/broadcast-counters';
+import { DomainEvent } from '../events/domain-events';
 import type { WaSendJob } from './wa-sender.service';
 import { WaSessionManager } from './wa-session.manager';
 import { NotLinkedError, NotOnWhatsappError } from './wa-types';
@@ -25,6 +30,7 @@ export class WaSendProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly manager: WaSessionManager,
     private readonly storage: FileStorageService,
+    private readonly events: EventEmitter2,
   ) {
     super();
   }
@@ -44,7 +50,7 @@ export class WaSendProcessor extends WorkerHost {
     } = job.data;
     const log = await this.prisma.messageLog.findFirst({
       where: { id: messageLogId, organizationId },
-      select: { status: true },
+      select: { status: true, templateKey: true },
     });
     // Already settled (a duplicate job), or the row is gone.
     if (!log || log.status !== 'PENDING') return;
@@ -58,8 +64,29 @@ export class WaSendProcessor extends WorkerHost {
           attempts: job.attemptsMade + 1,
         },
       });
+      let finished = false;
       if (broadcastId) {
-        await noteBroadcastSettled(this.prisma, broadcastId, 'failed');
+        finished = await noteBroadcastSettled(
+          this.prisma,
+          broadcastId,
+          'failed',
+        );
+      }
+      this.events.emit(DomainEvent.WhatsappFailed, {
+        organizationId,
+        messageLogId,
+        recipient: to,
+        templateKey: log.templateKey,
+        error: reason,
+        ...(broadcastId ? { broadcastId } : {}),
+      });
+      if (finished && broadcastId) {
+        await announceBroadcastFinished(
+          this.prisma,
+          this.events,
+          organizationId,
+          broadcastId,
+        );
       }
     };
 
@@ -74,8 +101,24 @@ export class WaSendProcessor extends WorkerHost {
           errorMessage: null,
         },
       });
+      let finished = false;
       if (broadcastId) {
-        await noteBroadcastSettled(this.prisma, broadcastId, 'sent');
+        finished = await noteBroadcastSettled(this.prisma, broadcastId, 'sent');
+      }
+      this.events.emit(DomainEvent.WhatsappSent, {
+        organizationId,
+        messageLogId,
+        recipient: to,
+        templateKey: log.templateKey,
+        ...(broadcastId ? { broadcastId } : {}),
+      });
+      if (finished && broadcastId) {
+        await announceBroadcastFinished(
+          this.prisma,
+          this.events,
+          organizationId,
+          broadcastId,
+        );
       }
     };
 

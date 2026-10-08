@@ -14,6 +14,8 @@ export const QUEUE_NAMES = {
   WA_SEND: 'wa-send',
   /** Due staff-composed WhatsApp messages (see `src/whatsapp/`). */
   WA_SCHEDULED: 'wa-scheduled',
+  /** Outgoing webhook POSTs to gym-registered URLs (see `src/whatsapp/`). */
+  WA_WEBHOOKS: 'wa-webhooks',
 } as const;
 
 export const JOB_NAMES = {
@@ -22,6 +24,7 @@ export const JOB_NAMES = {
   SEND_WHATSAPP_WEB: 'send-whatsapp-web',
   SEND_SCHEDULED_WHATSAPP: 'send-scheduled-whatsapp',
   SEND_BROADCAST_ITEM: 'send-broadcast-item',
+  DELIVER_WEBHOOK: 'deliver-webhook',
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',
