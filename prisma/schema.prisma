@@ -206,7 +206,6 @@ model Organization {
   marketingCampaignMembers MarketingCampaignMember[]
   accountingAccounts       AccountingAccount[]
   accountingEntries        AccountingEntry[]
-  portalInvites            PortalInvite[]
   kioskDevices             KioskDevice[]
   notificationDevices      NotificationDevice[]
   aiCommandLogs            AiCommandLog[]
@@ -820,7 +819,6 @@ model Member {
   supportTickets               SupportTicket[]
   feedbackResponses            FeedbackResponse[]
   marketingCampaignMemberships MarketingCampaignMember[]
-  portalInvites                PortalInvite[]
   notificationDevices          NotificationDevice[]
   classBookings                ClassBooking[]
 
@@ -4018,20 +4016,6 @@ model AccountingEntry {
 
   @@index([organizationId, entryDate(sort: Desc)], map: "accounting_entries_org_date_idx")
   @@map("accounting_entries")
-}
-
-model PortalInvite {
-  id             String       @id @default(dbgenerated("(gen_random_uuid())::text"))
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  memberId       String       @map("member_id")
-  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  tokenHash      String       @unique @map("token_hash")
-  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(6)
-  usedAt         DateTime?    @map("used_at") @db.Timestamptz(6)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@map("portal_invites")
 }
 
 /// What a registered device is, and therefore which ingest route its key

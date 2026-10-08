@@ -7,10 +7,8 @@ import {
   Patch,
   Post,
   Query,
-  Req,
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BusinessOsService } from './business-os.service';
@@ -26,7 +24,6 @@ import {
   RespondFeedbackDto,
   UpdateTicketStatusDto,
 } from './dto/business-os.dto';
-import type { Request } from 'express';
 
 @Controller()
 export class BusinessOsController {
@@ -86,10 +83,7 @@ export class BusinessOsController {
   }
   @Get('support/tickets/:id/messages')
   @RequirePermissions('support.read')
-  ticketMessages(
-    @CurrentUser() u: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  ticketMessages(@CurrentUser() u: AuthenticatedUser, @Param('id') id: string) {
     return this.s.ticketMessages(u.organizationId!, id);
   }
   @Post('support/tickets/:id/messages')
@@ -213,30 +207,5 @@ export class BusinessOsController {
     @Param('memberId') id: string,
   ) {
     return this.s.ptIntelligence(u.organizationId!, id);
-  }
-  @Post('portal/invites/:memberId') @RequirePermissions('portal.manage') invite(
-    @CurrentUser() u: AuthenticatedUser,
-    @Param('memberId') id: string,
-  ) {
-    return this.s.createPortalInvite(u.organizationId!, u.id, id);
-  }
-  @Post('portal/invites/:memberId/revoke')
-  @RequirePermissions('portal.manage')
-  revokePortal(
-    @CurrentUser() u: AuthenticatedUser,
-    @Param('memberId') id: string,
-  ) {
-    return this.s.revokePortalInvites(u.organizationId!, u.id, id);
-  }
-  @Public() @Get('portal/bootstrap/:token') portal(
-    @Param('token') token: string,
-    @Req() req: Request,
-  ) {
-    // `req.ip`, which Express resolves through the one trusted proxy hop
-    // (main.ts). The first X-Forwarded-For entry is whatever the caller
-    // wrote there, so keying the limit on it let anyone reset their own
-    // budget with every request.
-    const clientKey = req.ip || 'unknown';
-    return this.s.portalBootstrap(token, clientKey);
   }
 }
