@@ -134,12 +134,12 @@ export class WhatsappService {
   }
 
   /**
-   * P1 sends images only, and only the gym's own files: a File id from
-   * another gym is 400 (never 404 -- existence across tenants must not
-   * leak), a non-image or oversized row is 400. Runs before sendAdHoc
-   * so rejections are 400, not FAILED log rows.
+   * P1 sends images only, and only the gym's own files -- also used by
+   * P3 broadcasts, so it is public. A File id from another gym is 400
+   * (never 404 -- existence across tenants must not leak).
    */
-  private async assertSendableImage(organizationId: string, mediaKey: string) {
+  /** Public for P3 broadcasts (same org-scoped image rules). */
+  async assertSendableImage(organizationId: string, mediaKey: string) {
     const file = await this.prisma.file.findFirst({
       where: { id: mediaKey, organizationId },
       select: { mimeType: true, sizeBytes: true },

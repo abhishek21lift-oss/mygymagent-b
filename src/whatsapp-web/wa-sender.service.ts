@@ -32,6 +32,8 @@ export interface WaSendJob {
   mediaKey?: string;
   /** Provider id to quote; unknown ids send without a quote. */
   replyToMessageId?: string;
+  /** P3 broadcast this job fans out from, if any (counters). */
+  broadcastId?: string;
 }
 
 /**
@@ -59,6 +61,7 @@ export class WaSender {
     category?: MessageCategory;
     mediaKey?: string;
     replyToMessageId?: string;
+    broadcastId?: string;
   }): Promise<QueuedSend> {
     const { organizationId } = message;
     if (message.category === 'MARKETING') {
@@ -106,6 +109,7 @@ export class WaSender {
       ...(message.replyToMessageId
         ? { replyToMessageId: message.replyToMessageId }
         : {}),
+      ...(message.broadcastId ? { broadcastId: message.broadcastId } : {}),
     };
     await this.queue.add(JOB_NAMES.SEND_WHATSAPP_WEB, job, {
       delay,

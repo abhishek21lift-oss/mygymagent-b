@@ -297,6 +297,8 @@ export class CommunicationsService {
     mediaKey?: string;
     /** WHATSAPP (P1): provider id to quote; unknown ids send plain. */
     replyToMessageId?: string;
+    /** P3 broadcast this send fans out from, if any. */
+    broadcastId?: string;
   }) {
     const templateKey = input.templateKey ?? 'ad_hoc';
     const organization = await this.prisma.organization.findUnique({
@@ -326,6 +328,7 @@ export class CommunicationsService {
             templateKey,
             recipient: input.recipient,
             memberId: input.memberId,
+            broadcastId: input.broadcastId,
             status: 'SKIPPED_NO_CONSENT',
           },
         });
@@ -346,6 +349,7 @@ export class CommunicationsService {
         recipient: input.recipient,
         memberId: input.memberId,
         body,
+        broadcastId: input.broadcastId,
         status: 'PENDING',
       },
     });
@@ -375,6 +379,7 @@ export class CommunicationsService {
           fromOwnNumber: input.fromOwnNumber,
           mediaKey: input.mediaKey,
           replyToMessageId: input.replyToMessageId,
+          broadcastId: input.broadcastId,
         });
         if (typeof result === 'string') providerMessageId = result;
         else if (result) {
