@@ -52,6 +52,7 @@ function fakeSocket() {
       jids.map((jid) => ({ jid, exists: true })),
     ),
     requestPairingCode: jest.fn(async () => 'PAIR-1'),
+    profilePictureUrl: jest.fn(async () => null),
     logout: jest.fn(async () => undefined),
     end: jest.fn(() => undefined),
   };
@@ -76,7 +77,8 @@ function setup(sharedRedis?: ReturnType<typeof memoryRedis>) {
     updateMany: jest.fn(async () => ({})),
   };
   const waAuthKey = { deleteMany: jest.fn(async () => ({ count: 2 })) };
-  const prisma = { waSession, waAuthKey };
+  const waContact = { upsert: jest.fn(async (args: unknown) => args) };
+  const prisma = { waSession, waAuthKey, waContact };
   const config = { get: jest.fn(() => undefined) };
   const factory = { create: jest.fn(async () => fakeSocket()) };
   const inbound = { file: jest.fn(async () => ({ id: 'in-1' })) };
@@ -222,6 +224,7 @@ describe('WaSessionManager inbound', () => {
       'o1',
       '919876543210',
       'What are the timings?',
+      undefined,
     );
     await manager.onApplicationShutdown();
   });
@@ -268,7 +271,12 @@ describe('WaSessionManager inbound', () => {
       ],
     });
     await flush();
-    expect(inbound.file).toHaveBeenCalledWith('o1', '9198', 'wrapped hi');
+    expect(inbound.file).toHaveBeenCalledWith(
+      'o1',
+      '9198',
+      'wrapped hi',
+      undefined,
+    );
     await manager.onApplicationShutdown();
   });
 });
@@ -303,5 +311,86 @@ describe('WaSessionManager receipts', () => {
       },
     ]);
     await ctx.manager.onApplicationShutdown();
+  });
+});
+
+describe('WaSessionManager contacts', () => {
+  async function linked() {
+    const ctx = setup();
+    await ctx.manager.connect('o1');
+    const socket = (ctx.manager as any).entries.get('o1').socket as WaSocket;
+    const fire = (event: string, arg: any) => {
+      for (const [name, listener] of (socket.ev.on as jest.Mock).mock.calls) {
+        if (name === event) (listener as (a: any) => void)(arg);
+      }
+    };
+    return { ...ctx, socket, fire };
+  }
+
+  it('upserts phone contacts, skipping groups and LIDs', async () => {
+    const { prisma, fire, manager } = await linked();
+    fire('contacts.upsert', [
+      { id: '919876543210@s.whatsapp.net', name: 'Asha', notify: 'Ash' },
+      { id: 'group@g.us', name: 'Group' },
+      { id: '123@lid', name: 'Lid' },
+    ]);
+    await flush();
+    expect(prisma.waContact.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.waContact.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          jid: '919876543210@s.whatsapp.net',
+          name: 'Asha',
+        }),
+      }),
+    );
+    await manager.onApplicationShutdown();
+  });
+
+  it('passes the sender pushName to the filer', async () => {
+    const { inbound, fire, manager } = await linked();
+    fire('messages.upsert', {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: '9198@s.whatsapp.net', fromMe: false },
+          pushName: 'Asha V',
+          message: { conversation: 'hi' },
+        },
+      ],
+    });
+    await flush();
+    expect(inbound.file).toHaveBeenCalledWith('o1', '9198', 'hi', 'Asha V');
+    await manager.onApplicationShutdown();
+  });
+
+  it('fetches profile pictures live, null when absent', async () => {
+    const { manager, socket } = await linked();
+    const emitOpen = () => {
+      for (const [name, listener] of (socket.ev.on as jest.Mock).mock.calls) {
+        if (name === 'connection.update')
+          (listener as (a: any) => void)({ connection: 'open' });
+      }
+    };
+    emitOpen();
+    await flush();
+    (socket.profilePictureUrl as jest.Mock).mockResolvedValue('https://pic');
+    await expect(
+      manager.contactPicture('o1', '9198@s.whatsapp.net'),
+    ).resolves.toBe('https://pic');
+    (socket.profilePictureUrl as jest.Mock).mockRejectedValueOnce(
+      new Error('404'),
+    );
+    await expect(
+      manager.contactPicture('o1', '9198@s.whatsapp.net'),
+    ).resolves.toBeNull();
+    await manager.onApplicationShutdown();
+  });
+
+  it('returns null pictures with no open socket', async () => {
+    const { manager } = setup();
+    await expect(
+      manager.contactPicture('o1', '9198@s.whatsapp.net'),
+    ).resolves.toBeNull();
   });
 });
