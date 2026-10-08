@@ -145,6 +145,7 @@ export class CommunicationsService {
         templateKey: input.templateKey,
         recipient: input.recipient,
         memberId: input.memberId,
+        body,
         status: 'PENDING',
       },
     });
@@ -344,6 +345,7 @@ export class CommunicationsService {
         templateKey,
         recipient: input.recipient,
         memberId: input.memberId,
+        body,
         status: 'PENDING',
       },
     });
