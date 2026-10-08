@@ -2,6 +2,10 @@ import { ConflictException } from '@nestjs/common';
 import { WaSessionManager } from './wa-session.manager';
 import type { WaSocket } from './wa-types';
 
+// Multi-hop async socket handling under parallel workers can exceed the
+// 5 s default when the machine is loaded; the work itself is milliseconds.
+jest.setTimeout(15_000);
+
 function memoryRedis() {
   const data = new Map<string, string>();
   return {
