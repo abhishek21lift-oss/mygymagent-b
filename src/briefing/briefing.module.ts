@@ -3,7 +3,6 @@ import { AiActionsModule } from '../ai-actions/ai-actions.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { DailyBriefingController } from './daily-briefing.controller';
 import { DailyBriefingService } from './daily-briefing.service';
-import { OwnerOsController } from './owner-os.controller';
 import { OwnerOsService } from './owner-os.service';
 
 /**
@@ -12,12 +11,13 @@ import { OwnerOsService } from './owner-os.service';
  * DailyBriefingService's class comment. No new data source.
  *
  * OwnerOsService is the executive-shaped sibling (headline metrics,
- * severity-ranked alerts, advisory recommendations) behind
- * GET /owner-os/briefing for the Owner OS cockpit.
+ * severity-ranked alerts, advisory recommendations) for the AI agent's
+ * get_owner_briefing tool. Both read today's figures from
+ * TodayFiguresService, the source behind the dashboard.
  */
 @Module({
   imports: [AnalyticsModule, AiActionsModule],
-  controllers: [DailyBriefingController, OwnerOsController],
+  controllers: [DailyBriefingController],
   providers: [DailyBriefingService, OwnerOsService],
   exports: [DailyBriefingService, OwnerOsService],
 })

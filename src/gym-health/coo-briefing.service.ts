@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
-import { FinanceService } from '../analytics/finance.service';
-import { organizationTimezone, zonedBound } from '../common/time/zoned';
+import { TodayFiguresService } from '../analytics/today-figures.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GymHealthService } from './gym-health.service';
 
@@ -24,7 +23,7 @@ export interface CooBriefing {
     checkIns: number;
     currency: string;
     /// All currencies present today; when mixed, amounts above are the
-    /// primary currency only (first row), never a blended sum.
+    /// organization's currency only, never a blended sum.
     currencies: string[];
     mixed: boolean;
   };
@@ -54,7 +53,7 @@ export class CooBriefingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly health: GymHealthService,
-    private readonly finance: FinanceService,
+    private readonly todayFigures: TodayFiguresService,
     private readonly aiActions: AiActionsService,
   ) {}
 
@@ -62,84 +61,39 @@ export class CooBriefingService {
     organizationId: string,
     branchScope: string | null,
   ): Promise<CooBriefing> {
-    const timezone = await organizationTimezone(this.prisma, organizationId);
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    const start = zonedBound(todayStr, timezone, 'from');
-    const dayStart = new Date(start.getTime() - 24 * 60 * 60 * 1000);
-    const branchWhere = branchScope ? { branchId: branchScope } : {};
+    // Today and yesterday are the gym's days, counted exactly as the
+    // dashboard counts them (TodayFiguresService). This used to take the
+    // UTC date -- before 05:30 IST that was yesterday -- count staff
+    // check-ins, and compare today against a range that included today.
+    const yesterdayStr = await this.todayFigures.gymDay(organizationId, 1);
+    const [health, today, yesterday, pending, outcomes, usage] =
+      await Promise.all([
+        this.health.getHealth(organizationId, branchScope),
+        this.todayFigures.forDay(organizationId, branchScope),
+        this.todayFigures.forDay(organizationId, branchScope, yesterdayStr),
+        this.aiActions.countPending(organizationId),
+        this.aiActions.effectiveness(organizationId),
+        this.prisma.aiUsageLog.aggregate({
+          where: {
+            organizationId,
+            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+          },
+          _count: true,
+          _sum: { totalTokens: true, costUsd: true },
+        }),
+      ]);
 
-    const [
-      health,
-      todaySummary,
-      yesterdaySummary,
-      checkinsToday,
-      checkinsYesterday,
-      pending,
-      outcomes,
-      usage,
-    ] = await Promise.all([
-      this.health.getHealth(organizationId, branchScope),
-      this.finance.getRevenueSummary(
-        organizationId,
-        { from: todayStr, to: todayStr },
-        branchScope,
-      ),
-      this.finance.getRevenueSummary(
-        organizationId,
-        {
-          from: dayStart.toISOString().slice(0, 10),
-          to: todayStr,
-        },
-        branchScope,
-      ),
-      this.prisma.attendance.count({
-        where: {
-          organizationId,
-          ...branchWhere,
-          deniedReason: null,
-          checkInAt: { gte: start },
-        },
-      }),
-      this.prisma.attendance.count({
-        where: {
-          organizationId,
-          ...branchWhere,
-          deniedReason: null,
-          checkInAt: { gte: dayStart, lt: start },
-        },
-      }),
-      this.aiActions.countPending(organizationId),
-      this.aiActions.effectiveness(organizationId),
-      this.prisma.aiUsageLog.aggregate({
-        where: {
-          organizationId,
-          createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
-        },
-        _count: true,
-        _sum: { totalTokens: true, costUsd: true },
-      }),
-    ]);
-
-    const primaryCurrency =
-      todaySummary.revenue[0]?.currency ??
-      yesterdaySummary.revenue[0]?.currency ??
-      'INR';
-    const primary = (
-      rows: { currency: string; grossRevenue: string; netRevenue: string }[],
-    ) => {
-      const row = rows.find((r) => r.currency === primaryCurrency) ?? rows[0];
-      return {
-        gross: row ? Number(row.grossRevenue) : 0,
-        net: row ? Number(row.netRevenue) : 0,
-      };
-    };
-    const todayPrimary = primary(todaySummary.revenue);
-    const yesterdayPrimary = primary(yesterdaySummary.revenue);
+    // Yesterday in today's currency: a different currency is not "zero".
+    const yesterdayMoney =
+      yesterday.currency === today.currency
+        ? yesterday
+        : { collected: 0, net: 0 };
     const currencies = [
       ...new Set([
-        ...todaySummary.revenue.map((r) => r.currency),
-        ...yesterdaySummary.revenue.map((r) => r.currency),
+        today.currency,
+        ...today.currencies,
+        ...yesterday.currencies,
       ]),
     ];
     return {
@@ -147,18 +101,18 @@ export class CooBriefingService {
       branchId: branchScope,
       health,
       today: {
-        date: todayStr,
-        revenueNet: todayPrimary.net.toFixed(2),
-        collected: todayPrimary.gross.toFixed(2),
-        checkIns: checkinsToday,
-        currency: primaryCurrency,
+        date: today.date,
+        revenueNet: today.net.toFixed(2),
+        collected: today.collected.toFixed(2),
+        checkIns: today.checkIns,
+        currency: today.currency,
         currencies,
         mixed: currencies.length > 1,
       },
       deltas: {
-        revenueNetPct: pctChange(todayPrimary.net, yesterdayPrimary.net),
-        collectedPct: pctChange(todayPrimary.gross, yesterdayPrimary.gross),
-        checkinsPct: pctChange(checkinsToday, checkinsYesterday),
+        revenueNetPct: pctChange(today.net, yesterdayMoney.net),
+        collectedPct: pctChange(today.collected, yesterdayMoney.collected),
+        checkinsPct: pctChange(today.checkIns, yesterday.checkIns),
       },
       outcomes: {
         pending,
