@@ -53,7 +53,9 @@ describe('BroadcastService.create', () => {
     const out = await svc.create('o1', 'u1', { segmentId: 's1', text: 'Hi' });
     expect(out.queued).toBe(1);
     expect(prisma.broadcast.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ total: 1, skipped: 1 }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ total: 1, skipped: 1 }),
+      }),
     );
     expect(communications.sendAdHoc).toHaveBeenCalledTimes(1);
   });
