@@ -177,6 +177,7 @@ model Organization {
   whatsappCredential       WhatsappCredential?
   whatsappWebSession       WhatsappWebSession?
   whatsappWebAuthKeys      WhatsappWebAuthKey[]
+  waSessions               WaSession[]
   inboundMessages          InboundMessage[]
   memberTags               MemberTag[]
   leaveTypes               LeaveType[]
@@ -3048,6 +3049,57 @@ model WhatsappWebAuthKey {
 
   @@unique([organizationId, key])
   @@map("whatsapp_web_auth_keys")
+}
+
+/// Live Baileys session for one gym's linked number (WA-AKG port): QR and
+/// liveness live here; sending *preferences* stay on WhatsappWebSession.
+/// One row per gym, `sessionId = gym-{organizationId}`.
+enum WaSessionStatus {
+  DISCONNECTED
+  PAIRING
+  CONNECTED
+  LOGGED_OUT
+}
+
+model WaSession {
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sessionId   String          @unique
+  status      WaSessionStatus @default(DISCONNECTED)
+  qr          String?
+  phoneNumber String?
+  pairingCode String?
+  lastError   String?
+  connectedAt DateTime?
+
+  authKeys WaAuthKey[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("wa_sessions")
+}
+
+/// Baileys' signal-protocol state for a linked number: `creds` plus one
+/// row per key. Whoever holds these can read and send as that WhatsApp
+/// account, so the value is AES-256-GCM encrypted with WA_AUTH_KEY (own
+/// key, own module -- see src/whatsapp-web/wa-auth.store.ts) and never
+/// leaves the server. Cascade deletes with the session.
+model WaAuthKey {
+  id        String    @id @default(uuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  key      String
+  valueEnc String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, key])
+  @@map("wa_auth_keys")
 }
 
 /// One inbound WhatsApp text message received on an org's connected number

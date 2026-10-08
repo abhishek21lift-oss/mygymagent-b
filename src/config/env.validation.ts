@@ -158,6 +158,11 @@ export const envSchema = z
     WA_AKG_API_KEY: z.string().optional(),
     WA_AKG_WEBHOOK_SECRET: z.string().optional(),
 
+    // WA-AKG port session vault (src/whatsapp-web/wa-auth.store.ts): the
+    // 32-byte-hex AES-256-GCM key for Baileys signal state. Unset means
+    // linking endpoints return a clear 503. Generate: `openssl rand -hex 32`.
+    WA_AUTH_KEY: z.string().optional(),
+
     // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
     // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a
     // deployment that hasn't turned on 2FA still starts; the enrolment
