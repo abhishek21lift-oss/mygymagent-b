@@ -18,7 +18,11 @@ import {
   type AttendanceRecordedEvent,
 } from '../events/domain-events';
 import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
-import { organizationTimezone, startOfZonedDay } from '../common/time/zoned';
+import {
+  organizationTimezone,
+  startOfZonedDay,
+  zonedBound,
+} from '../common/time/zoned';
 import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
@@ -83,13 +87,26 @@ export class AttendanceService {
     filters: {
       branchId?: string;
       memberId?: string;
+      /** YYYY-MM-DD, a day in the gym's timezone. */
+      date?: string;
       assignmentScope?: string | null;
     },
   ) {
+    const timezone = filters.date
+      ? await organizationTimezone(this.prisma, organizationId)
+      : null;
     const where = {
       organizationId,
       ...(filters.branchId ? { branchId: filters.branchId } : {}),
       ...(filters.memberId ? { memberId: filters.memberId } : {}),
+      ...(filters.date && timezone
+        ? {
+            checkInAt: {
+              gte: zonedBound(filters.date, timezone, 'from'),
+              lt: zonedBound(filters.date, timezone, 'to'),
+            },
+          }
+        : {}),
       ...(filters.assignmentScope
         ? { member: { assignedTrainerId: filters.assignmentScope } }
         : {}),
