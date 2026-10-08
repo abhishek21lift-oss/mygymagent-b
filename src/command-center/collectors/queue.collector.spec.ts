@@ -23,7 +23,7 @@ describe('QueueDepthCollector', () => {
 
   beforeEach(() => {
     queues = Object.fromEntries(
-      ['notifications', 'automation', 'push'].map((name) => [
+      ['notifications', 'automation', 'push', 'wa-send'].map((name) => [
         name,
         {
           getJobCounts: jest.fn().mockResolvedValue(counts()),
@@ -42,6 +42,7 @@ describe('QueueDepthCollector', () => {
       'automation',
       'notifications',
       'push',
+      'wa-send',
     ]);
   });
 
