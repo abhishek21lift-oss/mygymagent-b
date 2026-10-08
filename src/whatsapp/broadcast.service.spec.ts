@@ -40,7 +40,7 @@ function service() {
 
 describe('BroadcastService.create', () => {
   it('skips members without phones and counts them', async () => {
-    const { svc, segments, communications } = service();
+    const { svc, segments, communications, prisma } = service();
     segments.getSegmentPhones.mockResolvedValue([
       { memberId: 'm1', phone: '+919876543210' },
       { memberId: 'm2', phone: null },
