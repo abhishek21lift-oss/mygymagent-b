@@ -157,6 +157,17 @@ export class WorkoutSessionsService {
       );
     }
 
+    // A second "Start" (a double tap, or the same member started from the
+    // trainer app and the staff page) resumes the session already on the
+    // floor rather than opening a parallel one that splits the sets.
+    const running = await this.prisma.workoutSession.findFirst({
+      where: { organizationId, assignmentId, status: 'IN_PROGRESS' },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true },
+    });
+    if (running)
+      return this.getOne(organizationId, running.id, assignmentScope);
+
     const planExercises = Array.isArray(assignment.workoutPlan.exercises)
       ? (assignment.workoutPlan.exercises as unknown as Array<
           Record<string, unknown>
@@ -452,75 +463,5 @@ export class WorkoutSessionsService {
         setsLogged: session.sets.length,
       };
     });
-  }
-
-  async getMemberExerciseHistory(
-    organizationId: string,
-    memberId: string,
-    exerciseId: string,
-    limit: number,
-    branchScope: string | null,
-    assignmentScope: string | null,
-  ) {
-    const where: Record<string, unknown> = {
-      organizationId,
-      memberId,
-    };
-    if (branchScope) {
-      where.branchId = branchScope;
-    }
-    if (assignmentScope) {
-      where.assignment = { member: { assignedTrainerId: assignmentScope } };
-    }
-
-    const sessions = await this.prisma.workoutSession.findMany({
-      where,
-      take: limit,
-      orderBy: { sessionDate: 'desc' },
-      include: {
-        sets: true,
-      },
-    });
-
-    const results: Array<{
-      exerciseId: string;
-      sessionDate: Date;
-      exerciseName: string;
-      setNumber: number;
-      weightKg: number | null;
-      reps: number | null;
-      rpe: number | string | null;
-      completedAt: Date | null;
-    }> = [];
-
-    for (const session of sessions) {
-      const exercises = Array.isArray(session.exercises)
-        ? (session.exercises as unknown as Array<{
-            id: string;
-            exerciseId: string;
-            name: string;
-          }>)
-        : [];
-
-      const exerciseEntry = exercises.find((e) => e.exerciseId === exerciseId);
-      const exerciseName = exerciseEntry?.name ?? 'Exercise';
-
-      for (const set of session.sets) {
-        if (set.exerciseId === exerciseId) {
-          results.push({
-            exerciseId,
-            sessionDate: session.sessionDate,
-            exerciseName,
-            setNumber: set.setNumber,
-            weightKg: set.weightKg?.toNumber() ?? null,
-            reps: set.reps ?? null,
-            rpe: set.rpe?.toNumber() ?? null,
-            completedAt: set.completedAt ?? null,
-          });
-        }
-      }
-    }
-
-    return results.slice(0, limit);
   }
 }
