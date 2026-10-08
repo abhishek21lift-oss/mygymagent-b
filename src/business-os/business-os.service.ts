@@ -5,11 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type CommunicationChannel } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { CommunicationsService } from '../communications/communications.service';
-import { PublicRateLimitService } from '../common/rate-limit/public-rate-limit.service';
 import { AuditService } from '../audit/audit.service';
 import type {
   CreateAccountingAccountDto,
@@ -20,7 +19,6 @@ import type {
   RespondFeedbackDto,
 } from './dto/business-os.dto';
 
-const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const s = (v: unknown, fallback = '') =>
   typeof v === 'string' && v.trim() ? v.trim() : fallback;
 const n = (v: unknown, fallback = 0) =>
@@ -42,7 +40,6 @@ export class BusinessOsService {
     private readonly attendance: AttendanceService,
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
-    private readonly rateLimit: PublicRateLimitService,
   ) {}
 
   async loyaltyAccount(org: string, memberId: string) {
@@ -711,48 +708,5 @@ export class BusinessOsService {
         balance: debit.minus(credit).toNumber(),
       };
     });
-  }
-
-  async createPortalInvite(org: string, userId: string, memberId: string) {
-    const member = await this.ensureMember(org, memberId);
-    const token = randomBytes(32).toString('hex');
-    await this.prisma.$transaction(async (tx) => {
-      await tx.portalInvite.updateMany({ where: { organizationId: org, memberId, usedAt: null }, data: { usedAt: new Date() } });
-      await tx.portalInvite.create({
-        data: { organizationId: org, memberId, tokenHash: hash(token), expiresAt: new Date(Date.now() + 7 * 86400000) },
-      });
-    });
-    await this.audit.record({ organizationId: org, actorUserId: userId, action: 'PORTAL_INVITE_CREATE', resource: 'portal_invite', resourceId: memberId });
-    return { token, expiresInDays: 7, member };
-  }
-
-  async revokePortalInvites(org: string, userId: string, memberId: string) {
-    await this.ensureMember(org, memberId);
-    const result = await this.prisma.portalInvite.updateMany({ where: { organizationId: org, memberId, usedAt: null }, data: { usedAt: new Date() } });
-    await this.audit.record({ organizationId: org, actorUserId: userId, action: 'PORTAL_INVITE_REVOKE', resource: 'portal_invite', resourceId: memberId });
-    return { revoked: result.count };
-  }
-
-  async portalBootstrap(token: string, clientKey: string) {
-    if (!token || token.length < 32) throw new BadRequestException('Invalid portal token');
-    await this.rateLimit.consume('portal-bootstrap', clientKey, 20, 60);
-    const invite = await this.prisma.portalInvite.findFirst({
-      where: { tokenHash: hash(token), usedAt: null, expiresAt: { gt: new Date() } },
-    });
-    const member = invite
-      ? await this.prisma.member.findFirst({
-          where: { id: invite.memberId, deletedAt: null },
-          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
-        })
-      : null;
-    if (!invite || !member) throw new NotFoundException('Invalid or expired portal token');
-    const consumed = await this.prisma.portalInvite.updateMany({
-      where: { id: invite.id, usedAt: null, expiresAt: { gt: new Date() } },
-      data: { usedAt: new Date() },
-    });
-    if (consumed.count !== 1) throw new NotFoundException('Invalid or expired portal token');
-    const memberships = await this.prisma.membership.findMany({ where: { organizationId: invite.organizationId, memberId: invite.memberId }, orderBy: { endDate: 'desc' }, take: 10 });
-    const attendance = await this.prisma.attendance.findMany({ where: { organizationId: invite.organizationId, memberId: invite.memberId }, orderBy: { checkInAt: 'desc' }, take: 20 });
-    return { member, memberships, attendance };
   }
 }

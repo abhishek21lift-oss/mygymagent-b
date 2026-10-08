@@ -155,6 +155,7 @@ describe('Command Center (e2e)', () => {
       'automation',
       'notifications',
       'push',
+      'wa-scheduled',
       'wa-send',
     ]);
   });
