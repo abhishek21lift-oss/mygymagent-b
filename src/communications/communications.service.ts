@@ -292,6 +292,10 @@ export class CommunicationsService {
     /** WHATSAPP: accepted and ignored -- every send already goes from
      * the gym's own WA-AKG number. */
     fromOwnNumber?: boolean;
+    /** WHATSAPP (P1): File id of an uploaded image to send with the text. */
+    mediaKey?: string;
+    /** WHATSAPP (P1): provider id to quote; unknown ids send plain. */
+    replyToMessageId?: string;
   }) {
     const templateKey = input.templateKey ?? 'ad_hoc';
     const organization = await this.prisma.organization.findUnique({
@@ -367,6 +371,8 @@ export class CommunicationsService {
           category: input.category,
           messageLogId: log.id,
           fromOwnNumber: input.fromOwnNumber,
+          mediaKey: input.mediaKey,
+          replyToMessageId: input.replyToMessageId,
         });
         if (typeof result === 'string') providerMessageId = result;
         else if (result) {

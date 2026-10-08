@@ -37,6 +37,12 @@ export interface MessageProvider {
      * chose for reminders -- a reply to a chat must come from the number
      * the member wrote to. */
     fromOwnNumber?: boolean;
+    /** WhatsApp only (P1): File id of an uploaded image to send with the
+     * text. Validated org-scoped before enqueue, never a raw S3 key. */
+    mediaKey?: string;
+    /** WhatsApp only (P1): provider id to quote; unknown ids send
+     * without a quote rather than failing. */
+    replyToMessageId?: string;
   }): Promise<string | void | QueuedSend>;
   /** Whether a send could succeed at all. Optional; absent means "assume
    * yes", which is the generic HTTP provider's honest answer. */
