@@ -13,11 +13,9 @@ import type {
 } from '../communications/interfaces/message-provider.interface';
 import { WaSender } from '../whatsapp-web/wa-sender.service';
 
-/** Deterministic session per gym: no mapping table, `gym-{orgId}` is the
- * derivation everywhere (rows, locks, Redis keys). */
-export function sessionIdFor(organizationId: string): string {
-  return `gym-${organizationId}`;
-}
+/** Deterministic session per gym, shared with the session module
+ * (see `./wa-types`; re-exported here for callers). */
+export { sessionIdFor } from '../whatsapp-web/wa-types';
 
 const INDIA_TIMEZONES = new Set(['Asia/Kolkata', 'Asia/Calcutta']);
 

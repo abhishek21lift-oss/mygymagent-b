@@ -87,6 +87,13 @@ export const WA_SOCKET_FACTORY = Symbol('WA_SOCKET_FACTORY');
 /** WhatsApp's receipt levels, as Baileys reports them on `messages.update`. */
 export const WA_ACK = { SERVER: 2, DELIVERED: 3, READ: 4, PLAYED: 5 } as const;
 
+/** Deterministic session per gym: no mapping table, `gym-{orgId}` is the
+ * derivation everywhere (rows, locks, Redis keys). Lives here (not the
+ * provider) so the session modules share it without a dependency cycle. */
+export function sessionIdFor(organizationId: string): string {
+  return `gym-${organizationId}`;
+}
+
 /** Disconnect reasons this module acts on (Baileys' `DisconnectReason`). */
 export const WA_DISCONNECT = {
   LOGGED_OUT: 401,

@@ -33,6 +33,6 @@ import { WA_SOCKET_FACTORY } from './wa-types';
     WhatsappInboundFiler,
     { provide: WA_SOCKET_FACTORY, useClass: BaileysSocketFactory },
   ],
-  exports: [WaSessionManager, WaSender, WaAkgProvider],
+  exports: [BullModule, WaSessionManager, WaSender, WaAkgProvider],
 })
 export class WhatsappWebModule {}
