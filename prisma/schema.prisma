@@ -2554,6 +2554,12 @@ model MessageLog {
   /// report one (EMAIL today).
   providerMessageId String?
 
+  /// Rendered message text (template-resolved for `send`, caller-rendered
+  /// for `sendAdHoc`). Powers the inbox thread view; null for rows written
+  /// before this column existed. Never a secret -- bodies already travel
+  /// through providers and logs.
+  body String?
+
   createdAt DateTime @default(now())
 
   @@index([organizationId, createdAt])
