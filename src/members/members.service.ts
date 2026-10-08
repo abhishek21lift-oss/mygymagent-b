@@ -6,6 +6,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
+import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
 import { membershipBalances } from '../memberships/membership-balance';
 import { PrismaService } from '../prisma/prisma.service';
@@ -33,6 +34,12 @@ export class MembersService {
     branchId?: string,
     assignmentScope: string | null = null,
   ) {
+    // Join dates are days at the gym, both ends inclusive: "joined
+    // 8 Oct" in India is 8 Oct IST, not the UTC day that ends at 05:30.
+    const timezone =
+      query.joinedFrom || query.joinedTo
+        ? await organizationTimezone(this.prisma, organizationId)
+        : 'UTC';
     const where: Prisma.MemberWhereInput = {
       organizationId,
       deletedAt: null,
@@ -56,8 +63,12 @@ export class MembersService {
       ...(query.joinedFrom || query.joinedTo
         ? {
             joinedAt: {
-              ...(query.joinedFrom ? { gte: new Date(query.joinedFrom) } : {}),
-              ...(query.joinedTo ? { lte: new Date(query.joinedTo) } : {}),
+              ...(query.joinedFrom
+                ? { gte: zonedBound(query.joinedFrom, timezone, 'from') }
+                : {}),
+              ...(query.joinedTo
+                ? { lt: zonedBound(query.joinedTo, timezone, 'to') }
+                : {}),
             },
           }
         : {}),

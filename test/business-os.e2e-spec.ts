@@ -817,65 +817,18 @@ describe('Business OS (e2e)', () => {
     });
   });
 
-  describe('member portal', () => {
-    it('bootstraps once from a valid invite token, then rejects reuse', async () => {
-      const invite = await asOwner(
+  describe('old member portal', () => {
+    // Retired for the real member app (/portal, OTP login): the invite
+    // token and the read-only bootstrap no longer exist.
+    it('no longer issues invite tokens or serves a bootstrap', async () => {
+      await asOwner(
         request(app.getHttpServer()).post(
           `/portal/invites/${memberWithMembership}`,
         ),
-      ).expect(201);
-      const token = invite.body.data.token;
-
-      const boot = await fromIp(
-        request(app.getHttpServer()).get(`/portal/bootstrap/${token}`),
-      ).expect(200);
-      expect(boot.body.data.member.id).toBe(memberWithMembership);
-      expect(Array.isArray(boot.body.data.memberships)).toBe(true);
-
-      await fromIp(
-        request(app.getHttpServer()).get(`/portal/bootstrap/${token}`),
       ).expect(404);
-    });
-
-    it('rejects a token that was revoked before use', async () => {
-      const invite = await asOwner(
-        request(app.getHttpServer()).post(
-          `/portal/invites/${memberWithMembership}`,
-        ),
-      ).expect(201);
-      const token = invite.body.data.token;
-
-      const revoke = await asOwner(
-        request(app.getHttpServer()).post(
-          `/portal/invites/${memberWithMembership}/revoke`,
-        ),
-      ).expect(201);
-      expect(revoke.body.data.revoked).toBeGreaterThanOrEqual(1);
-
       await fromIp(
-        request(app.getHttpServer()).get(`/portal/bootstrap/${token}`),
+        request(app.getHttpServer()).get(`/portal/bootstrap/${'a'.repeat(64)}`),
       ).expect(404);
-    });
-
-    it('rejects a malformed (too-short) token before touching the rate limiter', async () => {
-      await fromIp(
-        request(app.getHttpServer()).get('/portal/bootstrap/short'),
-      ).expect(400);
-    });
-
-    it('rate-limits repeated bootstrap attempts from the same caller', async () => {
-      const bogusToken = 'a'.repeat(64);
-      const ip = `198.51.100.${++fwdCounter % 254}`;
-      const attempt = () =>
-        request(app.getHttpServer())
-          .get(`/portal/bootstrap/${bogusToken}`)
-          .set('X-Forwarded-For', ip);
-
-      const statuses: number[] = [];
-      for (let i = 0; i < 21; i++) statuses.push((await attempt()).status);
-
-      expect(statuses.slice(0, 20)).toEqual(Array(20).fill(404));
-      expect(statuses[20]).toBe(429);
     });
   });
 

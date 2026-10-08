@@ -1,16 +1,36 @@
 import 'reflect-metadata';
 import { CooBriefingService } from './coo-briefing.service';
 
-function summary(gross: string, net: string) {
+function figures(
+  date: string,
+  money: { collected: number; net: number; currency?: string },
+  checkIns: number,
+  currencies: string[] = ['INR'],
+) {
   return {
-    revenue: [
-      {
-        currency: 'INR',
-        grossRevenue: gross,
-        netRevenue: net,
-      },
-    ],
-    outstanding: [],
+    date,
+    timezone: 'Asia/Kolkata',
+    checkIns,
+    deniedCheckIns: 0,
+    currency: money.currency ?? 'INR',
+    currencies,
+    collected: money.collected,
+    net: money.net,
+    paymentCount: 0,
+    newMembers: 0,
+    renewals: 0,
+    leads: 0,
+  };
+}
+
+/** Today then yesterday, as TodayFiguresService reports them. */
+function todayFigures(today: unknown, yesterday: unknown) {
+  return {
+    gymDay: jest.fn().mockResolvedValue('2026-10-07'),
+    forDay: jest
+      .fn()
+      .mockResolvedValueOnce(today)
+      .mockResolvedValueOnce(yesterday),
   };
 }
 
@@ -42,12 +62,10 @@ describe('CooBriefingService.getBriefing', () => {
         revenueAtRisk: {},
       }),
     };
-    const finance = {
-      getRevenueSummary: jest
-        .fn()
-        .mockResolvedValueOnce(summary('8000.00', '7500.00'))
-        .mockResolvedValueOnce(summary('4000.00', '4000.00')),
-    };
+    const finance = todayFigures(
+      figures('2026-10-08', { collected: 8000, net: 7500 }, 12),
+      figures('2026-10-07', { collected: 4000, net: 4000 }, 10),
+    );
     const aiActions = {
       countPending: jest.fn().mockResolvedValue(2),
       effectiveness: jest.fn().mockResolvedValue({
@@ -110,11 +128,10 @@ describe('CooBriefingService.getBriefing', () => {
         revenueAtRisk: {},
       }),
     };
-    const finance = {
-      getRevenueSummary: jest
-        .fn()
-        .mockResolvedValue({ revenue: [], outstanding: [] }),
-    };
+    const finance = todayFigures(
+      figures('2026-10-08', { collected: 0, net: 0 }, 0, []),
+      figures('2026-10-07', { collected: 0, net: 0 }, 0, []),
+    );
     const aiActions = {
       countPending: jest.fn().mockResolvedValue(0),
       effectiveness: jest.fn().mockResolvedValue({
@@ -142,7 +159,7 @@ describe('CooBriefingService.getBriefing', () => {
     });
   });
 
-  it('flags mixed currencies and reports the primary one, never a blend', async () => {
+  it("flags mixed currencies and reports the gym's own, never a blend", async () => {
     const prisma = {
       organization: {
         findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Kolkata' }),
@@ -165,15 +182,10 @@ describe('CooBriefingService.getBriefing', () => {
         revenueAtRisk: {},
       }),
     };
-    const finance = {
-      getRevenueSummary: jest.fn().mockResolvedValue({
-        revenue: [
-          { currency: 'INR', grossRevenue: '8000.00', netRevenue: '7500.00' },
-          { currency: 'USD', grossRevenue: '5000.00', netRevenue: '5000.00' },
-        ],
-        outstanding: [],
-      }),
-    };
+    const finance = todayFigures(
+      figures('2026-10-08', { collected: 8000, net: 7500 }, 0, ['INR', 'USD']),
+      figures('2026-10-07', { collected: 0, net: 0 }, 0, []),
+    );
     const aiActions = {
       countPending: jest.fn().mockResolvedValue(0),
       effectiveness: jest.fn().mockResolvedValue({
@@ -196,8 +208,41 @@ describe('CooBriefingService.getBriefing', () => {
     const briefing = await service.getBriefing('org-1', null);
     expect(briefing.today.mixed).toBe(true);
     expect(briefing.today.currencies).toEqual(['INR', 'USD']);
-    // Primary (INR) figures only — 8000, not 13000.
+    // The gym's currency (INR) only — 8000, not 13000.
     expect(briefing.today.collected).toBe('8000.00');
     expect(briefing.today.currency).toBe('INR');
+  });
+
+  it("asks for the gym's today and yesterday, not the UTC date", async () => {
+    const figuresService = todayFigures(
+      figures('2026-10-08', { collected: 0, net: 0 }, 3),
+      figures('2026-10-07', { collected: 0, net: 0 }, 1),
+    );
+    const service = new CooBriefingService(
+      {
+        aiUsageLog: {
+          aggregate: jest.fn().mockResolvedValue({ _count: 0, _sum: {} }),
+          count: jest.fn().mockResolvedValue(0),
+        },
+      } as never,
+      { getHealth: jest.fn().mockResolvedValue({ score: null }) } as never,
+      figuresService as never,
+      {
+        countPending: jest.fn().mockResolvedValue(0),
+        effectiveness: jest
+          .fn()
+          .mockResolvedValue({ executed: 0, rejected: 0 }),
+      } as never,
+    );
+    const briefing = await service.getBriefing('org-1', 'branch-1');
+    expect(figuresService.gymDay).toHaveBeenCalledWith('org-1', 1);
+    expect(figuresService.forDay).toHaveBeenCalledWith('org-1', 'branch-1');
+    expect(figuresService.forDay).toHaveBeenCalledWith(
+      'org-1',
+      'branch-1',
+      '2026-10-07',
+    );
+    expect(briefing.today).toMatchObject({ date: '2026-10-08', checkIns: 3 });
+    expect(briefing.deltas.checkinsPct).toBe(200);
   });
 });

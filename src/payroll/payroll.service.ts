@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   GenerateCommissionsDto,
+  UpdateCommissionRuleDto,
   UpsertCommissionRuleDto,
 } from './dto/payroll.dto';
 
@@ -60,11 +61,7 @@ export class PayrollService {
     });
   }
 
-  async updateRule(
-    org: string,
-    id: string,
-    dto: Partial<UpsertCommissionRuleDto>,
-  ) {
+  async updateRule(org: string, id: string, dto: UpdateCommissionRuleDto) {
     // Scoped by organization as well as id, so a rule id from another
     // tenant is a 404 rather than an edit.
     const { count } = await this.prisma.trainerCommissionRule.updateMany({

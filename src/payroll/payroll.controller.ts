@@ -12,6 +12,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   GenerateCommissionsDto,
+  UpdateCommissionRuleDto,
   UpsertCommissionRuleDto,
 } from './dto/payroll.dto';
 import { PayrollService } from './payroll.service';
@@ -40,7 +41,7 @@ export class PayrollController {
   updateRule(
     @CurrentUser() u: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: Partial<UpsertCommissionRuleDto>,
+    @Body() dto: UpdateCommissionRuleDto,
   ) {
     return this.payroll.updateRule(u.organizationId!, id, dto);
   }
