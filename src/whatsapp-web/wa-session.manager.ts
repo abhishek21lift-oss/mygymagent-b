@@ -13,7 +13,6 @@ import { sessionIdFor } from '../whatsapp/wa-akg.provider';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueConnection } from '../queue/queue.module';
 import { queuePrefix } from '../queue/queue-prefix';
-import { WaAuthStore } from './wa-auth.store';
 import {
   NotLinkedError,
   NotOnWhatsappError,
@@ -463,7 +462,9 @@ export class WaSessionManager
 
   /** Stops a link attempt and records why, for the settings page. */
   private async abandonPairing(organizationId: string, reason: string) {
-    this.logger.warn(`WhatsApp ${organizationId}: gave up linking -- ${reason}`);
+    this.logger.warn(
+      `WhatsApp ${organizationId}: gave up linking -- ${reason}`,
+    );
     this.cancelReconnect(organizationId);
     this.forgetRetries(organizationId);
     const entry = this.entries.get(organizationId);

@@ -150,14 +150,6 @@ export const envSchema = z
     SMTP_PASSWORD: z.string().optional(),
     SMTP_FROM_ADDRESS: z.string().optional(),
 
-    // WA-AKG gateway (src/whatsapp/wa-akg.provider.ts) -- optional.
-    // Unset means WHATSAPP sends return a clear 503 naming the missing
-    // variables instead of failing mid-send, the same
-    // check-together-at-call-time pattern SMTP uses.
-    WA_AKG_BASE_URL: z.string().url().optional(),
-    WA_AKG_API_KEY: z.string().optional(),
-    WA_AKG_WEBHOOK_SECRET: z.string().optional(),
-
     // WA-AKG port session vault (src/whatsapp-web/wa-auth.store.ts): the
     // 32-byte-hex AES-256-GCM key for Baileys signal state. Unset means
     // linking endpoints return a clear 503. Generate: `openssl rand -hex 32`.

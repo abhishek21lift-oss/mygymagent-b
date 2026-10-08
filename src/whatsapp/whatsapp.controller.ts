@@ -3,19 +3,12 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
-  HttpCode,
-  HttpStatus,
   Post,
   Query,
-  Req,
 } from '@nestjs/common';
-import type { RawBodyRequest } from '@nestjs/common';
-import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
@@ -129,30 +122,5 @@ export class WhatsappController {
       matched,
       limit: Number.isFinite(limit) ? limit : 50,
     });
-  }
-
-  /**
-   * WA-AKG event receiver. @Public() (WA-AKG signs with the shared
-   * webhook secret, not a user JWT) and always 200 once the payload
-   * parses -- even for unknown sessions -- so the gateway stops retrying
-   * undeliverable events. The `X-Webhook-Signature` HMAC is verified
-   * first: without it the session id in the body is attacker-controlled
-   * routing, not proof of origin.
-   */
-  @Post('webhook')
-  @Public()
-  @HttpCode(HttpStatus.OK)
-  handleWebhook(
-    @Req() req: RawBodyRequest<Request>,
-    @Headers('x-webhook-signature') signature: string | undefined,
-    @Body() body: unknown,
-  ) {
-    // Signature is over the raw bytes -- re-serializing the parsed body
-    // would change whitespace/key order and break verification (same
-    // pattern as the Stripe webhook controller).
-    const rawBody: Buffer =
-      req.rawBody ?? Buffer.from(JSON.stringify((body ?? {}) as unknown));
-    this.whatsapp.verifyWaAkgSignature(rawBody, signature);
-    return this.whatsapp.handleWebhook(body);
   }
 }

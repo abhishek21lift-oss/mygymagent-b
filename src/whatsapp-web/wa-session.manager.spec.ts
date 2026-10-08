@@ -38,7 +38,9 @@ function memoryRedis() {
 function fakeSocket() {
   const socket: WaSocket = {
     ev: {
-      on: jest.fn((_event: string, _listener: (arg: never) => void) => undefined),
+      on: jest.fn(
+        (_event: string, _listener: (arg: never) => void) => undefined,
+      ),
     },
     user: { id: '919876543210@s.whatsapp.net' },
     sendMessage: jest.fn(async () => ({ key: { id: 'WAID1' } })),
@@ -163,11 +165,7 @@ describe('WaSessionManager bootstrap', () => {
       { organizationId: 'o9' },
     ] as never);
     await manager.resumeLinked();
-    for (
-      let i = 0;
-      i < 20 && factory.create.mock.calls.length === 0;
-      i += 1
-    ) {
+    for (let i = 0; i < 20 && factory.create.mock.calls.length === 0; i += 1) {
       await flush();
     }
     expect(factory.create).toHaveBeenCalledTimes(1);

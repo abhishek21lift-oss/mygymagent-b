@@ -13,23 +13,8 @@ import type {
 } from '../communications/interfaces/message-provider.interface';
 import { WaSender } from '../whatsapp-web/wa-sender.service';
 
-const SEND_TIMEOUT_MS = 8_000;
-
-export type WaAkgAction = 'start' | 'stop' | 'restart' | 'logout' | 'pair';
-
-/** The slice of WA-AKG `GET /api/sessions/{id}` (`data`) this backend
- * reads: live status wins over the stored one, `me` carries the linked
- * number (`<digits>@s.whatsapp.net`), `qr` the raw QR payload while
- * pairing. Everything else on the payload is ignored. */
-export interface WaAkgSession {
-  status: string;
-  qr?: string | null;
-  pairingCode?: string | null;
-  me?: { id?: string } | null;
-}
-
-/** Deterministic WA-AKG session per gym: no mapping table, the session
- * name IS the derivation, and the webhook reverses it the same way. */
+/** Deterministic session per gym: no mapping table, `gym-{orgId}` is the
+ * derivation everywhere (rows, locks, Redis keys). */
 export function sessionIdFor(organizationId: string): string {
   return `gym-${organizationId}`;
 }
@@ -37,10 +22,9 @@ export function sessionIdFor(organizationId: string): string {
 const INDIA_TIMEZONES = new Set(['Asia/Kolkata', 'Asia/Calcutta']);
 
 /**
- * A phone number as a WhatsApp JID. Same rule as the removed
- * `normaliseWhatsappNumber`: an Indian gym's local numbers get +91, any
- * other short number is refused rather than guessed at, because a wrong
- * country code messages a stranger.
+ * A phone number as a WhatsApp JID. An Indian gym's local numbers get
+ * +91; any other short number is refused rather than guessed at, because
+ * a wrong country code messages a stranger.
  */
 export function toJid(
   raw: string,
@@ -69,8 +53,8 @@ export function toJid(
 
 /**
  * The WHATSAPP channel, served by the gym's linked number in-process:
- * one WA-AKG session per gym, free-form text sends, provider id
- * `waakg:<id>` on MessageLog for the status webhook to advance.
+ * sends are paced jobs on the gym's live session, provider id `waakg:<id>`
+ * lands on MessageLog, receipts advance it in Phase 2.
  */
 @Injectable()
 export class WaAkgProvider implements MessageProvider {
@@ -83,20 +67,7 @@ export class WaAkgProvider implements MessageProvider {
   ) {}
 
   isConfigured(): boolean {
-    return !!(
-      this.config.get<string>('WA_AUTH_KEY', '') ?? ''
-    ).trim();
-  }
-
-  private baseUrl(): string {
-    return (this.config.get<string>('WA_AKG_BASE_URL', '') ?? '').replace(
-      /\/+$/,
-      '',
-    );
-  }
-
-  private apiKey(): string {
-    return this.config.get<string>('WA_AKG_API_KEY', '') ?? '';
+    return !!(this.config.get<string>('WA_AUTH_KEY', '') ?? '').trim();
   }
 
   async send(message: {
@@ -126,98 +97,5 @@ export class WaAkgProvider implements MessageProvider {
       category: message.category,
       messageLogId: message.messageLogId,
     });
-  }
-
-  /**
-   * The gym's WA-AKG session, or null when WA-AKG is unconfigured or the
-   * gym has no session yet. Anything else (gateway down, auth refused)
-   * throws -- callers turn that into a FAILED row or a 503, never a
-   * silent "not connected".
-   */
-  async getSession(sessionId: string): Promise<WaAkgSession | null> {
-    if (!this.isConfigured()) return null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
-    try {
-      const res = await fetch(
-        `${this.baseUrl()}/api/sessions/${encodeURIComponent(sessionId)}`,
-        {
-          headers: { 'X-API-Key': this.apiKey() },
-          signal: controller.signal,
-        },
-      );
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`Session lookup failed (${res.status})`);
-      const body = (await res.json()) as { data?: WaAkgSession };
-      return body.data ?? null;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(
-          `WhatsApp gateway timed out after ${SEND_TIMEOUT_MS / 1000}s`,
-        );
-      }
-      throw error instanceof Error ? error : new Error('WhatsApp send failed');
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  /** Creates the gym's session on first use: WA-AKG derives a random id
-   * unless sessionId is explicit, so both name and sessionId are sent. */
-  async ensureSession(sessionId: string): Promise<void> {
-    if (await this.getSession(sessionId)) return;
-    await this.post('/api/sessions', { name: sessionId, sessionId });
-  }
-
-  /** Lifecycle on an existing session: `start` begins pairing/sending,
-   * `pair` generates a pairing code for a phone number, `logout` unlinks
-   * the number (fresh QR next time). */
-  async performAction(
-    sessionId: string,
-    action: WaAkgAction,
-    body: Record<string, unknown> = {},
-  ): Promise<void> {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(
-        "WhatsApp sending isn't configured",
-      );
-    }
-    await this.post(
-      `/api/sessions/${encodeURIComponent(sessionId)}/${action}`,
-      body,
-    );
-  }
-
-  private async post(path: string, payload: Record<string, unknown>) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
-    try {
-      const res = await fetch(`${this.baseUrl()}${path}`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': this.apiKey(),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new Error(`WhatsApp send failed (${res.status})`);
-      }
-      const body = (await res.json()) as { status?: boolean; data?: unknown };
-      if (body.status === false) {
-        throw new Error('WhatsApp send failed: gateway refused the message');
-      }
-      return body.data;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(
-          `WhatsApp send timed out after ${SEND_TIMEOUT_MS / 1000}s`,
-        );
-      }
-      throw error instanceof Error ? error : new Error('WhatsApp send failed');
-    } finally {
-      clearTimeout(timer);
-    }
   }
 }

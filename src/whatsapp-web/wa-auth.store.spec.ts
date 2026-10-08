@@ -20,7 +20,9 @@ function memoryPrisma() {
         return [...rows.entries()]
           .filter(([k]) => k.startsWith(prefix))
           .filter(([k]) =>
-            where.key?.in ? where.key.in.includes(k.slice(prefix.length)) : true,
+            where.key?.in
+              ? where.key.in.includes(k.slice(prefix.length))
+              : true,
           )
           .map(([k, valueEnc]) => ({
             key: k.slice(prefix.length),
@@ -89,9 +91,7 @@ describe('WaAuthStore', () => {
     const prisma = memoryPrisma();
     const store = new WaAuthStore(prisma as never, 'gym-o1', KEY);
     await store.writeBatch({ 'a-1': 'one', 'a-2': 'two', gone: null });
-    await expect(
-      store.readMany(['a-1', 'a-2', 'missing']),
-    ).resolves.toEqual(
+    await expect(store.readMany(['a-1', 'a-2', 'missing'])).resolves.toEqual(
       new Map([
         ['a-1', 'one'],
         ['a-2', 'two'],

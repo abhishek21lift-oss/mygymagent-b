@@ -1,12 +1,17 @@
 import { WaSender } from './wa-sender.service';
 
-function sender(overrides: {
-  status?: string;
-  prefs?: unknown;
-  sentToday?: number;
-} = {}) {
-  const { status = 'CONNECTED', prefs = { dailyLimit: 200 }, sentToday = 0 } =
-    overrides;
+function sender(
+  overrides: {
+    status?: string;
+    prefs?: unknown;
+    sentToday?: number;
+  } = {},
+) {
+  const {
+    status = 'CONNECTED',
+    prefs = { dailyLimit: 200 },
+    sentToday = 0,
+  } = overrides;
   const manager = { getStatus: jest.fn(async () => status) };
   const prisma = {
     whatsappWebSession: { findUnique: jest.fn(async () => prefs) },
@@ -36,9 +41,9 @@ const msg = (overrides = {}) => ({
 describe('WaSender.enqueue', () => {
   it('refuses MARKETING even with consent', async () => {
     const { svc, queue } = sender();
-    await expect(
-      sender().svc.enqueue(msg({ category: 'MARKETING' })),
-    ).rejects.toThrow(/marketing/i);
+    await expect(svc.enqueue(msg({ category: 'MARKETING' }))).rejects.toThrow(
+      /marketing/i,
+    );
     expect(queue.add).not.toHaveBeenCalled();
   });
 
