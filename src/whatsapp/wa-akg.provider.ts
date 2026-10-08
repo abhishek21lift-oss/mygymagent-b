@@ -90,7 +90,11 @@ export class WaAkgProvider implements MessageProvider {
     });
     // A missing org row degrades to non-Indian: full international numbers
     // still send, local ones fail with the country-code error below.
-    const jid = toJid(message.to, organization);
+    // A raw JID (group chats end `@g.us`) passes through untouched --
+    // phone numbers never contain `@`.
+    const jid = message.to.includes('@')
+      ? message.to
+      : toJid(message.to, organization);
     return this.sender.enqueue({
       organizationId,
       to: jid,

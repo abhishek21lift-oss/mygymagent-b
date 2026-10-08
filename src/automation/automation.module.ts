@@ -22,6 +22,7 @@ import { DataRetentionScanner } from './scanners/data-retention.scanner';
 import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
 import { WhatsappAutoReplyListener } from './whatsapp-auto-reply.listener';
+import { StaffReplyListener } from './staff-reply.listener';
 
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -54,6 +55,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     InvoiceDunningScanner,
     PtExpiryScanner,
     WhatsappAutoReplyListener,
+    StaffReplyListener,
   ],
   exports: [BullModule],
 })

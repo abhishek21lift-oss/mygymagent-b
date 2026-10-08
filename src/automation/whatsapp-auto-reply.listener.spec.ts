@@ -22,6 +22,8 @@ function listener(linked: boolean) {
     whatsappWebSession: {
       findUnique: jest.fn().mockResolvedValue({ autoReply: true }),
     },
+    botOptOut: { findUnique: jest.fn().mockResolvedValue(null) },
+    autoReplyRule: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const config = { get: jest.fn().mockReturnValue('http://localhost:3000') };
   const svc = new WhatsappAutoReplyListener(

@@ -45,6 +45,44 @@ export class WhatsappInboundFiler {
   }
 
   /**
+   * Files a group-chat text: the sender (participant) is member-matched
+   * like a 1:1 sender, and the event carries the group so replies go
+   * back to it.
+   */
+  async fileGroup(
+    organizationId: string,
+    groupJid: string,
+    senderDigits: string,
+    body: string,
+    pushName?: string | null,
+  ) {
+    const matchedMemberId = await this.matchMemberByPhone(
+      organizationId,
+      senderDigits,
+    );
+    const row = await this.prisma.inboundMessage.create({
+      data: {
+        organizationId,
+        from: senderDigits,
+        body,
+        pushName: pushName ?? null,
+        matchedMemberId,
+        groupJid,
+      },
+    });
+    const event: WhatsappReceivedEvent = {
+      organizationId,
+      inboundMessageId: row.id,
+      from: senderDigits,
+      matchedMemberId,
+      isGroup: true,
+      groupJid,
+    };
+    this.events.emit(DomainEvent.WhatsappReceived, event);
+    return row;
+  }
+
+  /**
    * Digits-suffix match: the inbound `from` is full international format
    * while a member's stored phone may be local (or vice versa), so either
    * side being a suffix of the other -- with at least 7 overlapping

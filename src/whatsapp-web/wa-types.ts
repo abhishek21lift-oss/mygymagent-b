@@ -20,6 +20,10 @@ export interface WaMessageKey {
   /** Baileys 7 addresses chats by LID and carries the phone JID here. */
   remoteJidAlt?: string | null;
   senderPn?: string | null;
+  /** Group chats: the participant who wrote the message. */
+  participant?: string | null;
+  /** Group chats: the participant's phone JID when known. */
+  participantPn?: string | null;
 }
 
 /** The parts of a Baileys message body this app reads. */
@@ -176,6 +180,22 @@ export function phoneJid(key: WaMessageKey): string | null {
     if (jid?.endsWith('@s.whatsapp.net')) return jid;
   }
   return null;
+}
+
+/**
+ * A group message's sender as phone digits, or null when WhatsApp only
+ * gave a LID (no number to match a member or reply to directly).
+ */
+export function groupSender(key: WaMessageKey): string | null {
+  for (const jid of [key.participantPn, key.participant]) {
+    if (jid?.endsWith('@s.whatsapp.net')) return jidDigits(jid);
+  }
+  return null;
+}
+
+/** Whether this message arrived in a group chat. */
+export function isGroupJid(jid: string | null | undefined): boolean {
+  return !!jid?.endsWith('@g.us');
 }
 
 /** `919812345678:12@s.whatsapp.net` -> `919812345678`. */

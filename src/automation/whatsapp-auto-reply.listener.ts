@@ -18,6 +18,7 @@ import {
   detectIntent,
   readableDuration,
 } from './whatsapp-auto-reply.intents';
+import { matchRule, parseBotCommand } from './staff-reply.matcher';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -92,6 +93,8 @@ export class WhatsappAutoReplyListener {
 
   /** Sends the answer, and returns what was answered (null: nothing sent). */
   async reply(event: WhatsappReceivedEvent): Promise<AutoReplyIntent | null> {
+    // Groups belong to staff rules; gym intents stay 1:1.
+    if (event.isGroup) return null;
     const { organizationId, from } = event;
     if (!(await this.enabled(organizationId))) return null;
 
@@ -106,6 +109,19 @@ export class WhatsappAutoReplyListener {
       }),
     ]);
     if (!message || !gym) return null;
+
+    // Deterministic single reply: the staff listener answers `#`
+    // commands and keyword rules, so the gym intent defers whenever
+    // either would fire (both listeners share the event). `#stop`
+    // silences gym intents too.
+    if (parseBotCommand(message.body)) return null;
+    if (await this.optedOut(organizationId, from)) return null;
+    const staffRules = await this.prisma.autoReplyRule.findMany({
+      where: { organizationId, enabled: true },
+      orderBy: { priority: 'asc' },
+      take: 100,
+    });
+    if (matchRule(staffRules, message.body, false)) return null;
 
     const intent = detectIntent(message.body);
     // "Thanks" / "ok" ends a conversation; answering it starts another.
@@ -174,6 +190,25 @@ export class WhatsappAutoReplyListener {
       select: { autoReply: true },
     });
     return session?.autoReply ?? false;
+  }
+
+  /**
+   * `#stop` silences every automatic answer, gym intents included.
+   */
+  private async optedOut(
+    organizationId: string,
+    from: string,
+  ): Promise<boolean> {
+    const row = await this.prisma.botOptOut.findUnique({
+      where: {
+        organizationId_phone: {
+          organizationId,
+          phone: from.replace(/\D/g, ''),
+        },
+      },
+      select: { phone: true },
+    });
+    return row !== null;
   }
 
   /** Whether staff wrote to this person from the app in the last half hour. */

@@ -172,4 +172,8 @@ export interface WhatsappReceivedEvent {
   inboundMessageId: string;
   from: string;
   matchedMemberId: string | null;
+  /** Group chat delivery (P4): member match is the sender. */
+  isGroup?: boolean;
+  /** Group JID (`...@g.us`); replies go here, not to the sender. */
+  groupJid?: string;
 }
