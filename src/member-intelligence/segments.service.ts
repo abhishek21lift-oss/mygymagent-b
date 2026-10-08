@@ -287,6 +287,7 @@ export class SegmentsService {
           firstName: true,
           lastName: true,
           email: true,
+          phone: true,
           status: true,
           joinedAt: true,
           riskProfile: { select: { riskLevel: true } },

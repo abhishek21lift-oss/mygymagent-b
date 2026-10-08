@@ -16,8 +16,10 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   ScheduleWhatsAppMessageDto,
   SendWhatsAppMessageDto,
+  CreateBroadcastDto,
   TestSendWhatsAppDto,
 } from './dto/whatsapp.dto';
+import { BroadcastService } from './broadcast.service';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappService } from './whatsapp.service';
 
@@ -27,6 +29,7 @@ export class WhatsappController {
   constructor(
     private readonly whatsapp: WhatsappService,
     private readonly scheduled: ScheduledMessageService,
+    private readonly broadcasts: BroadcastService,
   ) {}
 
   @Get('integration')
@@ -120,6 +123,35 @@ export class WhatsappController {
     @Param('id') id: string,
   ) {
     return this.scheduled.cancel(user.organizationId!, id);
+  }
+
+  @Post('broadcasts')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_broadcast', action: 'create' })
+  createBroadcast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateBroadcastDto,
+  ) {
+    return this.broadcasts.create(user.organizationId!, user.id, dto);
+  }
+
+  @Get('broadcasts/:id')
+  @RequirePermissions('whatsapp.read')
+  broadcastProgress(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.broadcasts.progress(user.organizationId!, id);
+  }
+
+  @Delete('broadcasts/:id')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_broadcast', action: 'cancel' })
+  cancelBroadcast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.broadcasts.cancel(user.organizationId!, id);
   }
 
   @Get('logs')

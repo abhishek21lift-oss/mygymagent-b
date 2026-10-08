@@ -10,6 +10,7 @@ import type { EmailProvider } from './interfaces/email-provider.interface';
 import type { MessageProvider } from './interfaces/message-provider.interface';
 import { MessageTemplateService } from './message-template.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { noteBroadcastSettled } from '../whatsapp/broadcast-counters';
 import { WaSessionManager } from '../whatsapp-web/wa-session.manager';
 
 export const EMAIL_PROVIDER = Symbol('EMAIL_PROVIDER');
@@ -320,6 +321,11 @@ export class CommunicationsService {
         orderBy: { createdAt: 'desc' },
       });
       if (!consent?.granted) {
+        // P3: a consent skip inside a broadcast counts at settle time --
+        // no wa-send job will ever settle this row.
+        if (input.broadcastId) {
+          await noteBroadcastSettled(this.prisma, input.broadcastId, 'skipped');
+        }
         return this.prisma.messageLog.create({
           data: {
             organizationId: input.organizationId,

@@ -4,6 +4,7 @@ import { UnrecoverableError, type Job } from 'bullmq';
 import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
+import { noteBroadcastSettled } from '../whatsapp/broadcast-counters';
 import type { WaSendJob } from './wa-sender.service';
 import { WaSessionManager } from './wa-session.manager';
 import { NotLinkedError, NotOnWhatsappError } from './wa-types';
@@ -39,6 +40,7 @@ export class WaSendProcessor extends WorkerHost {
       text,
       mediaKey,
       replyToMessageId,
+      broadcastId,
     } = job.data;
     const log = await this.prisma.messageLog.findFirst({
       where: { id: messageLogId, organizationId },
@@ -47,8 +49,8 @@ export class WaSendProcessor extends WorkerHost {
     // Already settled (a duplicate job), or the row is gone.
     if (!log || log.status !== 'PENDING') return;
 
-    const fail = (reason: string) =>
-      this.prisma.messageLog.update({
+    const fail = async (reason: string) => {
+      await this.prisma.messageLog.update({
         where: { id: messageLogId },
         data: {
           status: 'FAILED',
@@ -56,6 +58,26 @@ export class WaSendProcessor extends WorkerHost {
           attempts: job.attemptsMade + 1,
         },
       });
+      if (broadcastId) {
+        await noteBroadcastSettled(this.prisma, broadcastId, 'failed');
+      }
+    };
+
+    const succeed = async (id: string) => {
+      await this.prisma.messageLog.update({
+        where: { id: messageLogId },
+        data: {
+          status: 'SENT',
+          sentAt: new Date(),
+          providerMessageId: `waakg:${id}`,
+          attempts: job.attemptsMade + 1,
+          errorMessage: null,
+        },
+      });
+      if (broadcastId) {
+        await noteBroadcastSettled(this.prisma, broadcastId, 'sent');
+      }
+    };
 
     if ((await this.manager.getStatus(organizationId)) !== 'CONNECTED') {
       await fail(
@@ -83,32 +105,14 @@ export class WaSendProcessor extends WorkerHost {
           mimetype: file.mimeType,
           ...(replyToMessageId ? { replyToMessageId } : {}),
         });
-        await this.prisma.messageLog.update({
-          where: { id: messageLogId },
-          data: {
-            status: 'SENT',
-            sentAt: new Date(),
-            providerMessageId: `waakg:${id}`,
-            attempts: job.attemptsMade + 1,
-            errorMessage: null,
-          },
-        });
+        await succeed(id);
         return;
       }
       const id = await this.manager.sendNow(organizationId, to, {
         text,
         ...(replyToMessageId ? { replyToMessageId } : {}),
       });
-      await this.prisma.messageLog.update({
-        where: { id: messageLogId },
-        data: {
-          status: 'SENT',
-          sentAt: new Date(),
-          providerMessageId: `waakg:${id}`,
-          attempts: job.attemptsMade + 1,
-          errorMessage: null,
-        },
-      });
+      await succeed(id);
     } catch (error) {
       if (error instanceof NotOnWhatsappError) {
         await fail(error.message);
