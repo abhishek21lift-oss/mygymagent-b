@@ -55,6 +55,21 @@ export class AnalyticsController {
     );
   }
 
+  /// The memberships behind the outstanding total on the dashboard:
+  /// who owes, how much, on which plan, largest first.
+  @Get('outstanding')
+  @RequirePermissions('reports.view')
+  listOutstanding(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: BranchFilterQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.finance.listOutstandingMemberships(
+      user.organizationId!,
+      effectiveBranch(branchScope, query.branchId),
+    );
+  }
+
   @Get('revenue/trend')
   @RequirePermissions('reports.view')
   getRevenueTrend(

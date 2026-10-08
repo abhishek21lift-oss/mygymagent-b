@@ -30,6 +30,26 @@ interface OutstandingByCurrency {
   outstandingBalance: string;
 }
 
+export interface OutstandingMembership {
+  membershipId: string;
+  status: string;
+  member: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+  };
+  planName: string | null;
+  branch: { id: string; name: string } | null;
+  startDate: Date;
+  endDate: Date;
+  currency: string;
+  price: string;
+  /// Net of refunds.
+  paid: string;
+  outstanding: string;
+}
+
 interface NotComputable {
   key: string;
   reason: string;
@@ -346,42 +366,16 @@ export class FinanceService {
     organizationId: string,
     branchScope: string | null,
   ): Promise<OutstandingByCurrency[]> {
-    const memberships = await this.prisma.membership.findMany({
-      where: {
-        organizationId,
-        status: { in: ['ACTIVE', 'PENDING'] },
-        startDate: { lte: new Date() },
-        ...(branchScope ? { branchId: branchScope } : {}),
-      },
-      select: {
-        price: true,
-        currency: true,
-        payments: {
-          where: { status: { not: 'FAILED' } },
-          select: { amount: true, refunds: { select: { amount: true } } },
-        },
-      },
-    });
-
+    const rows = await this.listOutstandingMemberships(
+      organizationId,
+      branchScope,
+    );
     const byCurrency = new Map<string, { count: number; total: number }>();
-    for (const membership of memberships) {
-      const grossPaid = membership.payments.reduce(
-        (sum, p) => sum + Number(p.amount),
-        0,
-      );
-      const refunded = membership.payments
-        .flatMap((p) => p.refunds)
-        .reduce((sum, r) => sum + Number(r.amount), 0);
-      const outstanding = Number(membership.price) - (grossPaid - refunded);
-      if (outstanding <= 0) continue;
-
-      const entry = byCurrency.get(membership.currency) ?? {
-        count: 0,
-        total: 0,
-      };
+    for (const row of rows) {
+      const entry = byCurrency.get(row.currency) ?? { count: 0, total: 0 };
       entry.count += 1;
-      entry.total += outstanding;
-      byCurrency.set(membership.currency, entry);
+      entry.total += Number(row.outstanding);
+      byCurrency.set(row.currency, entry);
     }
 
     return Array.from(byCurrency.entries()).map(
@@ -391,6 +385,68 @@ export class FinanceService {
         outstandingBalance: total.toFixed(2),
       }),
     );
+  }
+
+  /// Every membership with money still owed on it, largest first: the
+  /// rows behind the "outstanding" totals above, so a list and the
+  /// figure it explains can never disagree.
+  async listOutstandingMemberships(
+    organizationId: string,
+    branchScope: string | null,
+  ): Promise<OutstandingMembership[]> {
+    const memberships = await this.prisma.membership.findMany({
+      where: {
+        organizationId,
+        status: { in: ['ACTIVE', 'PENDING'] },
+        startDate: { lte: new Date() },
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        price: true,
+        currency: true,
+        startDate: true,
+        endDate: true,
+        membershipPlan: { select: { name: true } },
+        branch: { select: { id: true, name: true } },
+        member: {
+          select: { id: true, firstName: true, lastName: true, phone: true },
+        },
+        payments: {
+          where: { status: { not: 'FAILED' } },
+          select: { amount: true, refunds: { select: { amount: true } } },
+        },
+      },
+    });
+
+    const rows: OutstandingMembership[] = [];
+    for (const membership of memberships) {
+      const grossPaid = membership.payments.reduce(
+        (sum, p) => sum + Number(p.amount),
+        0,
+      );
+      const refunded = membership.payments
+        .flatMap((p) => p.refunds)
+        .reduce((sum, r) => sum + Number(r.amount), 0);
+      const paid = grossPaid - refunded;
+      const outstanding = Number(membership.price) - paid;
+      if (outstanding <= 0) continue;
+      rows.push({
+        membershipId: membership.id,
+        status: membership.status,
+        member: membership.member,
+        planName: membership.membershipPlan?.name ?? null,
+        branch: membership.branch,
+        startDate: membership.startDate,
+        endDate: membership.endDate,
+        currency: membership.currency,
+        price: Number(membership.price).toFixed(2),
+        paid: paid.toFixed(2),
+        outstanding: outstanding.toFixed(2),
+      });
+    }
+    return rows.sort((x, y) => Number(y.outstanding) - Number(x.outstanding));
   }
 }
 
