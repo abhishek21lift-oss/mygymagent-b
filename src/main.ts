@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import type { NextFunction, Request, Response } from 'express';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -70,6 +71,13 @@ async function bootstrap() {
       xssFilter: true,
     }),
   );
+
+  // The API answers on its own public host; nothing it serves belongs in
+  // search results, so tell crawlers that on every response.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
 
   app.use(compression());
   app.use(cookieParser());
