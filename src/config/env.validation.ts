@@ -164,6 +164,12 @@ export const envSchema = z
     // endpoints answer 503 until it is set. Generate: `openssl rand -hex 32`.
     MFA_TOTP_KEY: z.string().optional(),
 
+    // Key for members' entry QR codes (src/attendance/member-qr-token.ts).
+    // Optional: unset, a key is derived from JWT_ACCESS_SECRET. Changing
+    // either retires every member's current code; each is replaced the
+    // next time it is shown.
+    QR_TOKEN_SECRET: z.string().min(16).optional(),
+
     // Stripe webhooks (src/payments/stripe-webhook.controller.ts) -- optional
     // at boot. Unset means POST /payments/webhook returns a clear 500 naming
     // the missing secret instead of the app failing to boot over a missing

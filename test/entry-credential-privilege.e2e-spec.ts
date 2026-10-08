@@ -57,6 +57,12 @@ describe('Entry credential privilege (e2e)', () => {
     authed(token)(
       request(app.getHttpServer()).get(`/attendance/qr-token/${memberId}`),
     );
+  const rotate = (token: string) =>
+    authed(token)(
+      request(app.getHttpServer()).post(
+        `/attendance/qr-token/${memberId}/rotate`,
+      ),
+    );
 
   beforeAll(async () => {
     const result = await createTestApp();
@@ -109,6 +115,7 @@ describe('Entry credential privilege (e2e)', () => {
         ).expect(200);
 
         await mint(token).expect(403);
+        await rotate(token).expect(403);
       },
     );
   });
@@ -130,22 +137,65 @@ describe('Entry credential privilege (e2e)', () => {
     });
   });
 
-  it('mints a credential that is not the same one twice', async () => {
-    // The route always rotates; only the hash is stored, so a second call
-    // must not be able to hand back the first plaintext token.
+  it('shows the same code until it is rotated, and rotating retires it', async () => {
+    // Viewing a member at the desk must not kill the code on their phone.
     const first = await mint(ownerToken).expect(200);
-    const second = await mint(ownerToken).expect(200);
-    expect(second.body.data.token).not.toBe(first.body.data.token);
+    const again = await mint(ownerToken).expect(200);
+    expect(again.body.data.token).toBe(first.body.data.token);
+
+    const rotated = await rotate(ownerToken).expect(201);
+    expect(rotated.body.data.token).not.toBe(first.body.data.token);
+    await asOwner(
+      request(app.getHttpServer())
+        .post('/attendance/check-in')
+        .send({ branchId, qrToken: first.body.data.token }),
+    ).expect(410);
+    const shown = await mint(ownerToken).expect(200);
+    expect(shown.body.data.token).toBe(rotated.body.data.token);
   });
 
-  it('records the mint in the audit trail', async () => {
+  it('only stores a hash of the code, never the code', async () => {
+    const shown = await mint(ownerToken).expect(200);
+    const row = await prisma.memberQrToken.findUnique({ where: { memberId } });
+    expect(JSON.stringify(row)).not.toContain(shown.body.data.token);
+  });
+
+  it('replaces a code from before codes could be shown again', async () => {
+    // Rows minted before the nonce existed hold only a hash; showing one
+    // has to issue a code that works rather than fail.
+    await prisma.memberQrToken.update({
+      where: { memberId },
+      data: { tokenNonce: null },
+    });
+    const shown = await mint(ownerToken).expect(200);
+    // Recognised (a rotated code is a 410); turned away only because this
+    // member has no membership.
+    const checkIn = await asOwner(
+      request(app.getHttpServer())
+        .post('/attendance/check-in')
+        .send({ branchId, qrToken: shown.body.data.token }),
+    ).expect(200);
+    expect(checkIn.body.data.reason).toBe('no active membership');
+    expect((await mint(ownerToken).expect(200)).body.data.token).toBe(
+      shown.body.data.token,
+    );
+  });
+
+  it('records showing and rotating in the audit trail', async () => {
     // Issuing building access is exactly the kind of act that has to be
     // attributable after the fact.
+    await rotate(ownerToken).expect(201);
     await mint(ownerToken).expect(200);
-    const entry = await prisma.auditLog.findFirst({
-      where: { resource: 'member_qr_token' },
-      orderBy: { createdAt: 'desc' },
-    });
-    expect(entry).not.toBeNull();
+    for (const action of ['rotate', 'view']) {
+      let entry = null;
+      // The interceptor writes after the response has gone out.
+      for (let attempt = 0; attempt < 20 && !entry; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 100));
+        entry = await prisma.auditLog.findFirst({
+          where: { resource: 'member_qr_token', action },
+        });
+      }
+      expect(entry).not.toBeNull();
+    }
   });
 });

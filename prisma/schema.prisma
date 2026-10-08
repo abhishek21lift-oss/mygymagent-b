@@ -1176,10 +1176,14 @@ model MemberQrToken {
   // this column *and* a unique index, which is what one row per member
   // means here. The model declared only the unique, so `migrate diff`
   // wanted to drop the primary key (B-P0-12).
-  memberId  String   @id @unique
-  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
-  rotatesAt DateTime
+  memberId   String   @id @unique
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  // Recomputes the member's current code with the server's key (see
+  // src/attendance/member-qr-token.ts). Null on rows minted before it
+  // existed; those are replaced the next time the code is shown.
+  tokenNonce String?
+  rotatesAt  DateTime
 
   @@map("member_qr_tokens")
 }

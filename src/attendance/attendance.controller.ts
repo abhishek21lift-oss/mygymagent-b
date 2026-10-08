@@ -84,13 +84,30 @@ export class AttendanceController {
    */
   @Get('qr-token/:memberId')
   @RequireAnyPermission('attendance.create', 'attendance.create_assigned')
-  @Audited({ resource: 'member_qr_token', action: 'generate' })
+  @Audited({ resource: 'member_qr_token', action: 'view' })
   qrToken(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
     @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.attendanceService.getOrRotateQrToken(
+    return this.attendanceService.currentQrToken(
+      user.organizationId!,
+      memberId,
+      assignmentScope,
+    );
+  }
+
+  /** Retires the member's code and issues a new one. Same privilege as
+   * reading it: both hand out a working entry credential. */
+  @Post('qr-token/:memberId/rotate')
+  @RequireAnyPermission('attendance.create', 'attendance.create_assigned')
+  @Audited({ resource: 'member_qr_token', action: 'rotate' })
+  rotateQrToken(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('memberId') memberId: string,
+    @CurrentAssignmentScope() assignmentScope: string | null,
+  ) {
+    return this.attendanceService.rotateQrToken(
       user.organizationId!,
       memberId,
       assignmentScope,

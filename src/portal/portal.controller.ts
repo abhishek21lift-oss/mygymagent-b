@@ -92,17 +92,22 @@ export class PortalController {
     return this.portal.progress(user.id);
   }
 
+  /** The member's current check-in code: the same one each time, so
+   * opening the portal never retires a code already printed or shared. */
+  @Get('check-in-code')
+  checkInCode(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.checkInCode(user.id);
+  }
+
   /**
-   * POST, not GET: only a hash is stored, so the code can't be read
-   * back -- each call mints a new one and retires the last. Audited for
-   * the same reason the staff mint is: it issues a working credential
-   * for the building's front door.
+   * A new code, retiring the last. Audited for the same reason the staff
+   * rotation is: it issues a working credential for the front door.
    */
   @Post('check-in-code')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Audited({ resource: 'member_qr_token', action: 'generate' })
-  checkInCode(@CurrentUser() user: AuthenticatedUser) {
-    return this.portal.checkInCode(user.id);
+  @Audited({ resource: 'member_qr_token', action: 'rotate' })
+  newCheckInCode(@CurrentUser() user: AuthenticatedUser) {
+    return this.portal.newCheckInCode(user.id);
   }
 
   @Get('billing')
