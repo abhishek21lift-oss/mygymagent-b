@@ -194,6 +194,8 @@ model Organization {
   invoiceSequences         InvoiceSequence[]
   riskProfiles             MemberRiskProfile[]
   segments                 MemberSegment[]
+  autoReplyRules           AutoReplyRule[]
+  botOptOuts               BotOptOut[]
   recommendedActions       RecommendedAction[]
 
   loyaltyAccounts          LoyaltyAccount[]
@@ -3232,10 +3234,60 @@ model InboundMessage {
   matchedMemberId String?
   matchedMember   Member? @relation(fields: [matchedMemberId], references: [id], onDelete: SetNull)
 
+  /// Group chat JID (`...@g.us`) when this arrived in a group; null for
+  /// 1:1 chats. Replies go back to the group, member match is the sender.
+  groupJid String?
+
   createdAt DateTime @default(now())
 
   @@index([organizationId, createdAt])
   @@map("inbound_messages")
+}
+
+/// One staff-written keyword answer (P4): evaluated before the gym's own
+/// intents. Priority orders evaluation; scope limits where it fires.
+model AutoReplyRule {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  keyword   String
+  matchType AutoReplyMatch @default(EXACT)
+  scope     AutoReplyScope @default(ALL)
+  answer    String
+  enabled   Boolean        @default(true)
+  priority  Int            @default(0)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, enabled])
+  @@map("auto_reply_rules")
+}
+
+enum AutoReplyMatch {
+  EXACT
+  CONTAINS
+  REGEX
+}
+
+enum AutoReplyScope {
+  ALL
+  PRIVATE
+  GROUP
+}
+
+/// `#stop` opt-out: no auto reply (staff rule, bot, or gym intent) answers
+/// this number until `#start`. One row per number per gym.
+model BotOptOut {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  phone          String
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, phone])
+  @@map("bot_opt_outs")
 }
 
 // ----------------------------------------------------------------------------
