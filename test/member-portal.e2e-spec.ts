@@ -819,6 +819,22 @@ describe('Member portal (e2e, F-P0-1)', () => {
       expect(checkedIn.body.data.memberId).toBe(memberId);
     });
 
+    it('shows the same check-in code each time it is opened', async () => {
+      const shown = await asMember(
+        request(app.getHttpServer()).get('/portal/check-in-code'),
+      ).expect(200);
+      const again = await asMember(
+        request(app.getHttpServer()).get('/portal/check-in-code'),
+      ).expect(200);
+      expect(again.body.data.token).toBe(shown.body.data.token);
+      expect(again.body.data).not.toHaveProperty('memberId');
+      // And it is the code the desk sees on the member's profile.
+      const desk = await asOwner(
+        request(app.getHttpServer()).get(`/attendance/qr-token/${memberId}`),
+      ).expect(200);
+      expect(desk.body.data.token).toBe(shown.body.data.token);
+    });
+
     it('shows issued bills with a balance that ignores failed payments', async () => {
       const res = await asMember(
         request(app.getHttpServer()).get('/portal/billing'),

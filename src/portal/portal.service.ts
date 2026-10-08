@@ -402,18 +402,26 @@ export class PortalService {
   }
 
   /**
-   * The member's own check-in QR code.
-   *
-   * Minting is the only way to get one: only the hash is stored, so the
-   * plaintext a member scans cannot be read back later. That makes this
-   * a write -- each call replaces the previous code -- and it reuses the
-   * staff mint rather than a second copy of it, so the credential a
-   * member shows and the one the desk would print are the same thing.
+   * The member's own check-in QR code: the same credential the desk sees
+   * on their profile, read rather than re-minted, so looking at it never
+   * retires the copy on a printed card.
    */
   async checkInCode(userId: string) {
     const { id, organizationId } = await this.requireMember(userId);
-    const { token, rotatesAt } =
-      await this.attendanceService.getOrRotateQrToken(organizationId, id);
+    const { token, rotatesAt } = await this.attendanceService.currentQrToken(
+      organizationId,
+      id,
+    );
+    return { token, rotatesAt };
+  }
+
+  /** A new check-in code; the previous one stops working at once. */
+  async newCheckInCode(userId: string) {
+    const { id, organizationId } = await this.requireMember(userId);
+    const { token, rotatesAt } = await this.attendanceService.rotateQrToken(
+      organizationId,
+      id,
+    );
     return { token, rotatesAt };
   }
 

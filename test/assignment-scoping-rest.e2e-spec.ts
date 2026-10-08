@@ -269,6 +269,11 @@ describe('Assignment scoping outside Members (e2e, F-05)', () => {
           `/attendance/qr-token/${unassignedMemberId}`,
         ),
       ).expect(404);
+      await asTrainer(
+        request(app.getHttpServer()).post(
+          `/attendance/qr-token/${unassignedMemberId}/rotate`,
+        ),
+      ).expect(404);
 
       await asOwner(
         request(app.getHttpServer()).get(

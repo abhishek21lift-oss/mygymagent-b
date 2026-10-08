@@ -23,17 +23,22 @@ import {
   startOfZonedDay,
   zonedBound,
 } from '../common/time/zoned';
+import { ConfigService } from '@nestjs/config';
 import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CheckInDto } from './dto/check-in.dto';
 import type { DeviceKind } from '@prisma/client';
+import {
+  currentQrToken,
+  freshQrCredential,
+  qrTokenHash,
+  qrTokenKey,
+} from './member-qr-token';
 import type { DeviceCheckInDto } from './dto/device-check-in.dto';
 import type {
   CreateDeviceEnrolmentDto,
   ListDeviceEnrolmentsQueryDto,
 } from './dto/device-enrolment.dto';
-
-const QR_VALIDITY_DAYS = 30;
 
 /**
  * A second allowed kiosk check-in by the same member on the same device
@@ -79,6 +84,7 @@ export class AttendanceService {
     private readonly events: EventEmitter2,
     private readonly rateLimit: PublicRateLimitService,
     private readonly files: FileStorageService,
+    private readonly config: ConfigService,
   ) {}
 
   async list(
@@ -335,20 +341,93 @@ export class AttendanceService {
   }
 
   /**
-   * QR credential: always (re)generates. The plaintext token is returned
-   * once here and never stored -- only its sha256 hash persists. Callers
-   * must surface `token` to the member immediately (QR render); a later
-   * GET cannot recover the same value, it mints a new one.
+   * The member's current entry code, the same one every time it is asked
+   * for until it is rotated or reaches `rotatesAt`. Viewing a member at
+   * the desk and opening the portal therefore never retire the code the
+   * member is carrying; a new one is minted only when there is no usable
+   * code (none yet, expired, or a row from before codes were readable).
    */
-  async getOrRotateQrToken(
+  async currentQrToken(
     organizationId: string,
     memberId: string,
     assignmentScope: string | null = null,
   ): Promise<{ token: string; rotatesAt: string; memberId: string }> {
-    // This mints a working entry credential, so it must respect assignment
-    // scope like any other member-addressed route: an assignment-scoped
-    // caller asking for a member who isn't theirs gets the same "not found"
-    // as if the member were in another org, never a usable token.
+    const id = await this.qrTokenMember(
+      organizationId,
+      memberId,
+      assignmentScope,
+    );
+    const key = qrTokenKey(this.config);
+    // Compare-and-swap rather than a plain upsert: two screens asking at
+    // once must end up showing the same code, not one each with the
+    // first already dead. A writer that loses re-reads the winner's row.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const row = await this.prisma.memberQrToken.findUnique({
+        where: { memberId: id },
+      });
+      const token = row && currentQrToken(key, row);
+      if (row && token) {
+        return { token, rotatesAt: row.rotatesAt.toISOString(), memberId: id };
+      }
+      const fresh = freshQrCredential(key, id);
+      const written = row
+        ? await this.prisma.memberQrToken.updateMany({
+            where: { memberId: id, tokenHash: row.tokenHash },
+            data: fresh.data,
+          })
+        : await this.prisma.memberQrToken.createMany({
+            data: [{ memberId: id, ...fresh.data }],
+            skipDuplicates: true,
+          });
+      if (written.count === 1) {
+        return {
+          token: fresh.token,
+          rotatesAt: fresh.data.rotatesAt.toISOString(),
+          memberId: id,
+        };
+      }
+    }
+    throw new ConflictException('Entry code is being changed; try again');
+  }
+
+  /**
+   * A new entry code, retiring the old one at once: for a lost phone, a
+   * shared screenshot, or a printed card that walked off.
+   */
+  async rotateQrToken(
+    organizationId: string,
+    memberId: string,
+    assignmentScope: string | null = null,
+  ): Promise<{ token: string; rotatesAt: string; memberId: string }> {
+    const id = await this.qrTokenMember(
+      organizationId,
+      memberId,
+      assignmentScope,
+    );
+    const fresh = freshQrCredential(qrTokenKey(this.config), id);
+    await this.prisma.memberQrToken.upsert({
+      where: { memberId: id },
+      create: { memberId: id, ...fresh.data },
+      update: fresh.data,
+    });
+    return {
+      token: fresh.token,
+      rotatesAt: fresh.data.rotatesAt.toISOString(),
+      memberId: id,
+    };
+  }
+
+  /**
+   * Both routes hand out a working entry credential, so both respect
+   * assignment scope like any other member-addressed route: an
+   * assignment-scoped caller asking for a member who isn't theirs gets
+   * the same "not found" as if the member were in another org.
+   */
+  private async qrTokenMember(
+    organizationId: string,
+    memberId: string,
+    assignmentScope: string | null,
+  ): Promise<string> {
     const member = await this.prisma.member.findFirst({
       where: {
         id: memberId,
@@ -359,16 +438,7 @@ export class AttendanceService {
       select: { id: true },
     });
     if (!member) throw new NotFoundException('Member not found');
-    const token = randomBytes(32).toString('hex');
-    const rotatesAt = new Date(
-      Date.now() + QR_VALIDITY_DAYS * 24 * 60 * 60 * 1000,
-    );
-    await this.prisma.memberQrToken.upsert({
-      where: { memberId: member.id },
-      create: { memberId: member.id, tokenHash: sha256Hex(token), rotatesAt },
-      update: { tokenHash: sha256Hex(token), rotatesAt },
-    });
-    return { token, rotatesAt: rotatesAt.toISOString(), memberId: member.id };
+    return member.id;
   }
 
   /**
@@ -388,7 +458,7 @@ export class AttendanceService {
     // nothing: what is indexed is a sha256 of 32 random bytes, so timing
     // the lookup cannot walk anyone toward a valid token.
     const row = await this.prisma.memberQrToken.findUnique({
-      where: { tokenHash: sha256Hex(qrToken) },
+      where: { tokenHash: qrTokenHash(qrToken) },
       select: { memberId: true, rotatesAt: true },
     });
     if (row) {
@@ -812,7 +882,7 @@ export class AttendanceService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
-    // Same rule as `getOrRotateQrToken`: this grants entry to the
+    // Same rule as `qrTokenMember`: this grants entry to the
     // building, so an assignment-scoped caller naming a member who is not
     // theirs gets the same "not found" as if the member were in another
     // organization.

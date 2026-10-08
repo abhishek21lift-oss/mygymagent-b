@@ -554,6 +554,12 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
       ).expect(200);
       return res.body.data.token as string;
     };
+    const rotateQr = async (id: string) => {
+      const res = await asOwner(
+        request(app.getHttpServer()).post(`/attendance/qr-token/${id}/rotate`),
+      ).expect(201);
+      return res.body.data.token as string;
+    };
 
     describe('POST /kiosk/session', () => {
       it('tells the kiosk who it is, and nothing secret', async () => {
@@ -680,7 +686,7 @@ describe('Kiosk and device check-in reconciliation (e2e)', () => {
 
     it('refuses a rotated QR code without writing a row', async () => {
       const old = await mintQr(memberId);
-      await mintQr(memberId);
+      await rotateQr(memberId);
       const before = await prisma.attendance.count({ where: { memberId } });
       const res = await checkIn({ deviceKey: kioskKey, qrToken: old }).expect(
         200,
