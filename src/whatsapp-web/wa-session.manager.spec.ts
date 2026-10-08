@@ -162,6 +162,20 @@ describe('WaSessionManager close handling', () => {
   });
 });
 
+describe('WaSessionManager failures', () => {
+  it('releases the lock when socket creation fails, so retry is honest', async () => {
+    const { manager, redis, factory } = setup();
+    factory.create.mockRejectedValueOnce(new Error('no network'));
+    await expect(manager.connect('o1')).rejects.toThrow('no network');
+    expect(
+      [...redis.data.keys()].filter((k) => k.endsWith(':lock')),
+    ).toHaveLength(0);
+    await manager.connect('o1');
+    expect(factory.create).toHaveBeenCalledTimes(2);
+    await manager.onApplicationShutdown();
+  });
+});
+
 describe('WaSessionManager bootstrap', () => {
   it('resumes every non-LOGGED_OUT session', async () => {
     const { manager, prisma, factory } = setup();

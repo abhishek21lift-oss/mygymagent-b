@@ -179,10 +179,28 @@ export class WaSessionManager
       },
       update: { status: 'PAIRING', lastError: null },
     });
-    const socket = await this.factory.create({
-      organizationId,
-      waSessionId: session.id,
-    });
+    let socket: WaSocket;
+    try {
+      socket = await this.factory.create({
+        organizationId,
+        waSessionId: session.id,
+      });
+    } catch (error) {
+      // A socket that never opened must not hold the lock: the next
+      // attempt would otherwise report "already running on another
+      // server" for a full TTL while nothing is.
+      await this.releaseLock(organizationId).catch(() => undefined);
+      await this.prisma.waSession
+        .update({
+          where: { organizationId },
+          data: {
+            status: 'DISCONNECTED',
+            lastError: error instanceof Error ? error.message : String(error),
+          },
+        })
+        .catch(() => undefined);
+      throw error;
+    }
     const entry: Entry = {
       socket,
       waSessionId: session.id,
