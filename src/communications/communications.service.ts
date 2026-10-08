@@ -10,6 +10,7 @@ import type { EmailProvider } from './interfaces/email-provider.interface';
 import type { MessageProvider } from './interfaces/message-provider.interface';
 import { MessageTemplateService } from './message-template.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { sessionIdFor, WaAkgProvider } from '../whatsapp/wa-akg.provider';
 
 export const EMAIL_PROVIDER = Symbol('EMAIL_PROVIDER');
 export const WHATSAPP_PROVIDER = Symbol('WHATSAPP_PROVIDER');
@@ -35,7 +36,7 @@ interface SendInput {
  * (org override or system default), per-org branding, consent
  * enforcement, delivery logging, and provider dispatch, in that order.
  * See README.md for what's real (EMAIL via SmtpEmailProvider, WHATSAPP
- * via MetaWhatsappProvider) vs. typed but unimplemented (SMS/PUSH).
+ * via WaAkgProvider) vs. typed but unimplemented (SMS/PUSH).
  *
  * Callers fall into two shapes:
  *  - Synchronous, time-sensitive transactional flows (password reset,
@@ -62,6 +63,7 @@ export class CommunicationsService {
     private readonly whatsappProvider: MessageProvider,
     @Inject(SMS_PROVIDER) private readonly smsProvider: MessageProvider,
     @Inject(PUSH_PROVIDER) private readonly pushProvider: MessageProvider,
+    private readonly waAkg: WaAkgProvider,
   ) {}
 
   /**
@@ -227,11 +229,10 @@ export class CommunicationsService {
   }
 
   /**
-   * Whether this gym's automated messages can go on WhatsApp: its own
-   * number is linked through WhatsApp Web and sending through it is on.
-   * The Meta Cloud API is deliberately not counted -- it only delivers
-   * business-initiated messages as pre-approved templates, and automations
-   * send text. See src/automation/member-messenger.service.ts.
+   * Whether this gym's automated messages can go on WhatsApp: its WA-AKG
+   * session is connected and sending through it is on. Automations send
+   * free-form text, which the WA-AKG session delivers from the gym's own
+   * number. See src/automation/member-messenger.service.ts.
    */
   async organizationName(organizationId: string): Promise<string> {
     const organization = await this.prisma.organization.findUnique({
@@ -241,37 +242,33 @@ export class CommunicationsService {
     return organization?.name ?? '';
   }
 
-  /** Whether any WhatsApp sending works for this gym: its own linked
-   * number, or a connected Meta Cloud API number. */
+  /** Whether any WhatsApp sending works for this gym: its WA-AKG session
+   * is connected and opted into sending. The old Meta Cloud API row is
+   * deliberately not counted -- nothing writes it anymore. */
   async whatsappReadiness(organizationId: string): Promise<boolean> {
-    if (await this.ownWhatsappNumberReady(organizationId)) return true;
-    const integration = await this.prisma.whatsappIntegration.findUnique({
-      where: { organizationId },
-      select: { status: true },
-    });
-    return integration?.status === 'CONNECTED';
+    return this.ownWhatsappNumberReady(organizationId);
   }
 
-  /** Whether the gym's own number is linked and online, whatever it chose
+  /** Whether the gym's WA-AKG session is connected, whatever it chose
    * for sending reminders. */
   async ownWhatsappNumberLinked(organizationId: string): Promise<boolean> {
-    if (this.config.get<string>('WHATSAPP_WEB_ENABLED') !== 'true')
-      return false;
-    const session = await this.prisma.whatsappWebSession.findUnique({
-      where: { organizationId },
-      select: { status: true },
-    });
+    const session = await this.waAkg.getSession(
+      sessionIdFor(organizationId),
+    );
     return session?.status === 'CONNECTED';
   }
 
+  /**
+   * Whether this gym's automated messages can go on WhatsApp: its WA-AKG
+   * session is connected and sending through it is on.
+   */
   async ownWhatsappNumberReady(organizationId: string): Promise<boolean> {
-    if (this.config.get<string>('WHATSAPP_WEB_ENABLED') !== 'true')
-      return false;
-    const session = await this.prisma.whatsappWebSession.findUnique({
+    if (!(await this.ownWhatsappNumberLinked(organizationId))) return false;
+    const prefs = await this.prisma.whatsappWebSession.findUnique({
       where: { organizationId },
-      select: { status: true, useForSending: true },
+      select: { useForSending: true },
     });
-    return session?.status === 'CONNECTED' && session.useForSending;
+    return prefs?.useForSending ?? false;
   }
 
   private frontendUrl(): string {
@@ -301,8 +298,8 @@ export class CommunicationsService {
     variables?: Record<string, string>;
     /** What the log calls this message; staff-composed by default. */
     templateKey?: string;
-    /** WHATSAPP: from the gym's own linked number regardless of its
-     * sending choice (see WhatsappRouterProvider). */
+    /** WHATSAPP: accepted and ignored -- every send already goes from
+     * the gym's own WA-AKG number. */
     fromOwnNumber?: boolean;
   }) {
     const templateKey = input.templateKey ?? 'ad_hoc';

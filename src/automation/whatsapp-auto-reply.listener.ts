@@ -56,7 +56,7 @@ interface Gym {
  * classes, schedules and memberships"; before this, a reply reached the
  * inbox and nobody answered it until staff happened to look.
  *
- * Only through the gym's own linked number (WhatsApp Web), and only while
+ * Only through the gym's own linked number (WA-AKG), and only while
  * the gym has auto-replies on. Every reply is logged like any other
  * message (`auto_reply.<intent>`), and staff still see every inbound text.
  */
@@ -164,9 +164,9 @@ export class WhatsappAutoReplyListener {
   }
 
   private async enabled(organizationId: string): Promise<boolean> {
-    // Only a linked number: the reply has to come from the number the
-    // member wrote to. Not tied to "send reminders from this number" --
-    // a gym that keeps reminders on the official API still answers chats.
+    // Only a linked WA-AKG session: the reply has to come from the number
+    // the member wrote to. Not tied to "send reminders from this number" --
+    // a gym that keeps reminders off still answers chats.
     if (!(await this.communications.ownWhatsappNumberLinked(organizationId)))
       return false;
     const session = await this.prisma.whatsappWebSession.findUnique({
