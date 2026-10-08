@@ -27,7 +27,9 @@ export class PaymentsController {
       query,
       query.memberId,
       query.membershipId,
-      branchScope,
+      // An enforced branch scope always wins over a requested branch.
+      branchScope ?? query.branchId ?? null,
+      query.date,
     );
   }
 

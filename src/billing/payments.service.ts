@@ -16,6 +16,7 @@ import {
   type PaymentRecordedEvent,
   type PaymentRefundedEvent,
 } from '../events/domain-events';
+import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import type { CreatePaymentDto } from './dto/create-payment.dto';
@@ -37,12 +38,26 @@ export class PaymentsService {
     memberId?: string,
     membershipId?: string,
     branchScope: string | null = null,
+    /** YYYY-MM-DD, a day in the gym's timezone -- the window the
+     * dashboard's Today collection counts. */
+    date?: string,
   ) {
+    const timezone = date
+      ? await organizationTimezone(this.prisma, organizationId)
+      : null;
     const where: Prisma.PaymentWhereInput = {
       organizationId,
       ...(memberId ? { memberId } : {}),
       ...(membershipId ? { membershipId } : {}),
       ...(branchScope ? { branchId: branchScope } : {}),
+      ...(date && timezone
+        ? {
+            createdAt: {
+              gte: zonedBound(date, timezone, 'from'),
+              lt: zonedBound(date, timezone, 'to'),
+            },
+          }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.payment.findMany({

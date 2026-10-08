@@ -41,6 +41,7 @@ export class AttendanceController {
     return this.attendanceService.list(user.organizationId!, query, {
       branchId: branchScope ?? query.branchId,
       memberId: query.memberId,
+      date: query.date,
       assignmentScope,
     });
   }
