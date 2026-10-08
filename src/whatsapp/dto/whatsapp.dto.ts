@@ -54,3 +54,22 @@ export class ScheduleWhatsAppMessageDto {
   @IsString()
   memberId?: string;
 }
+
+export class CreateBroadcastDto {
+  /** MemberSegment id, org-scoped. */
+  @IsString()
+  segmentId!: string;
+
+  @IsString()
+  text!: string;
+
+  /** File id of an uploaded image, same rules as single sends. */
+  @IsOptional()
+  @IsString()
+  mediaKey?: string;
+
+  /** ISO datetime with offset; absent means send now. */
+  @IsOptional()
+  @IsISO8601()
+  sendAt?: string;
+}

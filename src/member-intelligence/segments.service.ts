@@ -227,6 +227,31 @@ export class SegmentsService {
     }));
   }
 
+  /**
+   * Phones for a broadcast: live rule evaluation (not the stored
+   * assignments, which go stale), org-scoped. Missing/foreign segment
+   * is 404 -- never an empty fan-out.
+   */
+  async getSegmentPhones(
+    organizationId: string,
+    segmentId: string,
+  ): Promise<{ memberId: string; phone: string | null }[]> {
+    const segment = await this.prisma.memberSegment.findFirst({
+      where: { id: segmentId, organizationId },
+    });
+    if (!segment) {
+      throw new NotFoundException(`Segment ${segmentId} not found`);
+    }
+    const rules = segment.rules as unknown as SegmentRule[];
+    const members = await this.resolveSegmentMembers(
+      organizationId,
+      rules,
+      10000,
+      0,
+    );
+    return members.map((m) => ({ memberId: m.id, phone: m.phone ?? null }));
+  }
+
   async countSegmentMembers(
     organizationId: string,
     segmentId: string,
@@ -262,6 +287,7 @@ export class SegmentsService {
           firstName: true,
           lastName: true,
           email: true,
+          phone: true,
           status: true,
           joinedAt: true,
           riskProfile: { select: { riskLevel: true } },

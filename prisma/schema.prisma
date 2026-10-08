@@ -180,6 +180,7 @@ model Organization {
   waSessions               WaSession[]
   inboundMessages          InboundMessage[]
   scheduledMessages        ScheduledMessage[]
+  broadcasts               Broadcast[]
   memberTags               MemberTag[]
   leaveTypes               LeaveType[]
   leaveBalances            LeaveBalance[]
@@ -2560,12 +2561,56 @@ model MessageLog {
   /// through providers and logs.
   body String?
 
+  /// P3 broadcast this row was fanned out from, if any -- the progress
+  /// join key. Null for one-off sends.
+  broadcastId String?
+  broadcast   Broadcast? @relation(fields: [broadcastId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([organizationId, createdAt])
   @@index([memberId])
   @@index([providerMessageId])
+  @@index([broadcastId])
   @@map("message_logs")
+}
+
+/// One staff-composed message to many members (P3 segment broadcast):
+/// audience resolved once at create, delivery fanned out over the normal
+/// paced/scheduled queues. Counters advance as processors settle rows;
+/// DONE when sent+failed+skipped reaches total.
+model Broadcast {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  segmentId   String
+  body        String
+  mediaFileId String?
+  sendAt      DateTime?
+
+  status  BroadcastStatus @default(PENDING)
+  total   Int             @default(0)
+  queued  Int             @default(0)
+  sent    Int             @default(0)
+  failed  Int             @default(0)
+  skipped Int             @default(0)
+
+  logs MessageLog[]
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@map("broadcasts")
+}
+
+enum BroadcastStatus {
+  PENDING
+  SENDING
+  DONE
+  CANCELLED
 }
 
 /// -- src/automation/ -----------------------------------------------------

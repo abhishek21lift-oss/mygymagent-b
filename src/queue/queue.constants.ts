@@ -21,6 +21,7 @@ export const JOB_NAMES = {
   DELIVER_PUSH: 'deliver-push',
   SEND_WHATSAPP_WEB: 'send-whatsapp-web',
   SEND_SCHEDULED_WHATSAPP: 'send-scheduled-whatsapp',
+  SEND_BROADCAST_ITEM: 'send-broadcast-item',
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',

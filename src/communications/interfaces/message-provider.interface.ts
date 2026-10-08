@@ -43,6 +43,8 @@ export interface MessageProvider {
     /** WhatsApp only (P1): provider id to quote; unknown ids send
      * without a quote rather than failing. */
     replyToMessageId?: string;
+    /** P3 broadcast this send fans out from, if any. */
+    broadcastId?: string;
   }): Promise<string | void | QueuedSend>;
   /** Whether a send could succeed at all. Optional; absent means "assume
    * yes", which is the generic HTTP provider's honest answer. */

@@ -2,7 +2,9 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CommunicationsModule } from '../communications/communications.module';
+import { MemberIntelligenceModule } from '../member-intelligence/member-intelligence.module';
 import { QUEUE_NAMES } from '../queue/queue.constants';
+import { BroadcastService } from './broadcast.service';
 import { ScheduledMessageProcessor } from './scheduled-message.processor';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappController } from './whatsapp.controller';
@@ -19,6 +21,7 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
   imports: [
     EventEmitterModule,
     CommunicationsModule,
+    MemberIntelligenceModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_SCHEDULED }),
   ],
   controllers: [WhatsappController],
@@ -27,9 +30,10 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     WhatsappInboundFiler,
     ScheduledMessageService,
     ScheduledMessageProcessor,
+    BroadcastService,
   ],
   // BullModule re-exported so the Command Center reads this module's
   // `wa-scheduled` Queue instance rather than registering a duplicate.
-  exports: [BullModule, WhatsappService, ScheduledMessageService],
+  exports: [BullModule, WhatsappService, ScheduledMessageService, BroadcastService],
 })
 export class WhatsappModule {}
