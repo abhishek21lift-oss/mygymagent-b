@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { paginate } from '../common/dto/pagination-query.dto';
+import { assertTrainerFree } from '../common/scheduling/trainer-clash';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   AddTimeOffDto,
@@ -47,7 +48,8 @@ const INCLUDE = {
  * them read-only so the calendar page shows one timeline without a
  * second writable PT copy.
  *
- * Same-STAFF overlaps are rejected (a trainer cannot be in two places);
+ * Same-STAFF overlaps are rejected (a trainer cannot be in two places),
+ * against PT sessions as well as appointments (common/scheduling);
  * same-member overlaps are allowed (back-to-back trial + consultation
  * is a legitimate front-desk flow, and blocking it would create false
  * conflicts when the member record is shared across branches).
@@ -130,21 +132,15 @@ export class AppointmentsService {
     end: Date,
     ignoreId?: string,
   ) {
-    const clash = await this.prisma.appointment.findFirst({
-      where: {
-        organizationId,
-        staffId,
-        status: { in: ['BOOKED', 'RESCHEDULED'] },
-        ...(ignoreId ? { id: { not: ignoreId } } : {}),
-        startTime: { lt: end },
-        endTime: { gt: start },
-      },
-      select: { id: true, title: true, startTime: true },
+    // Across appointments *and* PT sessions: the same trainer is booked in
+    // both, and checking one table let them be double-booked.
+    await assertTrainerFree(this.prisma, {
+      organizationId,
+      userId: staffId,
+      start,
+      end,
+      ignoreAppointmentId: ignoreId,
     });
-    if (clash)
-      throw new BadRequestException(
-        `Trainer is already booked at this time (${clash.title})`,
-      );
   }
 
   async list(

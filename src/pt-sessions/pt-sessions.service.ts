@@ -16,6 +16,10 @@ import {
   type PtSessionCompletedEvent,
   type PtSessionCancelledEvent,
 } from '../events/domain-events';
+import {
+  assertTrainerFree,
+  trainerUserId,
+} from '../common/scheduling/trainer-clash';
 import { PrismaService } from '../prisma/prisma.service';
 import type { BookPtSessionDto } from './dto/book-pt-session.dto';
 import type { UpdatePtSessionDto } from './dto/update-pt-session.dto';
@@ -139,6 +143,26 @@ export class PtSessionsService {
     if (!trainer)
       throw new BadRequestException('Trainer not found in this organization');
   }
+
+  /** `trainerId` is a StaffProfile id; the shared check is keyed by user. */
+  private async assertTrainerFreeAcrossCalendar(
+    organizationId: string,
+    trainerId: string,
+    start: Date,
+    end: Date,
+    ignorePtSessionId?: string,
+  ) {
+    const userId = await trainerUserId(this.prisma, organizationId, trainerId);
+    if (!userId) return;
+    await assertTrainerFree(this.prisma, {
+      organizationId,
+      userId,
+      start,
+      end,
+      ignorePtSessionId,
+    });
+  }
+
   private async assertBranchBelongsToOrg(
     organizationId: string,
     branchId: string,
@@ -183,6 +207,14 @@ export class PtSessionsService {
     if (overlapping)
       throw new BadRequestException(
         'Time conflicts with an existing session for member, trainer, or branch',
+      );
+    // The same trainer can also be booked through an appointment.
+    if (dto.trainerId)
+      await this.assertTrainerFreeAcrossCalendar(
+        organizationId,
+        dto.trainerId,
+        new Date(dto.startTime),
+        new Date(dto.endTime),
       );
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.ptSession.create({
@@ -261,6 +293,14 @@ export class PtSessionsService {
       if (overlapping)
         throw new BadRequestException(
           'Updated time conflicts with an existing session for member, trainer, or branch',
+        );
+      if (trainerId)
+        await this.assertTrainerFreeAcrossCalendar(
+          organizationId,
+          trainerId,
+          new Date(startTime),
+          new Date(endTime),
+          id,
         );
     }
     return this.prisma.$transaction(async (tx) => {

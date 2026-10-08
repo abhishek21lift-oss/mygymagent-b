@@ -132,24 +132,4 @@ export class WorkoutSessionsController {
       assignmentScope,
     );
   }
-
-  @Get('member/:memberId/exercise/:exerciseId/history')
-  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
-  getMemberExerciseHistory(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('memberId') memberId: string,
-    @Param('exerciseId') exerciseId: string,
-    @Query('limit') limit?: string,
-    @CurrentBranchScope() branchScope: string | null = null,
-    @CurrentAssignmentScope() assignmentScope: string | null = null,
-  ) {
-    return this.workoutSessionsService.getMemberExerciseHistory(
-      user.organizationId!,
-      memberId,
-      exerciseId,
-      limit ? parseInt(limit, 10) : 20,
-      branchScope,
-      assignmentScope,
-    );
-  }
 }
