@@ -39,6 +39,15 @@ export interface WaMessageContent {
 export interface WaMessage {
   key: WaMessageKey;
   message?: WaMessageContent | null;
+  /** Sender-display name WhatsApp reports on inbound messages. */
+  pushName?: string | null;
+}
+
+/** A contact row from Baileys' address-book sync. */
+export interface WaContactEvent {
+  id?: string | null;
+  name?: string | null;
+  notify?: string | null;
 }
 
 export interface WaMessageUpdate {
@@ -50,6 +59,8 @@ export interface WaEventMap {
   'connection.update': WaConnectionUpdate;
   'messages.upsert': { messages: WaMessage[]; type: string };
   'messages.update': WaMessageUpdate[];
+  'contacts.upsert': WaContactEvent[];
+  'contacts.update': WaContactEvent[];
 }
 
 export interface WaSocket {
@@ -68,6 +79,8 @@ export interface WaSocket {
     ...jids: string[]
   ): Promise<Array<{ jid: string; exists: boolean }> | undefined>;
   requestPairingCode(phoneNumber: string): Promise<string>;
+  /** Profile picture URL, or null when the contact has none. */
+  profilePictureUrl(jid: string): Promise<string | null>;
   logout(): Promise<void>;
   end(error?: Error): void;
 }

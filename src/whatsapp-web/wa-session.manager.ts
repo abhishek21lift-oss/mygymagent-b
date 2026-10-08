@@ -24,6 +24,7 @@ import {
   WA_DISCONNECT,
   WA_SOCKET_FACTORY,
   type WaConnectionUpdate,
+  type WaContactEvent,
   type WaMessage,
   type WaMessageUpdate,
   type WaSocket,
@@ -245,6 +246,12 @@ export class WaSessionManager
           this.logger.warn(`Receipt handling failed: ${describe(error)}`),
         ),
     );
+    const onContacts = (contacts: WaContactEvent[]) =>
+      void this.onContacts(entry, contacts).catch((error: unknown) =>
+        this.logger.warn(`Contact sync failed: ${describe(error)}`),
+      );
+    socket.ev.on('contacts.upsert', onContacts);
+    socket.ev.on('contacts.update', onContacts);
     await this.armWatchdog(organizationId, entry);
   }
 
@@ -460,7 +467,7 @@ export class WaSessionManager
     );
   }
 
-  // -- inbound and receipts ------------------------------------------------
+  // -- inbound, receipts and contacts ----------------------------------------
 
   private async onMessages(organizationId: string, messages: WaMessage[]) {
     for (const message of messages) {
@@ -470,7 +477,49 @@ export class WaSessionManager
       // Group chats, broadcasts and senders WhatsApp only identifies by
       // LID have no phone number to match to a member.
       if (!text || !from) continue;
-      await this.inbound.file(organizationId, jidDigits(from)!, text);
+      await this.inbound.file(
+        organizationId,
+        jidDigits(from)!,
+        text,
+        message.pushName,
+      );
+    }
+  }
+
+  /**
+   * Address-book sync: names WhatsApp shows for each chat. Pictures are
+   * fetched live and never stored.
+   */
+  private async onContacts(entry: Entry, contacts: WaContactEvent[]) {
+    for (const contact of contacts ?? []) {
+      if (!contact.id?.endsWith('@s.whatsapp.net')) continue;
+      const name = contact.name ?? contact.notify ?? null;
+      await this.prisma.waContact.upsert({
+        where: {
+          sessionId_jid: { sessionId: entry.waSessionId, jid: contact.id },
+        },
+        create: {
+          sessionId: entry.waSessionId,
+          jid: contact.id,
+          name,
+          notify: contact.notify ?? null,
+        },
+        update: { name, notify: contact.notify ?? null },
+      });
+    }
+  }
+
+  /** Live profile picture URL, or null when there is none to show. */
+  async contactPicture(
+    organizationId: string,
+    jid: string,
+  ): Promise<string | null> {
+    const entry = this.entries.get(organizationId);
+    if (!entry?.open) return null;
+    try {
+      return (await entry.socket.profilePictureUrl(jid)) ?? null;
+    } catch {
+      return null;
     }
   }
 

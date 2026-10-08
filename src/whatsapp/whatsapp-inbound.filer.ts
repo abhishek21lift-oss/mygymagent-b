@@ -9,11 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 /**
  * Files one inbound WhatsApp text: stores it, matches the sender to a
  * member, and emits `whatsapp.received` for the CRM queue and the
- * notification centre.
- *
- * Shared by every way a text can arrive -- today only the WA-AKG webhook
- * (WhatsappService) -- so a reply lands in the same place whichever
- * one carried it.
+ * notification centre. Called by the live socket (Phase 2+).
  */
 @Injectable()
 export class WhatsappInboundFiler {
@@ -22,10 +18,21 @@ export class WhatsappInboundFiler {
     private readonly events: EventEmitter2,
   ) {}
 
-  async file(organizationId: string, from: string, body: string) {
+  async file(
+    organizationId: string,
+    from: string,
+    body: string,
+    pushName?: string | null,
+  ) {
     const matchedMemberId = await this.matchMemberByPhone(organizationId, from);
     const row = await this.prisma.inboundMessage.create({
-      data: { organizationId, from, body, matchedMemberId },
+      data: {
+        organizationId,
+        from,
+        body,
+        pushName: pushName ?? null,
+        matchedMemberId,
+      },
     });
     const event: WhatsappReceivedEvent = {
       organizationId,

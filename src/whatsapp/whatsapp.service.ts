@@ -75,6 +75,34 @@ export class WhatsappService {
     return { disconnected: true, credentialRemoved: false };
   }
 
+  /**
+   * WhatsApp-side address book for the gym's linked number: JIDs with the
+   * names WhatsApp shows. Newest sync first, cap 100 -- this is a lookup
+   * aid for the inbox, not an export.
+   */
+  async listContacts(organizationId: string, limit = 100) {
+    const take = Math.min(Math.max(limit, 1), 200);
+    const session = await this.prisma.waSession.findUnique({
+      where: { organizationId },
+      select: { id: true },
+    });
+    if (!session) return [];
+    return this.prisma.waContact.findMany({
+      where: { sessionId: session.id },
+      orderBy: { updatedAt: 'desc' },
+      take,
+      select: { jid: true, name: true, notify: true, updatedAt: true },
+    });
+  }
+
+  /** Live profile picture for one chat, or `{ url: null }`. */
+  async contactPicture(organizationId: string, jid: string) {
+    if (!jid.endsWith('@s.whatsapp.net')) {
+      throw new BadRequestException('jid must be a WhatsApp chat JID');
+    }
+    return { url: await this.manager.contactPicture(organizationId, jid) };
+  }
+
   listMessages(organizationId: string, limit = 50) {
     const take = Math.min(Math.max(limit, 1), 200);
     return this.prisma.messageLog.findMany({
