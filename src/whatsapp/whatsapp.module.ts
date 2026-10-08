@@ -28,6 +28,8 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     ScheduledMessageService,
     ScheduledMessageProcessor,
   ],
-  exports: [WhatsappService, ScheduledMessageService],
+  // BullModule re-exported so the Command Center reads this module's
+  // `wa-scheduled` Queue instance rather than registering a duplicate.
+  exports: [BullModule, WhatsappService, ScheduledMessageService],
 })
 export class WhatsappModule {}

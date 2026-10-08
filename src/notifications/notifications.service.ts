@@ -88,6 +88,8 @@ export class NotificationsService {
     category?: string,
     priority?: string,
     includeArchived = false,
+    /** Only what the user archived: the notification centre's Archived view. */
+    archivedOnly = false,
   ) {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const normalizedType = type?.trim().toUpperCase();
@@ -98,7 +100,11 @@ export class NotificationsService {
     const where: Prisma.NotificationWhereInput = {
       organizationId,
       userId,
-      ...(includeArchived ? {} : this.activeWhere()),
+      ...(archivedOnly
+        ? { archivedAt: { not: null } }
+        : includeArchived
+          ? {}
+          : this.activeWhere()),
       ...(unreadOnly ? { readAt: null } : {}),
       ...(normalizedType ? { type: normalizedType } : {}),
       ...(normalizedCategory ? { category: normalizedCategory } : {}),

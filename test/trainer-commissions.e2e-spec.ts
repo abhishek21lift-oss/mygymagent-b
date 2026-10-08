@@ -128,6 +128,34 @@ describe('Trainer commissions (e2e)', () => {
     expect(Number(mine[0].percentage)).toBe(45);
   });
 
+  it('edits a rule, validating the new rate like a new rule', async () => {
+    const list = await authed(
+      request(app.getHttpServer()).get('/payroll/commission-rules'),
+    ).expect(200);
+    const rule = list.body.data.find(
+      (r: { trainerId: string }) => r.trainerId === trainerProfileId,
+    );
+    // Over 100% is refused, as it is on create.
+    await authed(
+      request(app.getHttpServer())
+        .patch(`/payroll/commission-rules/${rule.id}`)
+        .send({ percentage: 150 }),
+    ).expect(400);
+    const edited = await authed(
+      request(app.getHttpServer())
+        .patch(`/payroll/commission-rules/${rule.id}`)
+        .send({ percentage: 30, fixedAmount: 25 }),
+    ).expect(200);
+    expect(Number(edited.body.data.percentage)).toBe(30);
+    expect(Number(edited.body.data.fixedAmount)).toBe(25);
+    // Back to what the generation test below prices with.
+    await authed(
+      request(app.getHttpServer())
+        .patch(`/payroll/commission-rules/${rule.id}`)
+        .send({ percentage: 45, fixedAmount: 50 }),
+    ).expect(200);
+  });
+
   it('generates a commission from a completed, priced PT session', async () => {
     const session = await authed(
       request(app.getHttpServer())

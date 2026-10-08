@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { OwnerOsService } from '../src/briefing/owner-os.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp, grantActiveMembership } from './utils/test-app';
 
@@ -70,11 +71,9 @@ describe('Owner dashboard KPIs (e2e)', () => {
     return res.body.data;
   }
 
+  /** What the AI agent's get_owner_briefing tool reads. */
   async function ownerOs(org: Org) {
-    const res = await as(org)(
-      request(app.getHttpServer()).get('/owner-os/briefing'),
-    ).expect(200);
-    return res.body.data;
+    return app.get(OwnerOsService).getBriefing(org.organizationId);
   }
 
   beforeAll(async () => {
@@ -95,7 +94,7 @@ describe('Owner dashboard KPIs (e2e)', () => {
       const unpaid = await addMember(org, 'Unpaid');
 
       const before = await briefing(org);
-      expect(before.today).toEqual({ checkIns: 0, deniedCheckIns: 0 });
+      expect(before.today).toMatchObject({ checkIns: 0, deniedCheckIns: 0 });
 
       await as(org)(
         request(app.getHttpServer())
@@ -118,7 +117,7 @@ describe('Owner dashboard KPIs (e2e)', () => {
       ).expect(201);
 
       const after = await briefing(org);
-      expect(after.today).toEqual({ checkIns: 1, deniedCheckIns: 2 });
+      expect(after.today).toMatchObject({ checkIns: 1, deniedCheckIns: 2 });
       expect((await ownerOs(org)).metrics.todayAttendance).toBe(1);
     });
   });
@@ -357,7 +356,7 @@ describe('Owner dashboard KPIs (e2e)', () => {
 
     expect((await briefing(a)).today.checkIns).toBe(1);
     const other = await briefing(b);
-    expect(other.today).toEqual({ checkIns: 0, deniedCheckIns: 0 });
+    expect(other.today).toMatchObject({ checkIns: 0, deniedCheckIns: 0 });
     expect(other.followUpsDue).toEqual({ count: 0, overdue: 0 });
     expect((await ownerOs(b)).metrics.todayAttendance).toBe(0);
     const breakdown = await as(b)(

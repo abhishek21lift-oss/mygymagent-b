@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { UnrecoverableError, type Job } from 'bullmq';
+import { FileStorageService } from '../files/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
 import type { WaSendJob } from './wa-sender.service';
@@ -22,6 +23,7 @@ export class WaSendProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly manager: WaSessionManager,
+    private readonly storage: FileStorageService,
   ) {
     super();
   }
@@ -30,7 +32,14 @@ export class WaSendProcessor extends WorkerHost {
     if (job.name !== JOB_NAMES.SEND_WHATSAPP_WEB) {
       throw new UnrecoverableError(`Unknown WhatsApp job "${job.name}"`);
     }
-    const { organizationId, messageLogId, to, text } = job.data;
+    const {
+      organizationId,
+      messageLogId,
+      to,
+      text,
+      mediaKey,
+      replyToMessageId,
+    } = job.data;
     const log = await this.prisma.messageLog.findFirst({
       where: { id: messageLogId, organizationId },
       select: { status: true },
@@ -56,7 +65,40 @@ export class WaSendProcessor extends WorkerHost {
     }
 
     try {
-      const id = await this.manager.sendNow(organizationId, to, text);
+      if (mediaKey) {
+        const file = await this.prisma.file.findFirst({
+          where: { id: mediaKey, organizationId },
+          select: { key: true, mimeType: true },
+        });
+        // Validated at enqueue; a file deleted while queued fails the
+        // row honestly instead of sending text in its place.
+        if (!file || !file.mimeType.startsWith('image/')) {
+          await fail('The attached image is no longer available.');
+          return;
+        }
+        const { bytes } = await this.storage.download(file.key);
+        const id = await this.manager.sendNow(organizationId, to, {
+          image: bytes,
+          caption: text,
+          mimetype: file.mimeType,
+          ...(replyToMessageId ? { replyToMessageId } : {}),
+        });
+        await this.prisma.messageLog.update({
+          where: { id: messageLogId },
+          data: {
+            status: 'SENT',
+            sentAt: new Date(),
+            providerMessageId: `waakg:${id}`,
+            attempts: job.attemptsMade + 1,
+            errorMessage: null,
+          },
+        });
+        return;
+      }
+      const id = await this.manager.sendNow(organizationId, to, {
+        text,
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+      });
       await this.prisma.messageLog.update({
         where: { id: messageLogId },
         data: {

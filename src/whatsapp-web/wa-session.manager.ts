@@ -27,6 +27,7 @@ import {
   type WaContactEvent,
   type WaMessage,
   type WaMessageUpdate,
+  type WaSendContent,
   type WaSocket,
   type WaSocketFactory,
 } from './wa-types';
@@ -287,17 +288,21 @@ export class WaSessionManager
     });
   }
 
-  /** Sends one text. Returns WhatsApp's message id. */
+  /**
+   * Sends one message. Returns WhatsApp's message id. `replyToMessageId`
+   * rides along for fakes and future stanza quoting -- P1 never quotes on
+   * a real socket (no stanza store yet), it sends plain instead.
+   */
   async sendNow(
     organizationId: string,
     jid: string,
-    text: string,
+    content: WaSendContent,
   ): Promise<string> {
     const entry = this.entries.get(organizationId);
     if (!entry?.open) throw new NotLinkedError();
     const [result] = (await entry.socket.onWhatsApp(jid)) ?? [];
     if (!result?.exists) throw new NotOnWhatsappError();
-    const sent = await entry.socket.sendMessage(result.jid, { text });
+    const sent = await entry.socket.sendMessage(result.jid, content);
     const id = sent?.key?.id;
     if (!id) throw new Error('WhatsApp did not acknowledge the message');
     return id;

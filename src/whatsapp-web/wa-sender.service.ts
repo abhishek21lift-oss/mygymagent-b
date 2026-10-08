@@ -28,6 +28,10 @@ export interface WaSendJob {
   /** Full JID (`<digits>@s.whatsapp.net`), normalized by the provider. */
   to: string;
   text: string;
+  /** File id of an uploaded image; absent means text-only. */
+  mediaKey?: string;
+  /** Provider id to quote; unknown ids send without a quote. */
+  replyToMessageId?: string;
 }
 
 /**
@@ -53,6 +57,8 @@ export class WaSender {
     text: string;
     messageLogId?: string;
     category?: MessageCategory;
+    mediaKey?: string;
+    replyToMessageId?: string;
   }): Promise<QueuedSend> {
     const { organizationId } = message;
     if (message.category === 'MARKETING') {
@@ -96,6 +102,10 @@ export class WaSender {
       messageLogId: message.messageLogId,
       to: message.to,
       text: message.text,
+      ...(message.mediaKey ? { mediaKey: message.mediaKey } : {}),
+      ...(message.replyToMessageId
+        ? { replyToMessageId: message.replyToMessageId }
+        : {}),
     };
     await this.queue.add(JOB_NAMES.SEND_WHATSAPP_WEB, job, {
       delay,

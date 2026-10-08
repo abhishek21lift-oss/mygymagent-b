@@ -3,6 +3,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AutomationModule } from '../automation/automation.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { WhatsappWebModule } from '../whatsapp-web/whatsapp-web.module';
 import { AiUsageCollector } from './collectors/ai-usage.collector';
 import {
@@ -110,6 +111,7 @@ const collectorListProvider: Provider = {
     // spy stopped patching the instance the service under test actually used.
     NotificationsModule,
     AutomationModule,
+    WhatsappModule,
     WhatsappWebModule,
   ],
   controllers: [CommandCenterController],

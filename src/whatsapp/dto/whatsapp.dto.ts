@@ -21,6 +21,16 @@ export class SendWhatsAppMessageDto {
 
   @IsString()
   text!: string;
+
+  /** File id (not S3 key) of an uploaded image to send with the text. */
+  @IsOptional()
+  @IsString()
+  mediaKey?: string;
+
+  /** WhatsApp provider id to quote; unknown ids send without a quote. */
+  @IsOptional()
+  @IsString()
+  replyToMessageId?: string;
 }
 
 export class TestSendWhatsAppDto {

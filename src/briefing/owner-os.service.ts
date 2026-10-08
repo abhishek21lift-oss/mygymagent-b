@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
+import { FinanceService } from '../analytics/finance.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
+import { TodayFiguresService } from '../analytics/today-figures.service';
 import {
   MemberIntelligenceService,
   currentTermWhere,
 } from '../analytics/member-intelligence.service';
-import { startOfZonedDay, validTimezone } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface OwnerOsAlert {
@@ -39,15 +39,10 @@ export interface OwnerOsBriefing {
   recommendations: OwnerOsRecommendation[];
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function toNumber(decimal: Prisma.Decimal | number): number {
-  return decimal instanceof Prisma.Decimal ? decimal.toNumber() : decimal;
-}
-
 /**
- * The Owner OS briefing: the executive decision cockpit behind
- * GET /owner-os/briefing. Same honesty discipline as DailyBriefingService
+ * The Owner OS briefing, behind the AI agent's `get_owner_briefing`
+ * tool. (Its page and GET /owner-os/briefing are retired: the dashboard
+ * is the owner's one home screen.) Same honesty discipline as DailyBriefingService
  * (real rows, no fabricated numbers) but shaped for owners rather than
  * operators: single-currency headline metrics in the organization's own
  * currency, severity-ranked alerts, and advisory recommendations that
@@ -65,6 +60,8 @@ export class OwnerOsService {
     private readonly memberIntelligence: MemberIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly aiActions: AiActionsService,
+    private readonly todayFigures: TodayFiguresService,
+    private readonly finance: FinanceService,
   ) {}
 
   async getBriefing(
@@ -72,35 +69,28 @@ export class OwnerOsService {
     branchScope?: string,
   ): Promise<OwnerOsBriefing> {
     const now = new Date();
-    const org = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { currency: true, timezone: true },
-    });
-    // The gym's today, not UTC's, which starts at 05:30 in India.
-    const startOfToday = startOfZonedDay(now, validTimezone(org?.timezone));
-    const in7Days = new Date(now.getTime() + 7 * MS_PER_DAY);
-    const memberWhere = {
-      organizationId,
-      deletedAt: null,
-      ...(branchScope ? { primaryBranchId: branchScope } : {}),
-    };
-
-    const currency = org?.currency ?? 'USD';
-
+    const branch = branchScope ?? null;
+    // Today's attendance, revenue, expiring terms and dues come from the
+    // services behind the dashboard, so the AI agent quotes the figures
+    // the owner sees on screen. This used to count them its own way:
+    // revenue without product sales, branches by the member's home
+    // branch, dues on ACTIVE terms only and with failed payments counted.
     const [
       members,
       activeMemberships,
-      todayAttendance,
-      paymentsToday,
-      refundsToday,
+      today,
       expiringSoon,
-      activeWithPayments,
+      outstandingByCurrency,
       atRisk,
       stockForecast,
       pendingAiActions,
     ] = await Promise.all([
       this.prisma.member.count({
-        where: memberWhere,
+        where: {
+          organizationId,
+          deletedAt: null,
+          ...(branchScope ? { primaryBranchId: branchScope } : {}),
+        },
       }),
       // Terms running today. A sold renewal is ACTIVE from the day it is
       // sold but starts when the current term ends, so counting every
@@ -112,118 +102,21 @@ export class OwnerOsService {
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
-      // Members admitted today: not denied attempts, not staff.
-      this.prisma.attendance.count({
-        where: {
-          organizationId,
-          memberId: { not: null },
-          deniedReason: null,
-          checkInAt: { gte: startOfToday },
-          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
-        },
-      }),
-      this.prisma.payment.findMany({
-        where: {
-          organizationId,
-          currency,
-          // Everything collected, refunded or not -- refunds are taken
-          // off below. Counting only COMPLETED dropped a refunded
-          // payment (refund() moves it to REFUNDED / PARTIALLY_REFUNDED)
-          // *and* subtracted its refund, so a same-day refund counted
-          // twice and today's revenue could go negative. Same rule as
-          // FinanceService.getRevenueSummary.
-          status: { not: 'FAILED' },
-          createdAt: { gte: startOfToday },
-          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
-        },
-        select: { amount: true },
-      }),
-      this.prisma.refund.findMany({
-        where: {
-          organizationId,
-          payment: { currency },
-          createdAt: { gte: startOfToday },
-          ...(branchScope
-            ? {
-                payment: { currency, member: { primaryBranchId: branchScope } },
-              }
-            : {}),
-        },
-        select: { amount: true },
-      }),
-      this.prisma.membership.count({
-        where: {
-          organizationId,
-          ...currentTermWhere(now),
-          endDate: { gte: now, lte: in7Days },
-          // Already renewed is not expiring: a renewal links back to this
-          // term. One that was cancelled leaves it expiring again.
-          OR: [
-            { nextMembership: { is: null } },
-            { nextMembership: { is: { status: 'CANCELLED' } } },
-          ],
-          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
-        },
-      }),
-      this.prisma.membership.findMany({
-        where: {
-          organizationId,
-          status: 'ACTIVE',
-          currency,
-          ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
-        },
-        select: {
-          price: true,
-          payments: {
-            select: {
-              amount: true,
-              refunds: { select: { amount: true } },
-            },
-          },
-        },
-      }),
-      this.memberIntelligence.getAtRiskMembers(
-        organizationId,
-        branchScope ?? null,
-      ),
-      this.inventoryIntelligence.getStockForecast(
-        organizationId,
-        branchScope ?? null,
-      ),
+      this.todayFigures.forDay(organizationId, branch),
+      this.todayFigures.expiringSoon(organizationId, branch, now),
+      this.finance.getOutstandingBalances(organizationId, branch),
+      this.memberIntelligence.getAtRiskMembers(organizationId, branch),
+      this.inventoryIntelligence.getStockForecast(organizationId, branch),
       this.aiActions.countPending(organizationId),
     ]);
 
-    const grossToday = paymentsToday.reduce(
-      (sum, p) => sum.plus(p.amount),
-      new Prisma.Decimal(0),
-    );
-    const refundedToday = refundsToday.reduce(
-      (sum, r) => sum.plus(r.amount),
-      new Prisma.Decimal(0),
-    );
-    const todayRevenue = toNumber(grossToday.sub(refundedToday));
-
-    let outstandingPayments = 0;
-    let membershipsWithBalance = 0;
-    for (const membership of activeWithPayments) {
-      const paid = membership.payments.reduce(
-        (sum, payment) =>
-          sum.plus(
-            payment.amount.sub(
-              payment.refunds.reduce(
-                (refundSum, refund) => refundSum.plus(refund.amount),
-                new Prisma.Decimal(0),
-              ),
-            ),
-          ),
-        new Prisma.Decimal(0),
-      );
-      const balance = toNumber(membership.price.sub(paid));
-      if (balance > 0) {
-        outstandingPayments += balance;
-        membershipsWithBalance += 1;
-      }
-    }
+    const currency = today.currency;
+    const todayAttendance = today.checkIns;
+    // Net of refunds, like every revenue figure on the dashboard.
+    const todayRevenue = today.net;
+    const owed = outstandingByCurrency.find((o) => o.currency === currency);
+    const outstandingPayments = owed ? Number(owed.outstandingBalance) : 0;
+    const membershipsWithBalance = owed?.membershipsWithBalance ?? 0;
 
     const lowStock = stockForecast.filter((p) => p.atOrBelowReorderLevel);
 
@@ -233,8 +126,8 @@ export class OwnerOsService {
         id: 'outstanding-balance',
         severity: 'high',
         title: `${membershipsWithBalance} memberships have outstanding balances`,
-        detail: `${currency} ${Math.round(outstandingPayments).toLocaleString()} is yet to be collected on active memberships.`,
-        href: '/billing',
+        detail: `${currency} ${Math.round(outstandingPayments).toLocaleString()} is yet to be collected on current memberships.`,
+        href: '/dashboard/outstanding',
       });
     }
     if (expiringSoon > 0) {

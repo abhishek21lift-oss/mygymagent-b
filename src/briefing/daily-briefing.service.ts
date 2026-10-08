@@ -10,7 +10,6 @@ import {
 } from '../analytics/inventory-intelligence.service';
 import {
   MemberIntelligenceService,
-  currentTermWhere,
   type AtRiskMember,
 } from '../analytics/member-intelligence.service';
 import {
@@ -29,22 +28,24 @@ import {
   zonedMidnight,
 } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  EXPIRING_WINDOW_DAYS,
+  TodayFiguresService,
+  type DayFigures,
+} from '../analytics/today-figures.service';
 
 const TOP_N = 5;
-const EXPIRING_WINDOW_DAYS = 7;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface DailyBriefing {
   generatedAt: string;
   branchId: string | null;
-  today: {
-    /// Members admitted since the gym's local midnight. Denied attempts
-    /// (a row with `deniedReason`) and staff check-ins are attendance
-    /// rows too, but neither is a member visit.
-    checkIns: number;
-    /// Members turned away at the door today -- the front desk's cue.
-    deniedCheckIns: number;
-  };
+  /// The gym's today, from TodayFiguresService: the same figures, by the
+  /// same rules, as the dashboard's Today tiles, the COO page and the AI
+  /// agent. `checkIns` counts members admitted at the door (denied
+  /// attempts and staff check-ins are attendance rows too, but neither
+  /// is a member visit); `deniedCheckIns` is the front desk's cue.
+  today: DayFigures;
+  /// Month to date, per currency (despite sitting next to `today`).
   revenue: RevenueSummary;
   atRiskMembers: {
     count: number;
@@ -101,6 +102,7 @@ export class DailyBriefingService {
     private readonly trainerIntelligence: TrainerIntelligenceService,
     private readonly inventoryIntelligence: InventoryIntelligenceService,
     private readonly aiActions: AiActionsService,
+    private readonly todayFigures: TodayFiguresService,
   ) {}
 
   async getDailyBriefing(
@@ -110,19 +112,13 @@ export class DailyBriefingService {
     const now = new Date();
     const timezone = await organizationTimezone(this.prisma, organizationId);
     const startOfToday = startOfZonedDay(now, timezone);
-    const today = zonedDate(now, timezone);
+    const localDate = zonedDate(now, timezone);
     const startOfTomorrow = zonedMidnight(
-      today.year,
-      today.month,
-      today.day + 1,
+      localDate.year,
+      localDate.month,
+      localDate.day + 1,
       timezone,
     );
-    const memberVisitToday = {
-      organizationId,
-      memberId: { not: null },
-      checkInAt: { gte: startOfToday },
-      ...(branchScope ? { branchId: branchScope } : {}),
-    };
     const openFollowUp = {
       organizationId,
       completedAt: null,
@@ -134,8 +130,7 @@ export class DailyBriefingService {
     const monthStart = startOfZonedMonth(now, timezone);
 
     const [
-      checkIns,
-      deniedCheckIns,
+      today,
       followUpsDue,
       followUpsOverdue,
       expiringSoon,
@@ -146,36 +141,14 @@ export class DailyBriefingService {
       trainerWorkload,
       pendingAiActions,
     ] = await Promise.all([
-      this.prisma.attendance.count({
-        where: { ...memberVisitToday, deniedReason: null },
-      }),
-      this.prisma.attendance.count({
-        where: { ...memberVisitToday, deniedReason: { not: null } },
-      }),
+      this.todayFigures.forDay(organizationId, branchScope),
       this.prisma.leadFollowUp.count({
         where: { ...openFollowUp, dueAt: { lt: startOfTomorrow } },
       }),
       this.prisma.leadFollowUp.count({
         where: { ...openFollowUp, dueAt: { lt: startOfToday } },
       }),
-      this.prisma.membership.count({
-        where: {
-          organizationId,
-          ...currentTermWhere(now),
-          endDate: {
-            gte: now,
-            lte: new Date(now.getTime() + EXPIRING_WINDOW_DAYS * MS_PER_DAY),
-          },
-          OR: [
-            { nextMembership: { is: null } },
-            { nextMembership: { is: { status: 'CANCELLED' } } },
-          ],
-          member: {
-            deletedAt: null,
-            ...(branchScope ? { primaryBranchId: branchScope } : {}),
-          },
-        },
-      }),
+      this.todayFigures.expiringSoon(organizationId, branchScope, now),
       this.finance.getRevenueSummary(organizationId, {}, branchScope),
       this.memberIntelligence.getAtRiskMembers(organizationId, branchScope),
       this.salesIntelligence.getFunnel(organizationId, branchScope, {
@@ -191,7 +164,7 @@ export class DailyBriefingService {
     return {
       generatedAt: now.toISOString(),
       branchId: branchScope,
-      today: { checkIns, deniedCheckIns },
+      today,
       revenue,
       atRiskMembers: {
         count: atRiskMembers.length,

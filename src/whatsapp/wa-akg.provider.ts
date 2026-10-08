@@ -74,6 +74,8 @@ export class WaAkgProvider implements MessageProvider {
     organizationId?: string;
     category?: MessageCategory;
     messageLogId?: string;
+    mediaKey?: string;
+    replyToMessageId?: string;
   }): Promise<string | QueuedSend> {
     const notConfigured = new ServiceUnavailableException(
       "WhatsApp sending isn't configured",
@@ -94,6 +96,8 @@ export class WaAkgProvider implements MessageProvider {
       text: message.text,
       category: message.category,
       messageLogId: message.messageLogId,
+      mediaKey: message.mediaKey,
+      replyToMessageId: message.replyToMessageId,
     });
   }
 }

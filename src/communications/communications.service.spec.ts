@@ -42,3 +42,50 @@ describe('CommunicationsService.whatsappReadiness', () => {
     await expect(svc.whatsappReadiness('org_1')).resolves.toBe(true);
   });
 });
+
+describe('sendAdHoc body persistence', () => {
+  it('persists the rendered body on the log row', async () => {
+    const create = jest.fn(async (args: { data: Record<string, unknown> }) => ({
+      id: 'log1',
+      ...args.data,
+    }));
+    const prisma = {
+      organization: {
+        findUnique: async () => ({ name: 'Cult Gym' }),
+      },
+      messageLog: {
+        create,
+        update: jest.fn(
+          async (args: { data: Record<string, unknown> }) => args.data,
+        ),
+      },
+    };
+    const templates = {
+      render: (text: string, vars: Record<string, string>) =>
+        text.replace('{{organizationName}}', vars.organizationName ?? ''),
+    };
+    const whatsapp = { send: jest.fn(async () => undefined) };
+    const svc = new CommunicationsService(
+      prisma as never,
+      templates as never,
+      { get: jest.fn().mockReturnValue(undefined) } as never,
+      {} as never,
+      whatsapp as never,
+      {} as never,
+      {} as never,
+      { getStatus: jest.fn() } as never,
+    );
+    await svc.sendAdHoc({
+      organizationId: 'o1',
+      channel: 'WHATSAPP',
+      category: 'TRANSACTIONAL',
+      recipient: '+919876543210',
+      body: 'Hi {{organizationName}}',
+    });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ body: 'Hi Cult Gym' }),
+      }),
+    );
+  });
+});

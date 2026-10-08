@@ -23,6 +23,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "dotenv -e .env.test -- jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e:p1": "dotenv -e .env.test -- jest --config ./test/jest-e2e.json --runInBand --detectOpenHandles test/whatsapp-web.e2e-spec.ts test/whatsapp-p1-media.e2e-spec.ts test/automation.e2e-spec.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
