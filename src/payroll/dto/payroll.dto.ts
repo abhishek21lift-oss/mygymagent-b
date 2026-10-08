@@ -1,3 +1,4 @@
+import { OmitType, PartialType } from '@nestjs/mapped-types';
 import {
   IsDateString,
   IsNumber,
@@ -25,6 +26,15 @@ export class UpsertCommissionRuleDto {
   @Min(0)
   fixedAmount?: number;
 }
+
+/**
+ * An edit to an existing rule: the rate, the flat amount, or the session
+ * type, validated like a new rule. The trainer is the rule's identity,
+ * so it is not editable -- a rule for someone else is a new rule.
+ */
+export class UpdateCommissionRuleDto extends PartialType(
+  OmitType(UpsertCommissionRuleDto, ['trainerId'] as const),
+) {}
 
 export class GenerateCommissionsDto {
   @IsDateString()
