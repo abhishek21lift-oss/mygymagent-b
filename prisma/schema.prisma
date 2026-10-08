@@ -179,6 +179,7 @@ model Organization {
   whatsappWebAuthKeys      WhatsappWebAuthKey[]
   waSessions               WaSession[]
   inboundMessages          InboundMessage[]
+  scheduledMessages        ScheduledMessage[]
   memberTags               MemberTag[]
   leaveTypes               LeaveType[]
   leaveBalances            LeaveBalance[]
@@ -795,6 +796,7 @@ model Member {
   documents          MemberDocument[]
   messageLogs        MessageLog[]
   inboundMessages    InboundMessage[]
+  scheduledMessages  ScheduledMessage[]
   appointments       Appointment[]             @relation("AppointmentMember")
   tagAssignments     MemberTagAssignment[]
   followUps          MemberFollowUp[]          @relation("MemberFollowUpMember")
@@ -3104,6 +3106,40 @@ model WaAuthKey {
 
   @@unique([sessionId, key])
   @@map("wa_auth_keys")
+}
+
+/// One-off staff-composed WhatsApp message to be sent at `sendAt`:
+/// reminders, follow-ups, birthday wishes. Fired by a delayed BullMQ job;
+/// cancelled rows never fire. Recurring automation belongs to the
+/// automation engine, not here.
+enum ScheduledMessageStatus {
+  PENDING
+  SENT
+  CANCELLED
+  FAILED
+}
+
+model ScheduledMessage {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  recipient String
+  body      String
+  memberId  String?
+  member    Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  sendAt    DateTime
+
+  status       ScheduledMessageStatus @default(PENDING)
+  errorMessage String?
+  messageLogId String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, status, sendAt])
+  @@map("scheduled_messages")
 }
 
 /// One inbound WhatsApp text message received on an org's connected number

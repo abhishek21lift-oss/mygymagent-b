@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
   Query,
 } from '@nestjs/common';
@@ -12,15 +14,20 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
+  ScheduleWhatsAppMessageDto,
   SendWhatsAppMessageDto,
   TestSendWhatsAppDto,
 } from './dto/whatsapp.dto';
+import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappService } from './whatsapp.service';
 
 @Controller('whatsapp')
 @Throttle({ default: { limit: 40, ttl: 60_000 } })
 export class WhatsappController {
-  constructor(private readonly whatsapp: WhatsappService) {}
+  constructor(
+    private readonly whatsapp: WhatsappService,
+    private readonly scheduled: ScheduledMessageService,
+  ) {}
 
   @Get('integration')
   @RequirePermissions('whatsapp.read')
@@ -80,6 +87,39 @@ export class WhatsappController {
     @Body() dto: TestSendWhatsAppDto,
   ) {
     return this.whatsapp.testSend(user.organizationId!, dto);
+  }
+
+  @Post('scheduled')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_message', action: 'schedule' })
+  scheduleMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ScheduleWhatsAppMessageDto,
+  ) {
+    return this.scheduled.schedule(user.organizationId!, user.id, dto);
+  }
+
+  @Get('scheduled')
+  @RequirePermissions('whatsapp.read')
+  listScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const limit = limitRaw ? Number(limitRaw) : 50;
+    return this.scheduled.list(
+      user.organizationId!,
+      Number.isFinite(limit) ? limit : 50,
+    );
+  }
+
+  @Delete('scheduled/:id')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_message', action: 'cancel_scheduled' })
+  cancelScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.scheduled.cancel(user.organizationId!, id);
   }
 
   @Get('logs')

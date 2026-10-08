@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsISO8601, IsOptional, IsString } from 'class-validator';
 
 export class CompleteEmbeddedSignupDto {
   /** Short-lived code from Meta's embedded-signup FB.login callback. */
@@ -27,4 +27,20 @@ export class TestSendWhatsAppDto {
   /** Recipient phone number in international format, e.g. `15551234567`. */
   @IsString()
   to!: string;
+}
+
+export class ScheduleWhatsAppMessageDto {
+  @IsString()
+  to!: string;
+
+  @IsString()
+  text!: string;
+
+  /** ISO datetime with offset, must be in the future. */
+  @IsISO8601()
+  sendAt!: string;
+
+  @IsOptional()
+  @IsString()
+  memberId?: string;
 }

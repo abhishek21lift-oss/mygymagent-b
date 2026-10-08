@@ -12,12 +12,15 @@ export const QUEUE_NAMES = {
   /** One gym's WhatsApp sends, spaced for ban safety, delivered by the
    * instance holding the gym's socket (see `src/whatsapp-web/`). */
   WA_SEND: 'wa-send',
+  /** Due staff-composed WhatsApp messages (see `src/whatsapp/`). */
+  WA_SCHEDULED: 'wa-scheduled',
 } as const;
 
 export const JOB_NAMES = {
   SEND_WELCOME_EMAIL: 'send-welcome-email',
   DELIVER_PUSH: 'deliver-push',
   SEND_WHATSAPP_WEB: 'send-whatsapp-web',
+  SEND_SCHEDULED_WHATSAPP: 'send-scheduled-whatsapp',
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',
