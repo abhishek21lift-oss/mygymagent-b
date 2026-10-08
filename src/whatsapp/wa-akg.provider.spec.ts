@@ -5,13 +5,15 @@ const elsewhere = { currency: 'USD', timezone: 'America/New_York' };
 
 function provider(env: Record<string, string | undefined> = {}) {
   const config = {
-    get: (key: string, fallback?: string) =>
-      env[key] ?? fallback ?? undefined,
+    get: (key: string, fallback?: string) => env[key] ?? fallback ?? undefined,
   };
   const prisma = {
     organization: { findUnique: jest.fn().mockResolvedValue(india) },
   };
-  return { provider: new WaAkgProvider(config as never, prisma as never), prisma };
+  return {
+    provider: new WaAkgProvider(config as never, prisma as never),
+    prisma,
+  };
 }
 
 describe('sessionIdFor', () => {
@@ -30,7 +32,9 @@ describe('toJid', () => {
   });
 
   it('keeps an explicit country code untouched', () => {
-    expect(toJid('+1 (415) 555-0100', india)).toBe('14155550100@s.whatsapp.net');
+    expect(toJid('+1 (415) 555-0100', india)).toBe(
+      '14155550100@s.whatsapp.net',
+    );
   });
 
   it('refuses a local number for a non-Indian gym instead of guessing', () => {
@@ -80,8 +84,12 @@ describe('WaAkgProvider', () => {
     expect(url).toBe(
       'http://wa-akg:3000/api/messages/gym-org_123/919876543210%40s.whatsapp.net/send',
     );
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBe('wag_test');
-    expect(JSON.parse(init.body as string)).toEqual({ message: { text: 'Hello' } });
+    expect((init.headers as Record<string, string>)['X-API-Key']).toBe(
+      'wag_test',
+    );
+    expect(JSON.parse(init.body as string)).toEqual({
+      message: { text: 'Hello' },
+    });
   });
 
   it('throws ServiceUnavailable when unconfigured instead of sending', async () => {

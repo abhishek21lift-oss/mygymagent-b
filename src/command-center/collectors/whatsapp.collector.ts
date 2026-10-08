@@ -63,15 +63,16 @@ const FAILURE_RATE_ALERT = 0.1;
  * Platform-wide WhatsApp health: which gyms are connected, how outbound
  * messages are faring, and which links have broken.
  *
- * Reads only what the two WhatsApp paths already record --
- * WhatsappIntegration (Cloud API), WhatsappWebSession (linked number),
- * MessageLog (outbound, channel WHATSAPP) and InboundMessage (replies). No
- * new table, no provider call: this card must stay readable while Meta is
- * down, because that is exactly when someone opens it.
+ * Reads only what WhatsApp already records -- WhatsappWebSession sending
+ * preferences, MessageLog (outbound, channel WHATSAPP) and InboundMessage
+ * (replies). No new table, no provider call: this card must stay readable
+ * while the gateway is down, because that is exactly when someone opens
+ * it.
  *
- * Delivery receipts (DELIVERED/READ) exist only for Cloud API sends; a
- * linked-number send stops at SENT. The card therefore reports a failure
- * rate, never a "delivery rate" that would undercount every Baileys gym.
+ * Delivery receipts (DELIVERED/READ) arrive via the WA-AKG status webhook;
+ * sessions that never connected stop at SENT. The card therefore reports a
+ * failure rate, never a "delivery rate" that would undercount gyms still
+ * linking.
  */
 @Injectable()
 export class WhatsappCollector implements Collector<WhatsappCard> {

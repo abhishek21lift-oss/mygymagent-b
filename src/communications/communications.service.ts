@@ -252,9 +252,7 @@ export class CommunicationsService {
   /** Whether the gym's WA-AKG session is connected, whatever it chose
    * for sending reminders. */
   async ownWhatsappNumberLinked(organizationId: string): Promise<boolean> {
-    const session = await this.waAkg.getSession(
-      sessionIdFor(organizationId),
-    );
+    const session = await this.waAkg.getSession(sessionIdFor(organizationId));
     return session?.status === 'CONNECTED';
   }
 

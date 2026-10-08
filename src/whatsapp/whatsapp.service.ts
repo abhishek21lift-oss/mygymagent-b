@@ -71,16 +71,13 @@ export class WhatsappService {
    * with the Cloud API and stay null.
    */
   async getIntegration(organizationId: string) {
-    const session = await this.waAkg.getSession(
-      sessionIdFor(organizationId),
-    );
+    const session = await this.waAkg.getSession(sessionIdFor(organizationId));
     if (!session) return null;
     const now = new Date();
     return {
       id: sessionIdFor(organizationId),
       organizationId,
-      status:
-        session.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
+      status: session.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
       wabaId: null,
       phoneNumberId: null,
       displayPhoneNumber: session.me?.id?.split('@')[0] ?? null,
@@ -111,10 +108,7 @@ export class WhatsappService {
     // Unlink the number remotely: from this point no send can succeed
     // for the org. Errors propagate -- a failed unlink must not report
     // success while the session still sends.
-    await this.waAkg.performAction(
-      sessionIdFor(organizationId),
-      'logout',
-    );
+    await this.waAkg.performAction(sessionIdFor(organizationId), 'logout');
     return { disconnected: true, credentialRemoved: false };
   }
 
@@ -270,9 +264,7 @@ export class WhatsappService {
    */
   async handleWebhook(payload: unknown) {
     const body = (payload ?? {}) as WaAkgWebhookPayload;
-    const organizationId = await this.resolveWaAkgOrganization(
-      body.sessionId,
-    );
+    const organizationId = await this.resolveWaAkgOrganization(body.sessionId);
     if (!organizationId) {
       this.logger.warn(
         'WhatsApp webhook for unknown session -- acked, ignored',

@@ -2,8 +2,8 @@
  * Test-only OTP provider selection, for the mock OTP e2e suite.
  *
  * Imported for its side effect, and it must stay the FIRST import in
- * any spec that needs it — for the same reason `./whatsapp-test-env`
- * must be first in its suite.
+ * any spec that needs it — module-scope assignment is the only ordering
+ * that beats ConfigModule's import-time environment snapshot (see below).
  *
  * `ConfigModule.forRoot({ validate: validateEnv })` is evaluated when
  * `AppModule` is *imported* and the validated result is cached, and

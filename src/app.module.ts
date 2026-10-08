@@ -54,6 +54,7 @@ import { CommandCenterModule } from './command-center/command-center.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { WhatsappWebModule } from './whatsapp-web/whatsapp-web.module';
 import { HrPayrollModule } from './hr-payroll/hr-payroll.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { PlatformBillingModule } from './platform-billing/platform-billing.module';
@@ -116,6 +117,7 @@ import { AdminAiModule } from './admin-ai/admin-ai.module';
     AppointmentsModule,
     ExpensesModule,
     WhatsappModule,
+    WhatsappWebModule,
     HrPayrollModule,
     PayrollModule,
     PlatformBillingModule,

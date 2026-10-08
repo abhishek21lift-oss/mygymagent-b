@@ -3,7 +3,7 @@ import { ChannelNotConfiguredError } from './email-provider.interface';
 
 /** Shared shape for the non-email channels (WhatsApp, SMS, push) -- simpler
  * than EmailMessage since none of them have a subject/reply-to concept.
- * Real per-channel providers (MetaWhatsappProvider today) implement this
+ * Real per-channel providers (WaAkgProvider today) implement this
  * against their own API; nothing else in the codebase should need to
  * change when one lands, since CommunicationsService only depends on this
  * interface.

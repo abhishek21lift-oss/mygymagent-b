@@ -11,7 +11,8 @@ function serviceWith(secret: string | undefined, orgExists = true) {
       return defaultValue ?? '';
     },
   };
-  const filed: Array<{ organizationId: string; from: string; body: string }> = [];
+  const filed: Array<{ organizationId: string; from: string; body: string }> =
+    [];
   const inbound = {
     file: jest.fn(
       async (organizationId: string, from: string, body: string) => {
@@ -23,7 +24,9 @@ function serviceWith(secret: string | undefined, orgExists = true) {
   const updates: Array<{ where: unknown; data: unknown }> = [];
   const prisma = {
     organization: {
-      findUnique: jest.fn().mockResolvedValue(orgExists ? { id: 'org_1' } : null),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue(orgExists ? { id: 'org_1' } : null),
     },
     messageLog: {
       updateMany: jest.fn(async (args: unknown) => {
@@ -108,9 +111,7 @@ describe('WhatsappService.handleWebhook', () => {
 
   it('ignores own-number echoes and group messages', async () => {
     const { svc, filed } = serviceWith(SECRET);
-    await svc.handleWebhook(
-      received({ key: { id: 'WAID2', fromMe: true } }),
-    );
+    await svc.handleWebhook(received({ key: { id: 'WAID2', fromMe: true } }));
     await svc.handleWebhook(received({ isGroup: true }));
     expect(filed).toEqual([]);
   });

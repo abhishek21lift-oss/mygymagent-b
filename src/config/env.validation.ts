@@ -157,30 +157,6 @@ export const envSchema = z
     WA_AKG_BASE_URL: z.string().url().optional(),
     WA_AKG_API_KEY: z.string().optional(),
     WA_AKG_WEBHOOK_SECRET: z.string().optional(),
-    WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
-    // WS-2 vault + webhook verify tokens (src/whatsapp/). Both optional at
-    // boot, same check-together-at-call-time pattern as META_APP_ID above:
-    // WHATSAPP_TOKEN_KEY is the 32-byte-hex AES-256-GCM key for the
-    // per-org credential vault -- unset means the connect and test-send
-    // endpoints return a clear 503 instead of storing/sending anything.
-    // META_WABA_VERIFY_TOKEN is compared against Meta's hub.verify_token on
-    // GET /whatsapp/webhook -- unset means verification always fails closed.
-    WHATSAPP_TOKEN_KEY: z.string().optional(),
-    META_WABA_VERIFY_TOKEN: z.string().optional(),
-
-    // WhatsApp Web through Baileys (src/whatsapp-web/) -- an unofficial
-    // client, so off unless a deployment opts in. Needs WHATSAPP_TOKEN_KEY
-    // to encrypt the linked sessions. The gap settings space one gym's
-    // messages at least MIN_GAP apart plus up to JITTER more.
-    WHATSAPP_WEB_ENABLED: z.enum(['true', 'false']).default('false'),
-    WHATSAPP_WEB_MIN_GAP_MS: z.coerce.number().int().min(0).default(8_000),
-    WHATSAPP_WEB_JITTER_MS: z.coerce.number().int().min(0).default(7_000),
-    // How long to wait for WhatsApp's first answer (a QR) when linking.
-    WHATSAPP_WEB_PAIRING_TIMEOUT_MS: z.coerce
-      .number()
-      .int()
-      .min(1_000)
-      .default(45_000),
 
     // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
     // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a

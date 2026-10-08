@@ -111,8 +111,7 @@ export class WhatsappWebService {
         status: 'LOGGED_OUT' as const,
         phoneNumber: null,
         connectedAt: null,
-        lastError:
-          'The number was logged out from the phone -- link it again.',
+        lastError: 'The number was logged out from the phone -- link it again.',
         qrDataUrl: null,
         pairingCode: null,
       };
@@ -155,9 +154,7 @@ export class WhatsappWebService {
         "WhatsApp isn't available on this deployment.",
       );
     }
-    const live = await this.waAkg.getSession(
-      sessionIdFor(organizationId),
-    );
+    const live = await this.waAkg.getSession(sessionIdFor(organizationId));
     if (live?.status === 'CONNECTED') {
       throw new ConflictException(
         'A number is already linked. Unlink it first to link a different one.',
@@ -165,6 +162,13 @@ export class WhatsappWebService {
     }
     await this.waAkg.ensureSession(sessionIdFor(organizationId));
     await this.waAkg.performAction(sessionIdFor(organizationId), 'start');
+    // Pairing-code linking from the same phone the settings page is open
+    // on, where a QR cannot be scanned.
+    if (dto.phoneNumber) {
+      await this.waAkg.performAction(sessionIdFor(organizationId), 'pair', {
+        phoneNumber: dto.phoneNumber,
+      });
+    }
     await this.prisma.whatsappWebSession.upsert({
       where: { organizationId },
       create: {
@@ -210,9 +214,7 @@ export class WhatsappWebService {
       throw new BadRequestException('Link a WhatsApp number first.');
     }
     if (dto.useForSending) {
-      const live = await this.waAkg.getSession(
-        sessionIdFor(organizationId),
-      );
+      const live = await this.waAkg.getSession(sessionIdFor(organizationId));
       if (live?.status !== 'CONNECTED') {
         throw new BadRequestException(
           'Link your WhatsApp number before sending through it.',

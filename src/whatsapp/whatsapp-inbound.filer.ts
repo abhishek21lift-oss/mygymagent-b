@@ -11,9 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
  * member, and emits `whatsapp.received` for the CRM queue and the
  * notification centre.
  *
- * Shared by the two ways a text can arrive -- the Meta Cloud API webhook
- * (WhatsappService) and a gym's number linked through WhatsApp Web
- * (WhatsappWebManager) -- so a reply lands in the same place whichever
+ * Shared by every way a text can arrive -- today only the WA-AKG webhook
+ * (WhatsappService) -- so a reply lands in the same place whichever
  * one carried it.
  */
 @Injectable()

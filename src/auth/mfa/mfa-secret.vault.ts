@@ -6,10 +6,10 @@ import { ServiceUnavailableException } from '@nestjs/common';
  * `UserMfa.secretEnc`; the key lives only in the `MFA_TOTP_KEY` env var,
  * never in the database, logs, or API responses).
  *
- * Deliberately the same envelope as `whatsapp-token.vault.ts`
- * (`v1.<ivHex>.<tagHex>.<cipherHex>`, AES-256-GCM, 12-byte iv) rather than
- * a second scheme: one reviewed format for "secret the server must be able
- * to read back" is easier to reason about than two. It is a separate key
+ * Deliberately a versioned envelope
+ * (`v1.<ivHex>.<tagHex>.<cipherHex>`, AES-256-GCM, 12-byte iv): one
+ * reviewed format for "secret the server must be able to read back" is
+ * easier to reason about than two. It is a separate key
  * and a separate module because the blast radius of the two secrets is
  * different -- leaking a WhatsApp token lets an attacker send messages,
  * leaking TOTP secrets defeats every second factor at once.

@@ -1,6 +1,6 @@
 # communications
 
-**Status: EMAIL (SMTP), WHATSAPP (Meta Cloud API), SMS (MSG91) and PUSH (FCM) are provider-backed. Each throws when unconfigured rather than pretending to send.**
+**Status: EMAIL (SMTP), WHATSAPP (WA-AKG gateway), SMS (MSG91) and PUSH (FCM) are provider-backed. Each throws when unconfigured rather than pretending to send.**
 
 ## What exists
 

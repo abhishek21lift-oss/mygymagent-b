@@ -10,7 +10,7 @@ import type { MessageProvider } from '../communications/interfaces/message-provi
 
 const SEND_TIMEOUT_MS = 8_000;
 
-export type WaAkgAction = 'start' | 'stop' | 'restart' | 'logout';
+export type WaAkgAction = 'start' | 'stop' | 'restart' | 'logout' | 'pair';
 
 /** The slice of WA-AKG `GET /api/sessions/{id}` (`data`) this backend
  * reads: live status wins over the stored one, `me` carries the linked
@@ -169,8 +169,13 @@ export class WaAkgProvider implements MessageProvider {
   }
 
   /** Lifecycle on an existing session: `start` begins pairing/sending,
-   * `logout` unlinks the number (fresh QR next time). */
-  async performAction(sessionId: string, action: WaAkgAction): Promise<void> {
+   * `pair` generates a pairing code for a phone number, `logout` unlinks
+   * the number (fresh QR next time). */
+  async performAction(
+    sessionId: string,
+    action: WaAkgAction,
+    body: Record<string, unknown> = {},
+  ): Promise<void> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(
         "WhatsApp sending isn't configured",
@@ -178,7 +183,7 @@ export class WaAkgProvider implements MessageProvider {
     }
     await this.post(
       `/api/sessions/${encodeURIComponent(sessionId)}/${action}`,
-      {},
+      body,
     );
   }
 
@@ -205,7 +210,9 @@ export class WaAkgProvider implements MessageProvider {
       return body.data;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`WhatsApp send timed out after ${SEND_TIMEOUT_MS / 1000}s`);
+        throw new Error(
+          `WhatsApp send timed out after ${SEND_TIMEOUT_MS / 1000}s`,
+        );
       }
       throw error instanceof Error ? error : new Error('WhatsApp send failed');
     } finally {
