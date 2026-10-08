@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { CommunicationsModule } from '../communications/communications.module';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { WhatsappInboundFiler } from '../whatsapp/whatsapp-inbound.filer';
 import { BaileysSocketFactory } from './baileys-socket.factory';
@@ -21,6 +22,7 @@ import { WA_SOCKET_FACTORY } from './whatsapp-web.types';
   imports: [
     EventEmitterModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.WHATSAPP_WEB }),
+    CommunicationsModule,
   ],
   controllers: [WhatsappWebController],
   providers: [

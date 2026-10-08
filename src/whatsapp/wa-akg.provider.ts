@@ -10,6 +10,19 @@ import type { MessageProvider } from '../communications/interfaces/message-provi
 
 const SEND_TIMEOUT_MS = 8_000;
 
+export type WaAkgAction = 'start' | 'stop' | 'restart' | 'logout';
+
+/** The slice of WA-AKG `GET /api/sessions/{id}` (`data`) this backend
+ * reads: live status wins over the stored one, `me` carries the linked
+ * number (`<digits>@s.whatsapp.net`), `qr` the raw QR payload while
+ * pairing. Everything else on the payload is ignored. */
+export interface WaAkgSession {
+  status: string;
+  qr?: string | null;
+  pairingCode?: string | null;
+  me?: { id?: string } | null;
+}
+
 /** Deterministic WA-AKG session per gym: no mapping table, the session
  * name IS the derivation, and the webhook reverses it the same way. */
 export function sessionIdFor(organizationId: string): string {
@@ -114,36 +127,59 @@ export class WaAkgProvider implements MessageProvider {
     return `waakg:${id}`;
   }
 
-  private async ensureSession(sessionId: string): Promise<void> {
-    const headers = { 'X-API-Key': this.apiKey() };
+  /**
+   * The gym's WA-AKG session, or null when WA-AKG is unconfigured or the
+   * gym has no session yet. Anything else (gateway down, auth refused)
+   * throws -- callers turn that into a FAILED row or a 503, never a
+   * silent "not connected".
+   */
+  async getSession(sessionId: string): Promise<WaAkgSession | null> {
+    if (!this.isConfigured()) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
     try {
       const res = await fetch(
         `${this.baseUrl()}/api/sessions/${encodeURIComponent(sessionId)}`,
-        { headers, signal: controller.signal },
+        {
+          headers: { 'X-API-Key': this.apiKey() },
+          signal: controller.signal,
+        },
       );
-      if (res.ok) return;
-      if (res.status !== 404) {
-        throw new Error(`Session lookup failed (${res.status})`);
-      }
-      const created = await fetch(`${this.baseUrl()}/api/sessions`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: sessionId }),
-        signal: controller.signal,
-      });
-      if (!created.ok) {
-        throw new Error(`Session creation failed (${created.status})`);
-      }
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`Session lookup failed (${res.status})`);
+      const body = (await res.json()) as { data?: WaAkgSession };
+      return body.data ?? null;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`WhatsApp send timed out after ${SEND_TIMEOUT_MS / 1000}s`);
+        throw new Error(
+          `WhatsApp gateway timed out after ${SEND_TIMEOUT_MS / 1000}s`,
+        );
       }
       throw error instanceof Error ? error : new Error('WhatsApp send failed');
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Creates the gym's session on first use: WA-AKG derives a random id
+   * unless sessionId is explicit, so both name and sessionId are sent. */
+  async ensureSession(sessionId: string): Promise<void> {
+    if (await this.getSession(sessionId)) return;
+    await this.post('/api/sessions', { name: sessionId, sessionId });
+  }
+
+  /** Lifecycle on an existing session: `start` begins pairing/sending,
+   * `logout` unlinks the number (fresh QR next time). */
+  async performAction(sessionId: string, action: WaAkgAction): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException(
+        "WhatsApp sending isn't configured",
+      );
+    }
+    await this.post(
+      `/api/sessions/${encodeURIComponent(sessionId)}/${action}`,
+      {},
+    );
   }
 
   private async post(path: string, payload: Record<string, unknown>) {

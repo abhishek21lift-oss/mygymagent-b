@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  GoneException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -10,22 +11,16 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { MessageStatus } from '@prisma/client';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  encryptWhatsappToken,
-  parseWhatsappVaultKey,
-} from './whatsapp-token.vault';
+import { sessionIdFor, WaAkgProvider } from './wa-akg.provider';
 import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
 import type {
-  CompleteEmbeddedSignupDto,
   SendWhatsAppMessageDto,
   TestSendWhatsAppDto,
 } from './dto/whatsapp.dto';
 
-interface GraphPhoneNumber {
-  id: string;
-  display_phone_number?: string;
-  verified_name?: string;
-}
+/// The Meta webhook payload shapes below stay until the webhook receiver
+/// is swapped to WA-AKG (next task) -- inbound texts and statuses still
+/// arrive in Meta form.
 
 /// One `changes[]` value of Meta's WhatsApp webhook (`field: messages`) --
 /// enough of the shape to route statuses and inbound texts, nothing more.
@@ -60,18 +55,14 @@ interface WebhookPayload {
 }
 
 /**
- * WhatsApp Business integration: each gym connects its OWN number via
- * Meta's embedded-signup flow (the settings page drives FB.login and
- * posts the resulting code here). The code is exchanged server-side for
- * a system-user token, which is AES-256-GCM encrypted into the
- * per-org vault row (`WhatsappCredential`) -- only integration METADATA
- * lives on `WhatsappIntegration`, and the plaintext token is never
- * logged or returned by any endpoint.
+ * WhatsApp integration, served by the shared WA-AKG gateway: each gym
+ * owns one WA-AKG session (`gym-{organizationId}`), linked by scanning
+ * its QR, and the WHATSAPP channel sends through it.
  *
  * Outbound delivery goes through CommunicationsService's provider
- * abstraction, now backed by MetaWhatsappProvider (Cloud API) with the
- * provider message id stored on MessageLog; the inbound webhook advances
- * those rows SENT -> DELIVERED -> READ and files inbound texts into
+ * abstraction, now backed by WaAkgProvider with the provider message id
+ * stored on MessageLog; the WA-AKG status webhook advances those rows
+ * SENT -> DELIVERED -> READ and files inbound texts into
  * `InboundMessage` for the CRM unmatched queue.
  */
 @Injectable()
@@ -83,158 +74,61 @@ export class WhatsappService {
     private readonly config: ConfigService,
     private readonly communications: CommunicationsService,
     private readonly inbound: WhatsappInboundFiler,
+    private readonly waAkg: WaAkgProvider,
   ) {}
 
-  getIntegration(organizationId: string) {
-    // Metadata only -- the vault row (`WhatsappCredential`) is deliberately
-    // never selected here or anywhere on a read path.
-    return this.prisma.whatsappIntegration.findUnique({
-      where: { organizationId },
-    });
-  }
-
-  private metaConfig(): { appId: string; appSecret: string; version: string } {
-    const appId = this.config.get<string>('META_APP_ID', '');
-    const appSecret = this.config.get<string>('META_APP_SECRET', '');
-    const version =
-      this.config.get<string>('WHATSAPP_GRAPH_VERSION', '') || 'v25.0';
-    if (!appId || !appSecret) {
-      throw new ServiceUnavailableException(
-        'Meta WhatsApp onboarding is not configured yet (META_APP_ID / META_APP_SECRET)',
-      );
-    }
-    return { appId, appSecret, version };
-  }
-
-  async completeEmbeddedSignup(
-    organizationId: string,
-    dto: CompleteEmbeddedSignupDto,
-  ) {
-    const { appId, appSecret, version } = this.metaConfig();
-    // Fail before minting a token when the vault can't persist it -- the
-    // 503 ("WhatsApp sending isn't configured") must surface instead of a
-    // token that would exist only in this request's memory.
-    const vaultKey = parseWhatsappVaultKey(
-      this.config.get<string>('WHATSAPP_TOKEN_KEY', ''),
+  /**
+   * The gym's WA-AKG session mapped onto the integration shape the
+   * settings page reads -- null when the gym has no session yet, so the
+   * page offers linking. Meta fields (wabaId/phoneNumberId) are gone
+   * with the Cloud API and stay null.
+   */
+  async getIntegration(organizationId: string) {
+    const session = await this.waAkg.getSession(
+      sessionIdFor(organizationId),
     );
+    if (!session) return null;
+    const now = new Date();
+    return {
+      id: sessionIdFor(organizationId),
+      organizationId,
+      status:
+        session.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
+      wabaId: null,
+      phoneNumberId: null,
+      displayPhoneNumber: session.me?.id?.split('@')[0] ?? null,
+      displayName: null,
+      businessAccountId: null,
+      lastError:
+        session.status === 'LOGGED_OUT'
+          ? 'The number was logged out from the phone -- link it again.'
+          : null,
+      connectedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
 
-    try {
-      const tokenRes = await fetch(
-        `https://graph.facebook.com/${version}/oauth/access_token?` +
-          new URLSearchParams({
-            client_id: appId,
-            client_secret: appSecret,
-            code: dto.code,
-          }),
-        { method: 'GET' },
-      );
-      if (!tokenRes.ok) {
-        const text = await tokenRes.text();
-        throw new Error(`Token exchange failed (${tokenRes.status}): ${text}`);
-      }
-      const { access_token: accessToken, expires_in: expiresIn } =
-        (await tokenRes.json()) as {
-          access_token?: string;
-          expires_in?: number;
-        };
-      if (!accessToken) throw new Error('Token exchange returned no token');
-      const expiresAt =
-        typeof expiresIn === 'number'
-          ? new Date(Date.now() + expiresIn * 1000)
-          : null;
-
-      const numbersRes = await fetch(
-        `https://graph.facebook.com/${version}/${dto.wabaId}/phone_numbers?` +
-          new URLSearchParams({
-            fields: 'id,display_phone_number,verified_name',
-          }),
-        {
-          method: 'GET',
-          // Bearer header, never a query param -- URLs end up in
-          // intermediary/proxy logs, headers don't.
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-      if (!numbersRes.ok) {
-        const text = await numbersRes.text();
-        throw new Error(
-          `Phone number lookup failed (${numbersRes.status}): ${text}`,
-        );
-      }
-      const { data: numbers } = (await numbersRes.json()) as {
-        data?: GraphPhoneNumber[];
-      };
-      const picked =
-        (numbers ?? []).find((n) => n.id === dto.phoneNumberId) ??
-        (numbers ?? [])[0] ??
-        null;
-
-      // Persist the ENCRYPTED credential first: a crash between the two
-      // upserts must leave a vault row without metadata, never metadata
-      // claiming CONNECTED with no way to send.
-      const accessTokenEnc = encryptWhatsappToken(accessToken, vaultKey);
-      await this.prisma.whatsappCredential.upsert({
-        where: { organizationId },
-        create: { organizationId, accessTokenEnc, expiresAt },
-        update: { accessTokenEnc, expiresAt },
-      });
-
-      return this.prisma.whatsappIntegration.upsert({
-        where: { organizationId },
-        create: {
-          organizationId,
-          status: 'CONNECTED',
-          wabaId: dto.wabaId,
-          phoneNumberId: picked?.id ?? dto.phoneNumberId,
-          displayPhoneNumber: picked?.display_phone_number,
-          displayName: picked?.verified_name,
-          connectedAt: new Date(),
-        },
-        update: {
-          status: 'CONNECTED',
-          wabaId: dto.wabaId,
-          phoneNumberId: picked?.id ?? dto.phoneNumberId,
-          displayPhoneNumber: picked?.display_phone_number,
-          displayName: picked?.verified_name,
-          lastError: null,
-          connectedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      // `accessToken` is scoped to the try block above, so it can never
-      // leak into this log line or the stored lastError -- Graph error
-      // bodies never contain our token either.
-      const lastError = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `WhatsApp signup failed for org ${organizationId}: ${lastError}`,
-      );
-      await this.prisma.whatsappIntegration.upsert({
-        where: { organizationId },
-        create: { organizationId, status: 'ERROR', lastError },
-        update: { status: 'ERROR', lastError },
-      });
-      throw error instanceof ServiceUnavailableException
-        ? error
-        : new BadRequestException(`WhatsApp connection failed: ${lastError}`);
-    }
+  /**
+   * Meta embedded signup was removed with the WA-AKG replacement. Kept
+   * as an explicit 410 (not a deleted route) so the old settings flow
+   * fails with a message instead of a bare 404.
+   */
+  async completeEmbeddedSignup(): Promise<never> {
+    throw new GoneException(
+      'Meta WhatsApp onboarding was removed -- link the gym number through WhatsApp (WA-AKG) instead.',
+    );
   }
 
   async disconnect(organizationId: string) {
-    // Delete the vault row first: from this point no send can succeed for
-    // the org, even if the status update below raced a concurrent send
-    // (the provider re-reads the credential on every send).
-    const { count } = await this.prisma.whatsappCredential.deleteMany({
-      where: { organizationId },
-    });
-    const existing = await this.prisma.whatsappIntegration.findUnique({
-      where: { organizationId },
-    });
-    if (!existing) return { disconnected: true, credentialRemoved: count > 0 };
-    await this.prisma.whatsappIntegration.update({
-      where: { organizationId },
-      data: { status: 'DISCONNECTED', lastError: null },
-    });
-    return { disconnected: true, credentialRemoved: count > 0 };
+    // Unlink the number remotely: from this point no send can succeed
+    // for the org. Errors propagate -- a failed unlink must not report
+    // success while the session still sends.
+    await this.waAkg.performAction(
+      sessionIdFor(organizationId),
+      'logout',
+    );
+    return { disconnected: true, credentialRemoved: false };
   }
 
   listMessages(organizationId: string, limit = 50) {

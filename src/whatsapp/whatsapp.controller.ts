@@ -20,7 +20,6 @@ import { Public } from '../common/decorators/public.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
-  CompleteEmbeddedSignupDto,
   SendWhatsAppMessageDto,
   TestSendWhatsAppDto,
 } from './dto/whatsapp.dto';
@@ -40,11 +39,8 @@ export class WhatsappController {
   @Post('integration/embedded-signup')
   @RequirePermissions('whatsapp.manage')
   @Audited({ resource: 'whatsapp_integration', action: 'connect' })
-  completeSignup(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CompleteEmbeddedSignupDto,
-  ) {
-    return this.whatsapp.completeEmbeddedSignup(user.organizationId!, dto);
+  completeSignup() {
+    return this.whatsapp.completeEmbeddedSignup();
   }
 
   @Post('integration/disconnect')

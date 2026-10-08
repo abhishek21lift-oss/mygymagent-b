@@ -58,6 +58,6 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
       inject: [ConfigService, FcmPushProvider],
     },
   ],
-  exports: [CommunicationsService, Msg91SmsProvider, FcmPushProvider],
+  exports: [CommunicationsService, Msg91SmsProvider, FcmPushProvider, WaAkgProvider],
 })
 export class CommunicationsModule {}

@@ -4,45 +4,53 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import * as QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseWhatsappVaultKey } from '../whatsapp/whatsapp-token.vault';
+import { sessionIdFor, WaAkgProvider } from '../whatsapp/wa-akg.provider';
 import type {
   ConnectWhatsappWebDto,
   UpdateWhatsappWebSettingsDto,
 } from './dto/whatsapp-web.dto';
-import { WhatsappWebManager } from './whatsapp-web.manager';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const PREF_DEFAULTS = {
+  status: 'DISCONNECTED',
+  phoneNumber: null,
+  useForSending: false,
+  autoReply: true,
+  dailyLimit: 200,
+  riskAcceptedAt: null,
+  connectedAt: null,
+  lastError: null,
+};
+
+/**
+ * A gym's own WhatsApp number, linked by scanning its QR -- served by
+ * the shared WA-AKG gateway (one session per gym) instead of the
+ * removed in-process Baileys stack.
+ *
+ * Liveness (status, number, QR, pairing code) is read from WA-AKG on
+ * every call; only the gym's sending *preferences* (auto-reply, daily
+ * limit) stay in the local row, which is also what the auto-reply
+ * listener reads.
+ */
 @Injectable()
 export class WhatsappWebService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-    private readonly manager: WhatsappWebManager,
+    private readonly waAkg: WaAkgProvider,
   ) {}
 
   /**
-   * Whether this deployment can run WhatsApp Web, and if not, which
-   * setting is missing -- the settings page names it, since "not switched
-   * on" is misleading when the switch is on and the key is the problem.
+   * Whether this deployment can run WhatsApp: WA-AKG configured, or the
+   * DISABLED reason the settings page names.
    */
   availability():
     | { available: true; unavailableReason: null }
-    | {
-        available: false;
-        unavailableReason: 'DISABLED' | 'KEY_MISSING' | 'KEY_INVALID';
-      } {
-    if (!this.manager.enabled) {
+    | { available: false; unavailableReason: 'DISABLED' } {
+    if (!this.waAkg.isConfigured()) {
       return { available: false, unavailableReason: 'DISABLED' };
-    }
-    const key = this.config.get<string>('WHATSAPP_TOKEN_KEY')?.trim();
-    if (!key) return { available: false, unavailableReason: 'KEY_MISSING' };
-    try {
-      parseWhatsappVaultKey(key);
-    } catch {
-      return { available: false, unavailableReason: 'KEY_INVALID' };
     }
     return { available: true, unavailableReason: null };
   }
@@ -52,33 +60,88 @@ export class WhatsappWebService {
   }
 
   async status(organizationId: string) {
-    const [session, sentLast24h] = await Promise.all([
-      this.prisma.whatsappWebSession.findUnique({ where: { organizationId } }),
+    const [prefs, session, sentLast24h] = await Promise.all([
+      this.prisma.whatsappWebSession.findUnique({
+        where: { organizationId },
+      }),
+      this.waAkg.getSession(sessionIdFor(organizationId)),
       this.prisma.messageLog.count({
         where: {
           organizationId,
           channel: 'WHATSAPP',
-          providerMessageId: { startsWith: 'waweb:' },
+          providerMessageId: { startsWith: 'waakg:' },
           createdAt: { gte: new Date(Date.now() - DAY_MS) },
         },
       }),
     ]);
-    const pairing = session?.status === 'PAIRING';
-    const codes = pairing
-      ? await this.manager.codes(organizationId)
-      : { qrDataUrl: null, pairingCode: null };
     return {
       ...this.availability(),
-      status: session?.status ?? 'DISCONNECTED',
-      phoneNumber: session?.phoneNumber ?? null,
-      useForSending: session?.useForSending ?? false,
-      autoReply: session?.autoReply ?? true,
-      dailyLimit: session?.dailyLimit ?? 200,
+      ...(prefs ?? PREF_DEFAULTS),
       sentLast24h,
-      riskAcceptedAt: session?.riskAcceptedAt ?? null,
-      connectedAt: session?.connectedAt ?? null,
-      lastError: session?.lastError ?? null,
-      ...codes,
+      ...(await this.liveness(session)),
+    };
+  }
+
+  /** WA-AKG live status onto the settings-page shape. */
+  private async liveness(
+    session: Awaited<ReturnType<WaAkgProvider['getSession']>>,
+  ) {
+    if (!session) {
+      return {
+        status: 'DISCONNECTED',
+        phoneNumber: null,
+        connectedAt: null,
+        lastError: null,
+        qrDataUrl: null,
+        pairingCode: null,
+      };
+    }
+    if (session.status === 'CONNECTED') {
+      return {
+        status: 'CONNECTED' as const,
+        phoneNumber: session.me?.id?.split('@')[0] ?? null,
+        connectedAt: new Date(),
+        lastError: null,
+        qrDataUrl: null,
+        pairingCode: null,
+      };
+    }
+    if (session.status === 'LOGGED_OUT') {
+      return {
+        status: 'LOGGED_OUT' as const,
+        phoneNumber: null,
+        connectedAt: null,
+        lastError:
+          'The number was logged out from the phone -- link it again.',
+        qrDataUrl: null,
+        pairingCode: null,
+      };
+    }
+    if (session.status === 'SCAN_QR') {
+      let qrDataUrl: string | null = null;
+      if (session.qr) {
+        try {
+          qrDataUrl = await QRCode.toDataURL(session.qr);
+        } catch {
+          qrDataUrl = null;
+        }
+      }
+      return {
+        status: 'PAIRING' as const,
+        phoneNumber: null,
+        connectedAt: null,
+        lastError: null,
+        qrDataUrl,
+        pairingCode: session.pairingCode ?? null,
+      };
+    }
+    return {
+      status: 'DISCONNECTED',
+      phoneNumber: null,
+      connectedAt: null,
+      lastError: null,
+      qrDataUrl: null,
+      pairingCode: null,
     };
   }
 
@@ -89,18 +152,19 @@ export class WhatsappWebService {
   ) {
     if (!this.available()) {
       throw new ServiceUnavailableException(
-        "WhatsApp Web isn't available on this deployment.",
+        "WhatsApp isn't available on this deployment.",
       );
     }
-    const existing = await this.prisma.whatsappWebSession.findUnique({
-      where: { organizationId },
-      select: { status: true },
-    });
-    if (existing?.status === 'CONNECTED') {
+    const live = await this.waAkg.getSession(
+      sessionIdFor(organizationId),
+    );
+    if (live?.status === 'CONNECTED') {
       throw new ConflictException(
         'A number is already linked. Unlink it first to link a different one.',
       );
     }
+    await this.waAkg.ensureSession(sessionIdFor(organizationId));
+    await this.waAkg.performAction(sessionIdFor(organizationId), 'start');
     await this.prisma.whatsappWebSession.upsert({
       where: { organizationId },
       create: {
@@ -116,25 +180,11 @@ export class WhatsappWebService {
         lastError: null,
       },
     });
-    try {
-      await this.manager.connect(organizationId, {
-        pairingPhone: dto.phoneNumber,
-      });
-    } catch (error) {
-      await this.prisma.whatsappWebSession.update({
-        where: { organizationId },
-        data: {
-          status: 'DISCONNECTED',
-          lastError: error instanceof Error ? error.message : String(error),
-        },
-      });
-      throw error;
-    }
     return this.status(organizationId);
   }
 
   async disconnect(organizationId: string) {
-    await this.manager.disconnect(organizationId);
+    await this.waAkg.performAction(sessionIdFor(organizationId), 'logout');
     await this.prisma.whatsappWebSession.updateMany({
       where: { organizationId },
       data: {
@@ -152,17 +202,22 @@ export class WhatsappWebService {
     organizationId: string,
     dto: UpdateWhatsappWebSettingsDto,
   ) {
-    const session = await this.prisma.whatsappWebSession.findUnique({
+    const prefs = await this.prisma.whatsappWebSession.findUnique({
       where: { organizationId },
       select: { status: true },
     });
-    if (!session) {
+    if (!prefs) {
       throw new BadRequestException('Link a WhatsApp number first.');
     }
-    if (dto.useForSending && session.status !== 'CONNECTED') {
-      throw new BadRequestException(
-        'Link your WhatsApp number before sending through it.',
+    if (dto.useForSending) {
+      const live = await this.waAkg.getSession(
+        sessionIdFor(organizationId),
       );
+      if (live?.status !== 'CONNECTED') {
+        throw new BadRequestException(
+          'Link your WhatsApp number before sending through it.',
+        );
+      }
     }
     await this.prisma.whatsappWebSession.update({
       where: { organizationId },

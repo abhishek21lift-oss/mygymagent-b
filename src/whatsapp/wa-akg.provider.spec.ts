@@ -90,4 +90,47 @@ describe('WaAkgProvider', () => {
       p.send({ to: '+919876543210', text: 'Hi', organizationId: 'org_123' }),
     ).rejects.toThrow(/isn't configured/);
   });
+
+  it('returns the session on GET success', async () => {
+    const { provider: p } = provider({
+      WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AKG_API_KEY: 'wag_test',
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: true, data: { status: 'CONNECTED' } }),
+    }) as never;
+    await expect(p.getSession('gym-org_123')).resolves.toEqual({
+      status: 'CONNECTED',
+    });
+  });
+
+  it('returns null when the session does not exist yet', async () => {
+    const { provider: p } = provider({
+      WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AKG_API_KEY: 'wag_test',
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    }) as never;
+    await expect(p.getSession('gym-org_123')).resolves.toBeNull();
+  });
+
+  it('starts the session through the action endpoint', async () => {
+    const { provider: p } = provider({
+      WA_AKG_BASE_URL: 'http://wa-akg:3000',
+      WA_AKG_API_KEY: 'wag_test',
+    });
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: true, data: {} }),
+    });
+    global.fetch = fetchMock as never;
+    await p.performAction('gym-org_123', 'start');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('http://wa-akg:3000/api/sessions/gym-org_123/start');
+    expect(init.method).toBe('POST');
+  });
 });

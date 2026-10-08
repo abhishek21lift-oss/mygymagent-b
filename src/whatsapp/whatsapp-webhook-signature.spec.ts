@@ -17,6 +17,7 @@ function serviceWith(secret: string | undefined, nodeEnv = 'test') {
     config as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 }
 
