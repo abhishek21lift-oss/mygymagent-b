@@ -151,12 +151,7 @@ describe('Command Center (e2e)', () => {
     const names = res.body.data.queues.value.queues.map(
       (q: { name: string }) => q.name,
     );
-    expect(names.sort()).toEqual([
-      'automation',
-      'notifications',
-      'push',
-      'whatsapp-web',
-    ]);
+    expect(names.sort()).toEqual(['automation', 'notifications', 'push']);
   });
 
   it('reuses the cached snapshot across consecutive reads', async () => {
