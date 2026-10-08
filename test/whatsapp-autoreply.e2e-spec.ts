@@ -253,4 +253,26 @@ describe('WhatsApp staff replies (e2e)', () => {
       30_000,
     );
   }, 90_000);
+
+  it('creates rules through the API (global validation pipe)', async () => {
+    const created = await as(gym.accessToken)
+      .post('/whatsapp/auto-replies')
+      .send({
+        keyword: 'api-rule',
+        matchType: 'EXACT',
+        scope: 'ALL',
+        answer: 'Created over HTTP',
+      })
+      .expect(201);
+    expect(created.body.data.keyword).toBe('api-rule');
+    await as(gym.accessToken)
+      .post('/whatsapp/auto-replies')
+      .send({
+        keyword: 'fee(s',
+        matchType: 'REGEX',
+        scope: 'ALL',
+        answer: 'Broken',
+      })
+      .expect(400);
+  }, 60_000);
 });

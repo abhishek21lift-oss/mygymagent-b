@@ -91,7 +91,11 @@ export class WebhookDeliveryProcessor extends WorkerHost {
           httpStatus:
             error instanceof WebhookHttpError ? error.httpStatus : null,
           error: describe(error),
-          nextRetryAt: new Date(Date.now() + delayMs * 2 ** job.attemptsMade),
+          // Mirrors BullMQ's exponential strategy (delay * 2^(n-1));
+          // informational only, the queue owns the actual timing.
+          nextRetryAt: new Date(
+            Date.now() + delayMs * 2 ** Math.max(job.attemptsMade - 1, 0),
+          ),
         },
       });
       throw error;

@@ -11,6 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
 import crypto from 'node:crypto';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -32,9 +33,31 @@ const PUBLIC_SUBSCRIPTION = {
   updatedAt: true,
 } as const;
 
-class WebhookDto {
+class CreateWebhookDto {
+  @IsString()
+  url!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  events!: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
+class UpdateWebhookDto {
+  @IsOptional()
+  @IsString()
   url?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   events?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   enabled?: boolean;
 }
 
@@ -103,7 +126,7 @@ export class WebhooksController {
   @Audited({ resource: 'whatsapp_webhook', action: 'create' })
   async create(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: WebhookDto,
+    @Body() dto: CreateWebhookDto,
   ) {
     const organizationId = user.organizationId!;
     const existing = await this.prisma.webhookSubscription.count({
@@ -134,7 +157,7 @@ export class WebhooksController {
   async update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: WebhookDto,
+    @Body() dto: UpdateWebhookDto,
   ) {
     // Org-scoped by id: another gym's subscription is 404, never 403.
     const data: {
