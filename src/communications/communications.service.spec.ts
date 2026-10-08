@@ -1,15 +1,10 @@
 import { CommunicationsService } from './communications.service';
 
-function service(session: unknown, prefs: unknown) {
-  const waAkg = {
-    getSession: jest.fn().mockResolvedValue(session),
+function service(status: string | null) {
+  const sessions = {
+    getStatus: jest.fn(async () => status ?? 'DISCONNECTED'),
   };
-  const prisma = {
-    whatsappWebSession: { findUnique: jest.fn().mockResolvedValue(prefs) },
-    whatsappIntegration: {
-      findUnique: jest.fn().mockResolvedValue({ status: 'CONNECTED' }),
-    },
-  };
+  const prisma = {};
   const config = { get: jest.fn().mockReturnValue(undefined) };
   const svc = new CommunicationsService(
     prisma as never,
@@ -19,33 +14,31 @@ function service(session: unknown, prefs: unknown) {
     {} as never,
     {} as never,
     {} as never,
-    waAkg as never,
+    sessions as never,
   );
-  return { svc, waAkg, prisma };
+  return { svc, sessions };
 }
 
-const connected = { status: 'CONNECTED', me: { id: '9198@s.whatsapp.net' } };
-
 describe('CommunicationsService.ownWhatsappNumberLinked', () => {
-  it('is true with a connected WA-AKG session and no feature flag', async () => {
-    const { svc } = service(connected, null);
+  it('is true with a connected live session', async () => {
+    const { svc } = service('CONNECTED');
     await expect(svc.ownWhatsappNumberLinked('org_1')).resolves.toBe(true);
   });
 
-  it('is false without a WA-AKG session', async () => {
-    const { svc } = service(null, null);
+  it('is false without a live session', async () => {
+    const { svc } = service(null);
     await expect(svc.ownWhatsappNumberLinked('org_1')).resolves.toBe(false);
   });
 });
 
 describe('CommunicationsService.whatsappReadiness', () => {
-  it('ignores the dead Meta integration row: WA-AKG session decides', async () => {
-    const { svc } = service(null, null);
+  it('is false when nothing is linked', async () => {
+    const { svc } = service('DISCONNECTED');
     await expect(svc.whatsappReadiness('org_1')).resolves.toBe(false);
   });
 
-  it('is ready with a connected session opted into sending', async () => {
-    const { svc } = service(connected, { useForSending: true });
+  it('is ready with a connected session, toggle or not', async () => {
+    const { svc } = service('CONNECTED');
     await expect(svc.whatsappReadiness('org_1')).resolves.toBe(true);
   });
 });

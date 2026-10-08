@@ -9,6 +9,9 @@ export const QUEUE_NAMES = {
   /** Its own queue: see PushDispatchService for why push cannot share
    * `notifications`. */
   PUSH: 'push',
+  /** One gym's WhatsApp sends, spaced for ban safety, delivered by the
+   * instance holding the gym's socket (see `src/whatsapp-web/`). */
+  WA_SEND: 'wa-send',
 } as const;
 
 export const JOB_NAMES = {

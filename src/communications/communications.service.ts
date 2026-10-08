@@ -10,7 +10,7 @@ import type { EmailProvider } from './interfaces/email-provider.interface';
 import type { MessageProvider } from './interfaces/message-provider.interface';
 import { MessageTemplateService } from './message-template.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { sessionIdFor, WaAkgProvider } from '../whatsapp/wa-akg.provider';
+import { WaSessionManager } from '../whatsapp-web/wa-session.manager';
 
 export const EMAIL_PROVIDER = Symbol('EMAIL_PROVIDER');
 export const WHATSAPP_PROVIDER = Symbol('WHATSAPP_PROVIDER');
@@ -63,7 +63,7 @@ export class CommunicationsService {
     private readonly whatsappProvider: MessageProvider,
     @Inject(SMS_PROVIDER) private readonly smsProvider: MessageProvider,
     @Inject(PUSH_PROVIDER) private readonly pushProvider: MessageProvider,
-    private readonly waAkg: WaAkgProvider,
+    private readonly sessions: WaSessionManager,
   ) {}
 
   /**
@@ -242,31 +242,24 @@ export class CommunicationsService {
     return organization?.name ?? '';
   }
 
-  /** Whether any WhatsApp sending works for this gym: its WA-AKG session
-   * is connected and opted into sending. The old Meta Cloud API row is
-   * deliberately not counted -- nothing writes it anymore. */
+  /** Whether any WhatsApp sending works for this gym: its session is
+   * connected. Linked means ready now -- there is no alternative sender
+   * to prefer, so the old "send through it" toggle no longer gates. */
   async whatsappReadiness(organizationId: string): Promise<boolean> {
     return this.ownWhatsappNumberReady(organizationId);
   }
 
-  /** Whether the gym's WA-AKG session is connected, whatever it chose
-   * for sending reminders. */
+  /** Whether the gym's session is connected. */
   async ownWhatsappNumberLinked(organizationId: string): Promise<boolean> {
-    const session = await this.waAkg.getSession(sessionIdFor(organizationId));
-    return session?.status === 'CONNECTED';
+    return (await this.sessions.getStatus(organizationId)) === 'CONNECTED';
   }
 
   /**
-   * Whether this gym's automated messages can go on WhatsApp: its WA-AKG
-   * session is connected and sending through it is on.
+   * Whether this gym's automated messages can go on WhatsApp: its session
+   * is connected. Same as linked -- a linked number is the only sender.
    */
   async ownWhatsappNumberReady(organizationId: string): Promise<boolean> {
-    if (!(await this.ownWhatsappNumberLinked(organizationId))) return false;
-    const prefs = await this.prisma.whatsappWebSession.findUnique({
-      where: { organizationId },
-      select: { useForSending: true },
-    });
-    return prefs?.useForSending ?? false;
+    return this.ownWhatsappNumberLinked(organizationId);
   }
 
   private frontendUrl(): string {

@@ -4,9 +4,10 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import * as QRCode from 'qrcode';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { sessionIdFor, WaAkgProvider } from '../whatsapp/wa-akg.provider';
+import { parseWaAuthKey } from './wa-auth.store';
+import { WaSessionManager } from './wa-session.manager';
 import type {
   ConnectWhatsappWebDto,
   UpdateWhatsappWebSettingsDto,
@@ -26,30 +27,29 @@ const PREF_DEFAULTS = {
 };
 
 /**
- * A gym's own WhatsApp number, linked by scanning its QR -- served by
- * the shared WA-AKG gateway (one session per gym) instead of the
- * removed in-process Baileys stack.
- *
- * Liveness (status, number, QR, pairing code) is read from WA-AKG on
- * every call; only the gym's sending *preferences* (auto-reply, daily
- * limit) stay in the local row, which is also what the auto-reply
- * listener reads.
+ * A gym's own WhatsApp number, served in-process: linking status, QR and
+ * pairing-code passthrough from the session manager, and the gym's
+ * sending preferences. Liveness comes from the manager and `WaSession`;
+ * only preferences live in the local row.
  */
 @Injectable()
 export class WhatsappWebService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly waAkg: WaAkgProvider,
+    private readonly config: ConfigService,
+    private readonly manager: WaSessionManager,
   ) {}
 
   /**
-   * Whether this deployment can run WhatsApp: WA-AKG configured, or the
-   * DISABLED reason the settings page names.
+   * Whether this deployment can run WhatsApp: the session vault key set,
+   * or the DISABLED reason the settings page names.
    */
   availability():
     | { available: true; unavailableReason: null }
     | { available: false; unavailableReason: 'DISABLED' } {
-    if (!this.waAkg.isConfigured()) {
+    try {
+      parseWaAuthKey(this.config.get<string>('WA_AUTH_KEY'));
+    } catch {
       return { available: false, unavailableReason: 'DISABLED' };
     }
     return { available: true, unavailableReason: null };
@@ -60,11 +60,11 @@ export class WhatsappWebService {
   }
 
   async status(organizationId: string) {
-    const [prefs, session, sentLast24h] = await Promise.all([
+    const [prefs, session, sentLast24h, codes, live] = await Promise.all([
       this.prisma.whatsappWebSession.findUnique({
         where: { organizationId },
       }),
-      this.waAkg.getSession(sessionIdFor(organizationId)),
+      this.prisma.waSession.findUnique({ where: { organizationId } }),
       this.prisma.messageLog.count({
         where: {
           organizationId,
@@ -73,74 +73,22 @@ export class WhatsappWebService {
           createdAt: { gte: new Date(Date.now() - DAY_MS) },
         },
       }),
+      this.manager.codes(organizationId),
+      this.manager.getStatus(organizationId),
     ]);
+    const connected = live === 'CONNECTED';
     return {
       ...this.availability(),
       ...(prefs ?? PREF_DEFAULTS),
+      phoneNumber: connected
+        ? (session?.phoneNumber ?? prefs?.phoneNumber ?? null)
+        : null,
+      status: live,
+      connectedAt: connected ? (session?.connectedAt ?? null) : null,
+      lastError: session?.lastError ?? null,
       sentLast24h,
-      ...(await this.liveness(session)),
-    };
-  }
-
-  /** WA-AKG live status onto the settings-page shape. */
-  private async liveness(
-    session: Awaited<ReturnType<WaAkgProvider['getSession']>>,
-  ) {
-    if (!session) {
-      return {
-        status: 'DISCONNECTED',
-        phoneNumber: null,
-        connectedAt: null,
-        lastError: null,
-        qrDataUrl: null,
-        pairingCode: null,
-      };
-    }
-    if (session.status === 'CONNECTED') {
-      return {
-        status: 'CONNECTED' as const,
-        phoneNumber: session.me?.id?.split('@')[0] ?? null,
-        connectedAt: new Date(),
-        lastError: null,
-        qrDataUrl: null,
-        pairingCode: null,
-      };
-    }
-    if (session.status === 'LOGGED_OUT') {
-      return {
-        status: 'LOGGED_OUT' as const,
-        phoneNumber: null,
-        connectedAt: null,
-        lastError: 'The number was logged out from the phone -- link it again.',
-        qrDataUrl: null,
-        pairingCode: null,
-      };
-    }
-    if (session.status === 'SCAN_QR') {
-      let qrDataUrl: string | null = null;
-      if (session.qr) {
-        try {
-          qrDataUrl = await QRCode.toDataURL(session.qr);
-        } catch {
-          qrDataUrl = null;
-        }
-      }
-      return {
-        status: 'PAIRING' as const,
-        phoneNumber: null,
-        connectedAt: null,
-        lastError: null,
-        qrDataUrl,
-        pairingCode: session.pairingCode ?? null,
-      };
-    }
-    return {
-      status: 'DISCONNECTED',
-      phoneNumber: null,
-      connectedAt: null,
-      lastError: null,
-      qrDataUrl: null,
-      pairingCode: null,
+      qrDataUrl: live === 'PAIRING' ? codes.qrDataUrl : null,
+      pairingCode: live === 'PAIRING' ? codes.pairingCode : null,
     };
   }
 
@@ -154,21 +102,14 @@ export class WhatsappWebService {
         "WhatsApp isn't available on this deployment.",
       );
     }
-    const live = await this.waAkg.getSession(sessionIdFor(organizationId));
-    if (live?.status === 'CONNECTED') {
+    if ((await this.manager.getStatus(organizationId)) === 'CONNECTED') {
       throw new ConflictException(
         'A number is already linked. Unlink it first to link a different one.',
       );
     }
-    await this.waAkg.ensureSession(sessionIdFor(organizationId));
-    await this.waAkg.performAction(sessionIdFor(organizationId), 'start');
-    // Pairing-code linking from the same phone the settings page is open
-    // on, where a QR cannot be scanned.
-    if (dto.phoneNumber) {
-      await this.waAkg.performAction(sessionIdFor(organizationId), 'pair', {
-        phoneNumber: dto.phoneNumber,
-      });
-    }
+    await this.manager.connect(organizationId, {
+      pairingPhone: dto.phoneNumber,
+    });
     await this.prisma.whatsappWebSession.upsert({
       where: { organizationId },
       create: {
@@ -188,7 +129,7 @@ export class WhatsappWebService {
   }
 
   async disconnect(organizationId: string) {
-    await this.waAkg.performAction(sessionIdFor(organizationId), 'logout');
+    await this.manager.disconnect(organizationId);
     await this.prisma.whatsappWebSession.updateMany({
       where: { organizationId },
       data: {
@@ -214,8 +155,7 @@ export class WhatsappWebService {
       throw new BadRequestException('Link a WhatsApp number first.');
     }
     if (dto.useForSending) {
-      const live = await this.waAkg.getSession(sessionIdFor(organizationId));
-      if (live?.status !== 'CONNECTED') {
+      if ((await this.manager.getStatus(organizationId)) !== 'CONNECTED') {
         throw new BadRequestException(
           'Link your WhatsApp number before sending through it.',
         );
