@@ -15,13 +15,33 @@ function memoryPrisma() {
         const valueEnc = rows.get(keyOf(where));
         return valueEnc ? { valueEnc } : null;
       }),
+      findMany: jest.fn(async ({ where }: any) => {
+        const prefix = `${where.sessionId}:`;
+        return [...rows.entries()]
+          .filter(([k]) => k.startsWith(prefix))
+          .filter(([k]) =>
+            where.key?.in ? where.key.in.includes(k.slice(prefix.length)) : true,
+          )
+          .map(([k, valueEnc]) => ({
+            key: k.slice(prefix.length),
+            valueEnc,
+          }));
+      }),
+      delete: jest.fn(async ({ where }: any) => {
+        rows.delete(keyOf(where));
+        return {};
+      }),
       deleteMany: jest.fn(async ({ where }: any) => {
         let count = 0;
         for (const k of [...rows.keys()]) {
-          if (k.startsWith(`${where.sessionId}:`)) {
-            rows.delete(k);
-            count += 1;
-          }
+          if (!k.startsWith(`${where.sessionId}:`)) continue;
+          if (
+            where.key !== undefined &&
+            k.slice(`${where.sessionId}:`.length) !== where.key
+          )
+            continue;
+          rows.delete(k);
+          count += 1;
         }
         return { count };
       }),
@@ -63,5 +83,20 @@ describe('WaAuthStore', () => {
     await store.clear();
     await expect(store.read('a')).resolves.toBeNull();
     await expect(store.read('b')).resolves.toBeNull();
+  });
+
+  it('reads and writes keys in batches for the signal store', async () => {
+    const prisma = memoryPrisma();
+    const store = new WaAuthStore(prisma as never, 'gym-o1', KEY);
+    await store.writeBatch({ 'a-1': 'one', 'a-2': 'two', gone: null });
+    await expect(
+      store.readMany(['a-1', 'a-2', 'missing']),
+    ).resolves.toEqual(
+      new Map([
+        ['a-1', 'one'],
+        ['a-2', 'two'],
+        ['missing', null],
+      ]),
+    );
   });
 });

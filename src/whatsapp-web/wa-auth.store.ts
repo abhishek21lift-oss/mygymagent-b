@@ -99,4 +99,41 @@ export class WaAuthStore {
       where: { sessionId: this.waSessionId },
     });
   }
+
+  /**
+   * Batch read for the Baileys signal key store (`keys.get` asks for
+   * several ids at once): one query, decrypted values, null for missing.
+   * A corrupt row throws -- tamper evidence, same as single `read`.
+   */
+  async readMany(keys: string[]): Promise<Map<string, string | null>> {
+    const rows = await this.prisma.waAuthKey.findMany({
+      where: { sessionId: this.waSessionId, key: { in: keys } },
+      select: { key: true, valueEnc: true },
+    });
+    const found = new Map(
+      rows.map((row) => [row.key, decrypt(row.valueEnc, this.key)]),
+    );
+    return new Map(keys.map((key) => [key, found.get(key) ?? null]));
+  }
+
+  /**
+   * Batch write for the signal key store: upserts per key, deletes for
+   * null values (Baileys clears keys by writing null).
+   */
+  async writeBatch(entries: Record<string, string | null>): Promise<void> {
+    for (const [key, value] of Object.entries(entries)) {
+      if (value === null) {
+        await this.prisma.waAuthKey.deleteMany({
+          where: { sessionId: this.waSessionId, key },
+        });
+      } else {
+        const valueEnc = encrypt(value, this.key);
+        await this.prisma.waAuthKey.upsert({
+          where: { sessionId_key: { sessionId: this.waSessionId, key } },
+          create: { sessionId: this.waSessionId, key, valueEnc },
+          update: { valueEnc },
+        });
+      }
+    }
+  }
 }
