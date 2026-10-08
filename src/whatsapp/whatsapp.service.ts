@@ -22,36 +22,23 @@ import type {
 /// is swapped to WA-AKG (next task) -- inbound texts and statuses still
 /// arrive in Meta form.
 
-/// One `changes[]` value of Meta's WhatsApp webhook (`field: messages`) --
-/// enough of the shape to route statuses and inbound texts, nothing more.
-interface WebhookChangeValue {
-  messaging_product?: string;
-  metadata?: {
-    display_phone_number?: string;
-    phone_number_id?: string;
-  };
-  messages?: Array<{
+/// WA-AKG webhook envelope (`POST /whatsapp/webhook`): the gateway fans
+/// out `{ event, sessionId, timestamp, data }` per gym session, signed
+/// with `X-Webhook-Signature`. Only the two events below are consumed;
+/// everything else is acked and ignored.
+interface WaAkgWebhookPayload {
+  event?: string;
+  sessionId?: string;
+  timestamp?: string;
+  data?: {
+    key?: { id?: string; fromMe?: boolean };
+    keyId?: string;
     from?: string;
-    id?: string;
-    timestamp?: string;
+    isGroup?: boolean;
     type?: string;
-    text?: { body?: string };
-  }>;
-  statuses?: Array<{
-    id?: string;
+    content?: string;
     status?: string;
-    timestamp?: string;
-    recipient_id?: string;
-    errors?: Array<{ title?: string; message?: string }>;
-  }>;
-}
-
-interface WebhookPayload {
-  object?: string;
-  entry?: Array<{
-    id?: string;
-    changes?: Array<{ field?: string; value?: WebhookChangeValue }>;
-  }>;
+  };
 }
 
 /**
@@ -238,58 +225,33 @@ export class WhatsappService {
   }
 
   /**
-   * GET /whatsapp/webhook verification (Meta's hub challenge). Fails closed
-   * (403, no detail) when the verify token is unset or mismatched -- the
-   * comparison is constant-time so a wrong guess leaks nothing measurable.
-   */
-  verifyWebhook(mode?: string, verifyToken?: string, challenge?: string) {
-    const expected = this.config.get<string>('META_WABA_VERIFY_TOKEN', '');
-    const ok =
-      mode === 'subscribe' &&
-      !!challenge &&
-      !!expected &&
-      !!verifyToken &&
-      this.tokensEqual(verifyToken, expected);
-    if (!ok) {
-      this.logger.warn('WhatsApp webhook verification failed');
-      throw new ForbiddenException('Webhook verification failed');
-    }
-    return challenge;
-  }
-
-  private tokensEqual(a: string, b: string): boolean {
-    const ab = Buffer.from(a, 'utf8');
-    const bb = Buffer.from(b, 'utf8');
-    return ab.length === bb.length && timingSafeEqual(ab, bb);
-  }
-
-  /**
-   * Verifies Meta's `X-Hub-Signature-256` (`sha256=<hex HMAC-SHA256>` over
-   * the raw request bytes, keyed with META_APP_SECRET) before any inbound
-   * payload is trusted. Without this, anyone who knows a phone_number_id
-   * could forge inbound texts and delivery statuses into any org's CRM
-   * queue -- the id in the payload is routing, not authentication.
+   * Verifies WA-AKG's `X-Webhook-Signature` (`sha256=<hex HMAC-SHA256>`
+   * over the raw request bytes, keyed with WA_AKG_WEBHOOK_SECRET) before
+   * any inbound payload is trusted. Without this, anyone who knows a
+   * session id could forge inbound texts and delivery statuses into any
+   * org's CRM queue -- the id in the payload is routing, not
+   * authentication.
    *
-   * Fails closed in production when the secret is unset; in non-production
-   * an unset secret only warns (local dev without Meta credentials).
+   * Fails closed in production when the secret is unset; in
+   * non-production an unset secret only warns (local dev without WA-AKG).
    */
-  verifyInboundSignature(rawBody: Buffer, signature: string | undefined): void {
-    const appSecret = this.config.get<string>('META_APP_SECRET', '');
-    if (!appSecret) {
+  verifyWaAkgSignature(rawBody: Buffer, signature: string | undefined): void {
+    const secret = this.config.get<string>('WA_AKG_WEBHOOK_SECRET', '');
+    if (!secret) {
       if (this.config.get<string>('NODE_ENV') === 'production') {
         throw new ServiceUnavailableException(
           'WhatsApp webhook secret is not configured',
         );
       }
       this.logger.warn(
-        'META_APP_SECRET is unset -- accepting unverified WhatsApp webhook payload (development only)',
+        'WA_AKG_WEBHOOK_SECRET is unset -- accepting unverified WhatsApp webhook payload (development only)',
       );
       return;
     }
     if (!signature || !signature.startsWith('sha256=')) {
       throw new ForbiddenException('Invalid webhook signature');
     }
-    const expected = `sha256=${createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
+    const expected = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
     const a = Buffer.from(signature, 'utf8');
     const b = Buffer.from(expected, 'utf8');
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
@@ -299,87 +261,87 @@ export class WhatsappService {
   }
 
   /**
-   * POST /whatsapp/webhook receiver. Always resolves `{ received: true }`
-   * once the payload parses -- even for unknown numbers/statuses -- so
-   * Meta stops retrying a delivery that would never succeed on a later
-   * attempt (same ack-even-if-unknown pattern as the Razorpay webhook).
-   * Status callbacks advance MessageLog by providerMessageId; inbound
-   * texts are filed into InboundMessage + emit `whatsapp.received`.
+   * WA-AKG event receiver. Always resolves `{ received: true }` once the
+   * payload parses -- even for unknown sessions -- so the gateway stops
+   * retrying a delivery that would never succeed on a later attempt.
+   * `message.status` advances MessageLog by providerMessageId;
+   * `message.received` texts are filed into InboundMessage + emit
+   * `whatsapp.received`. Anything else is acked and ignored.
    */
   async handleWebhook(payload: unknown) {
-    const body = (payload ?? {}) as WebhookPayload;
-    for (const entry of body.entry ?? []) {
-      for (const change of entry.changes ?? []) {
-        const value = change.value;
-        if (!value) continue;
-        const organizationId = await this.resolveOrganization(
-          value.metadata?.phone_number_id,
-        );
-        if (!organizationId) {
-          this.logger.warn(
-            'WhatsApp webhook for unknown phone_number_id -- acked, ignored',
-          );
-          continue;
-        }
-        await this.applyStatuses(organizationId, value.statuses ?? []);
-        await this.fileInboundTexts(organizationId, value.messages ?? []);
-      }
+    const body = (payload ?? {}) as WaAkgWebhookPayload;
+    const organizationId = await this.resolveWaAkgOrganization(
+      body.sessionId,
+    );
+    if (!organizationId) {
+      this.logger.warn(
+        'WhatsApp webhook for unknown session -- acked, ignored',
+      );
+      return { received: true };
+    }
+    if (body.event === 'message.status') {
+      await this.applyWaAkgStatus(organizationId, body.data);
+    } else if (body.event === 'message.received') {
+      await this.fileWaAkgInbound(organizationId, body.data);
     }
     return { received: true };
   }
 
-  private async resolveOrganization(
-    phoneNumberId: string | undefined,
+  /** `gym-{orgId}` back to the org, verified against the database: the
+   * session id in the payload is routing, not proof of origin (the HMAC
+   * above is the proof), so a well-formed but unknown session still lands
+   * nowhere. */
+  private async resolveWaAkgOrganization(
+    sessionId: string | undefined,
   ): Promise<string | null> {
-    if (!phoneNumberId) return null;
-    const integration = await this.prisma.whatsappIntegration.findFirst({
-      where: { phoneNumberId },
-      select: { organizationId: true },
+    if (!sessionId || !sessionId.startsWith('gym-')) return null;
+    const organizationId = sessionId.slice('gym-'.length);
+    if (!organizationId) return null;
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true },
     });
-    return integration?.organizationId ?? null;
+    return organization?.id ?? null;
   }
 
-  private async applyStatuses(
+  private async applyWaAkgStatus(
     organizationId: string,
-    statuses: NonNullable<WebhookChangeValue['statuses']>,
+    data: WaAkgWebhookPayload['data'],
   ) {
     const toMessageStatus: Record<string, MessageStatus> = {
-      sent: 'SENT',
-      delivered: 'DELIVERED',
-      read: 'READ',
-      failed: 'FAILED',
+      SENT: 'SENT',
+      DELIVERED: 'DELIVERED',
+      READ: 'READ',
     };
-    for (const s of statuses) {
-      const status = s.status ? toMessageStatus[s.status] : undefined;
-      if (!s.id || !status) continue;
-      await this.prisma.messageLog.updateMany({
-        where: { providerMessageId: s.id, organizationId },
-        data: {
-          status,
-          ...(status === 'FAILED'
-            ? {
-                errorMessage:
-                  s.errors?.[0]?.title ?? s.errors?.[0]?.message ?? 'failed',
-              }
-            : {}),
-        },
-      });
-      this.logger.log(
-        `WhatsApp status ${s.status} for org ${organizationId} (provider id ${s.id})`,
-      );
-    }
+    const status = data?.status ? toMessageStatus[data.status] : undefined;
+    if (!data?.keyId || !status) return;
+    await this.prisma.messageLog.updateMany({
+      where: {
+        providerMessageId: `waakg:${data.keyId}`,
+        organizationId,
+      },
+      data: { status },
+    });
+    this.logger.log(
+      `WhatsApp status ${data.status} for org ${organizationId} (provider id waakg:${data.keyId})`,
+    );
   }
 
-  private async fileInboundTexts(
+  private async fileWaAkgInbound(
     organizationId: string,
-    messages: NonNullable<WebhookChangeValue['messages']>,
+    data: WaAkgWebhookPayload['data'],
   ) {
-    for (const m of messages) {
-      // Only inbound texts become InboundMessage rows (spec) -- media,
-      // reactions, and echoes have no body to file for the CRM queue.
-      const textBody = m.type === 'text' ? m.text?.body : undefined;
-      if (!m.from || !textBody) continue;
-      await this.inbound.file(organizationId, m.from, textBody);
-    }
+    // Only a human's direct text becomes an InboundMessage row: own-number
+    // echoes, group chats, and media/reactions have no reply to file for
+    // the CRM queue (same rule the old Baileys path applied).
+    if (!data?.from || data.isGroup || data.key?.fromMe) return;
+    if (data.type !== 'TEXT' || !data.content?.trim()) return;
+    await this.inbound.file(organizationId, data.from, data.content);
+  }
+
+  private tokensEqual(a: string, b: string): boolean {
+    const ab = Buffer.from(a, 'utf8');
+    const bb = Buffer.from(b, 'utf8');
+    return ab.length === bb.length && timingSafeEqual(ab, bb);
   }
 }

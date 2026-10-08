@@ -9,10 +9,9 @@ import {
   Post,
   Query,
   Req,
-  Res,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -133,39 +132,19 @@ export class WhatsappController {
   }
 
   /**
-   * Meta webhook verification (hub challenge). @Public() -- Meta signs
-   * nothing here, the shared verify token is the credential. Answered
-   * with the RAW challenge string (not the `{ data, meta }` envelope):
-   * Meta requires the body to equal hub.challenge exactly, so the
-   * response is written directly via @Res().
-   */
-  @Get('webhook')
-  @Public()
-  verifyWebhook(
-    @Query('hub.mode') mode?: string,
-    @Query('hub.verify_token') verifyToken?: string,
-    @Query('hub.challenge') challenge?: string,
-    @Res() res?: Response,
-  ) {
-    const answer = this.whatsapp.verifyWebhook(mode, verifyToken, challenge);
-    return res!.status(HttpStatus.OK).send(answer);
-  }
-
-  /**
-   * Meta message/status delivery receiver. @Public() (Meta signs with the
-   * app secret, not a user JWT) and always 200 once the payload parses --
-   * even for unknown numbers -- so Meta stops retrying undeliverable
-   * events, the same ack-even-if-unknown pattern as the Razorpay webhook.
-   * The `X-Hub-Signature-256` HMAC is verified first: without it the
-   * phone_number_id in the body is attacker-controlled routing, not proof
-   * of origin (a forged payload would land in another org's CRM queue).
+   * WA-AKG event receiver. @Public() (WA-AKG signs with the shared
+   * webhook secret, not a user JWT) and always 200 once the payload
+   * parses -- even for unknown sessions -- so the gateway stops retrying
+   * undeliverable events. The `X-Webhook-Signature` HMAC is verified
+   * first: without it the session id in the body is attacker-controlled
+   * routing, not proof of origin.
    */
   @Post('webhook')
   @Public()
   @HttpCode(HttpStatus.OK)
   handleWebhook(
     @Req() req: RawBodyRequest<Request>,
-    @Headers('x-hub-signature-256') signature: string | undefined,
+    @Headers('x-webhook-signature') signature: string | undefined,
     @Body() body: unknown,
   ) {
     // Signature is over the raw bytes -- re-serializing the parsed body
@@ -173,7 +152,7 @@ export class WhatsappController {
     // pattern as the Stripe webhook controller).
     const rawBody: Buffer =
       req.rawBody ?? Buffer.from(JSON.stringify((body ?? {}) as unknown));
-    this.whatsapp.verifyInboundSignature(rawBody, signature);
+    this.whatsapp.verifyWaAkgSignature(rawBody, signature);
     return this.whatsapp.handleWebhook(body);
   }
 }
