@@ -4,7 +4,11 @@ import { OnEvent } from '@nestjs/event-emitter';
 import type { Queue } from 'bullmq';
 import {
   DomainEvent,
+  type BroadcastFinishedEvent,
+  type WhatsappConnectionEvent,
+  type WhatsappFailedEvent,
   type WhatsappReceivedEvent,
+  type WhatsappSentEvent,
 } from '../events/domain-events';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
@@ -40,6 +44,64 @@ export class WebhookDispatcherService {
     } catch (error) {
       this.logger.warn(
         `Webhook fan-out for ${event.inboundMessageId} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  @OnEvent(DomainEvent.WhatsappSent, { async: true })
+  async onSent(event: WhatsappSentEvent): Promise<void> {
+    await this.fanOutSafe(event.organizationId, 'message.sent', {
+      messageLogId: event.messageLogId,
+      recipient: event.recipient,
+      templateKey: event.templateKey,
+      broadcastId: event.broadcastId ?? null,
+    });
+  }
+
+  @OnEvent(DomainEvent.WhatsappFailed, { async: true })
+  async onFailed(event: WhatsappFailedEvent): Promise<void> {
+    await this.fanOutSafe(event.organizationId, 'message.failed', {
+      messageLogId: event.messageLogId,
+      recipient: event.recipient,
+      templateKey: event.templateKey,
+      error: event.error,
+      broadcastId: event.broadcastId ?? null,
+    });
+  }
+
+  @OnEvent(DomainEvent.BroadcastFinished, { async: true })
+  async onBroadcastFinished(event: BroadcastFinishedEvent): Promise<void> {
+    await this.fanOutSafe(event.organizationId, 'broadcast.finished', {
+      broadcastId: event.broadcastId,
+      status: event.status,
+      total: event.total,
+      sent: event.sent,
+      failed: event.failed,
+      skipped: event.skipped,
+    });
+  }
+
+  @OnEvent(DomainEvent.WhatsappConnection, { async: true })
+  async onConnection(event: WhatsappConnectionEvent): Promise<void> {
+    await this.fanOutSafe(event.organizationId, 'connection.update', {
+      status: event.status,
+    });
+  }
+
+  /** Fan-out that never breaks the emitter: a dead receiver URL must not
+   * fail the send/file/connect flow that announced the event. */
+  private async fanOutSafe(
+    organizationId: string,
+    event: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.fanOut(organizationId, event, data);
+    } catch (error) {
+      this.logger.warn(
+        `Webhook fan-out for ${event} failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

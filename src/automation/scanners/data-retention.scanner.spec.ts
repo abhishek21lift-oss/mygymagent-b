@@ -22,6 +22,9 @@ describe('DataRetentionScanner', () => {
       emailVerificationToken: {
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      webhookDelivery: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
     } as unknown as PrismaService;
 
     scanner = new DataRetentionScanner(prisma);

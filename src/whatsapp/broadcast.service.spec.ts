@@ -34,6 +34,7 @@ function service() {
     communications as never,
     whatsapp as never,
     queue as never,
+    { emit: jest.fn() } as never,
   );
   return { svc, prisma, segments, communications, whatsapp, queue };
 }

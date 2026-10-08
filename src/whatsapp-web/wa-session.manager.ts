@@ -7,6 +7,7 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
 import { sessionIdFor } from './wa-types';
@@ -14,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QueueConnection } from '../queue/queue.module';
 import { queuePrefix } from '../queue/queue-prefix';
 import { WhatsappInboundFiler } from '../whatsapp/whatsapp-inbound.filer';
+import { DomainEvent } from '../events/domain-events';
 import {
   groupSender,
   isGroupJid,
@@ -96,6 +98,7 @@ export class WaSessionManager
     private readonly queue: QueueConnection,
     @Inject(WA_SOCKET_FACTORY) private readonly factory: WaSocketFactory,
     private readonly inbound: WhatsappInboundFiler,
+    private readonly events: EventEmitter2,
   ) {
     this.prefix = `wa-session:${queuePrefix({
       QUEUE_PREFIX: config.get<string>('QUEUE_PREFIX'),
@@ -389,6 +392,10 @@ export class WaSessionManager
           pairingCode: null,
         },
       });
+      this.events.emit(DomainEvent.WhatsappConnection, {
+        organizationId,
+        status: 'CONNECTED',
+      });
       return;
     }
 
@@ -415,6 +422,10 @@ export class WaSessionManager
               : 'The number was unlinked from the phone. Link it again to keep sending.',
         },
       });
+      this.events.emit(DomainEvent.WhatsappConnection, {
+        organizationId,
+        status: 'DISCONNECTED',
+      });
       return;
     }
 
@@ -434,6 +445,10 @@ export class WaSessionManager
           status: 'DISCONNECTED',
           lastError: 'The code expired before it was scanned. Start again.',
         },
+      });
+      this.events.emit(DomainEvent.WhatsappConnection, {
+        organizationId,
+        status: 'DISCONNECTED',
       });
       return;
     }
@@ -626,10 +641,16 @@ export class WaSessionManager
     }
     await this.clearCodes(organizationId);
     await this.releaseLock(organizationId);
-    await this.prisma.waSession.updateMany({
+    const abandoned = await this.prisma.waSession.updateMany({
       where: { organizationId, status: 'PAIRING' },
       data: { status: 'DISCONNECTED', lastError: reason },
     });
+    if (abandoned.count > 0) {
+      this.events.emit(DomainEvent.WhatsappConnection, {
+        organizationId,
+        status: 'DISCONNECTED',
+      });
+    }
   }
 
   // -- reconnects and the lock ---------------------------------------------

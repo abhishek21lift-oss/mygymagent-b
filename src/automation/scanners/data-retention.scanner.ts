@@ -22,6 +22,7 @@ export class DataRetentionScanner {
         refreshToken: 90,
         passwordResetToken: 7,
         emailVerificationToken: 1,
+        webhookDelivery: 30,
       };
 
       const auditLogCutoff = new Date();
@@ -91,6 +92,18 @@ export class DataRetentionScanner {
         });
       this.logger.log(
         `Deleted ${deletedEmailVerificationTokens.count} email verification token records older than ${RETENTION_PERIODS.emailVerificationToken} days`,
+      );
+
+      const webhookDeliveryCutoff = new Date();
+      webhookDeliveryCutoff.setDate(
+        webhookDeliveryCutoff.getDate() - RETENTION_PERIODS.webhookDelivery,
+      );
+      const deletedWebhookDeliveries =
+        await this.prisma.webhookDelivery.deleteMany({
+          where: { createdAt: { lt: webhookDeliveryCutoff } },
+        });
+      this.logger.log(
+        `Deleted ${deletedWebhookDeliveries.count} webhook delivery records older than ${RETENTION_PERIODS.webhookDelivery} days`,
       );
 
       this.logger.log('Data retention scan completed successfully');

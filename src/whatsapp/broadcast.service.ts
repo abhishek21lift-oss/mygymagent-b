@@ -5,11 +5,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Queue } from 'bullmq';
 import { CommunicationsService } from '../communications/communications.service';
 import { SegmentsService } from '../member-intelligence/segments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
+import { DomainEvent } from '../events/domain-events';
 import { WhatsappService } from './whatsapp.service';
 
 export interface CreateBroadcastDto {
@@ -46,6 +48,7 @@ export class BroadcastService {
     private readonly communications: CommunicationsService,
     private readonly whatsapp: WhatsappService,
     @InjectQueue(QUEUE_NAMES.WA_SCHEDULED) private readonly queue: Queue,
+    private readonly events: EventEmitter2,
   ) {}
 
   async create(
@@ -139,7 +142,7 @@ export class BroadcastService {
       }
     }
     const settled = failed + skipped >= emailable.length;
-    return this.prisma.broadcast.update({
+    const row = await this.prisma.broadcast.update({
       where: { id: broadcast.id },
       data: {
         queued,
@@ -147,6 +150,18 @@ export class BroadcastService {
         status: settled ? 'DONE' : 'SENDING',
       },
     });
+    if (settled) {
+      this.events.emit(DomainEvent.BroadcastFinished, {
+        organizationId,
+        broadcastId: row.id,
+        status: 'DONE',
+        total: row.total,
+        sent: row.sent,
+        failed: row.failed,
+        skipped: row.skipped,
+      });
+    }
+    return row;
   }
 
   async progress(organizationId: string, id: string) {
@@ -191,9 +206,19 @@ export class BroadcastService {
           .catch(() => undefined);
       }
     }
-    return this.prisma.broadcast.update({
+    const cancelled = await this.prisma.broadcast.update({
       where: { id: row.id },
       data: { status: 'CANCELLED' },
     });
+    this.events.emit(DomainEvent.BroadcastFinished, {
+      organizationId,
+      broadcastId: cancelled.id,
+      status: 'CANCELLED',
+      total: row.total,
+      sent: row.sent,
+      failed: row.failed,
+      skipped: row.skipped,
+    });
+    return cancelled;
   }
 }
