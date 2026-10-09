@@ -157,6 +157,7 @@ describe('Command Center (e2e)', () => {
       'push',
       'wa-scheduled',
       'wa-send',
+      'wa-webhooks',
     ]);
   });
 
