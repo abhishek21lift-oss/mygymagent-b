@@ -1,10 +1,14 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UnrecoverableError, type Job } from 'bullmq';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
-import { noteBroadcastSettled } from './broadcast-counters';
+import {
+  announceBroadcastFinished,
+  noteBroadcastSettled,
+} from './broadcast-counters';
 import type { BroadcastItemJob } from './broadcast.service';
 import {
   ScheduledMessageService,
@@ -20,6 +24,7 @@ export class ScheduledMessageProcessor extends WorkerHost {
     private readonly scheduled: ScheduledMessageService,
     private readonly communications: CommunicationsService,
     private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
   ) {
     super();
   }
@@ -72,7 +77,19 @@ export class ScheduledMessageProcessor extends WorkerHost {
       this.logger.warn(
         `Broadcast item ${data.broadcastId}/${data.memberId} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      await noteBroadcastSettled(this.prisma, data.broadcastId, 'failed');
+      const finished = await noteBroadcastSettled(
+        this.prisma,
+        data.broadcastId,
+        'failed',
+      );
+      if (finished) {
+        await announceBroadcastFinished(
+          this.prisma,
+          this.events,
+          broadcast.organizationId,
+          data.broadcastId,
+        );
+      }
     }
   }
 }

@@ -20,6 +20,10 @@ export const DomainEvent = {
   PtSessionCompleted: 'pt.session.completed',
   PtSessionCancelled: 'pt.session.cancelled',
   WhatsappReceived: 'whatsapp.received',
+  WhatsappSent: 'whatsapp.sent',
+  WhatsappFailed: 'whatsapp.failed',
+  BroadcastFinished: 'broadcast.finished',
+  WhatsappConnection: 'whatsapp.connection',
 } as const;
 
 export interface MemberCreatedEvent {
@@ -176,4 +180,36 @@ export interface WhatsappReceivedEvent {
   isGroup?: boolean;
   /** Group JID (`...@g.us`); replies go here, not to the sender. */
   groupJid?: string;
+}
+
+export interface WhatsappSentEvent {
+  organizationId: string;
+  messageLogId: string;
+  recipient: string;
+  templateKey: string;
+  broadcastId?: string;
+}
+
+export interface WhatsappFailedEvent {
+  organizationId: string;
+  messageLogId: string;
+  recipient: string;
+  templateKey: string;
+  error: string;
+  broadcastId?: string;
+}
+
+export interface BroadcastFinishedEvent {
+  organizationId: string;
+  broadcastId: string;
+  status: 'DONE' | 'CANCELLED';
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface WhatsappConnectionEvent {
+  organizationId: string;
+  status: 'CONNECTED' | 'DISCONNECTED';
 }

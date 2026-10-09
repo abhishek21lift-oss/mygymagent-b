@@ -65,12 +65,15 @@ concurrency 5; per-org ordering not guaranteed (documented).
   resolve hostname, refuse loopback/link-local/private ranges and
   cloud metadata IPs (169.254.169.254), allow only http/https, refuse
   redirects to blocked targets (max 2 redirects, re-check each hop).
+  Test path: `WEBHOOK_ALLOW_PRIVATE_URLS` (comma-separated, default
+  empty; `.env.test` sets `127.0.0.1`) so e2e can run a local receiver
+  without weakening production.
 - **Secret hygiene.** Auto-generated, returned once at create;
   `GET` list/detail never includes it; `POST /:id/regenerate` rotates.
 - **Abuse caps.** Max 10 subscriptions per org; dispatch fan-out capped
-  at 10 jobs per event; BullMQ `rateLimiter` (max 20 jobs/sec) on the
-  queue so a flapping receiver can't cause a retry storm. Controller
-  throttled like the auto-replies one.
+  at 10 jobs per event; BullMQ worker `limiter: { max: 20, duration: 1_000 }`
+  on the delivery processor so a flapping receiver can't cause a retry
+  storm. Controller throttled like the auto-replies one.
 - **PII.** Bodies travel to the user's own URL (their choice) but are
   never persisted in delivery rows or logs.
 

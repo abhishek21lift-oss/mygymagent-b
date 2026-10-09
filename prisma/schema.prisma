@@ -196,6 +196,8 @@ model Organization {
   segments                 MemberSegment[]
   autoReplyRules           AutoReplyRule[]
   botOptOuts               BotOptOut[]
+  webhookSubscriptions     WebhookSubscription[]
+  webhookDeliveries        WebhookDelivery[]
   recommendedActions       RecommendedAction[]
 
   loyaltyAccounts          LoyaltyAccount[]
@@ -3288,6 +3290,59 @@ model BotOptOut {
 
   @@id([organizationId, phone])
   @@map("bot_opt_outs")
+}
+
+/// Outgoing webhook subscription (P5): the gym's URL gets a signed JSON
+/// POST on the subscribed WhatsApp events. Secret is auto-generated,
+/// returned once, and never listed. One URL per gym.
+model WebhookSubscription {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  url     String
+  events  String[]
+  secret  String
+  enabled Boolean  @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@unique([organizationId, url])
+  @@index([organizationId, enabled])
+  @@map("webhook_subscriptions")
+}
+
+/// One attempted webhook POST. Bodies are never stored here (PII) --
+/// only the outcome, for the deliveries log and retry accounting.
+model WebhookDelivery {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription   WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  event      String
+  status     WebhookDeliveryStatus @default(PENDING)
+  attempts   Int                   @default(0)
+  httpStatus Int?
+  error      String?
+  nextRetryAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
 }
 
 // ----------------------------------------------------------------------------
