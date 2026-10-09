@@ -61,6 +61,26 @@ describe('BroadcastService.create', () => {
     expect(communications.sendAdHoc).toHaveBeenCalledTimes(1);
   });
 
+  it("narrows a branch-scoped sender's audience to their branch", async () => {
+    const { svc, segments, communications } = service();
+    segments.getSegmentPhones.mockResolvedValue([
+      { memberId: 'm1', phone: '+919876543210' },
+    ]);
+    communications.sendAdHoc.mockResolvedValue({ id: 'log1' });
+    await svc.create('o1', 'u1', { segmentId: 's1', text: 'Hi' }, 'br-1');
+    expect(segments.getSegmentPhones).toHaveBeenCalledWith('o1', 's1', 'br-1');
+  });
+
+  it('keeps an org-wide sender unrestricted', async () => {
+    const { svc, segments, communications } = service();
+    segments.getSegmentPhones.mockResolvedValue([
+      { memberId: 'm1', phone: '+919876543210' },
+    ]);
+    communications.sendAdHoc.mockResolvedValue({ id: 'log1' });
+    await svc.create('o1', 'u1', { segmentId: 's1', text: 'Hi' });
+    expect(segments.getSegmentPhones).toHaveBeenCalledWith('o1', 's1', null);
+  });
+
   it('rejects a foreign segment with 404 and enqueues nothing', async () => {
     const { svc, segments, communications, prisma } = service();
     segments.getSegmentPhones.mockRejectedValue(new NotFoundException('nope'));

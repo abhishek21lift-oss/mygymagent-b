@@ -90,9 +90,10 @@ export class HrPayrollController {
   @RequirePermissions('hr.read')
   leaveRequests(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
     @Query('status') status?: string,
   ) {
-    return this.hr.leaveRequests(user.organizationId!, status);
+    return this.hr.leaveRequests(user.organizationId!, status, branchScope);
   }
 
   @Post('leave-requests')
@@ -101,8 +102,9 @@ export class HrPayrollController {
   createLeaveRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateLeaveRequestDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.hr.createLeaveRequest(user.organizationId!, dto);
+    return this.hr.createLeaveRequest(user.organizationId!, dto, branchScope);
   }
 
   @Patch('leave-requests/:id/review')
@@ -112,8 +114,15 @@ export class HrPayrollController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: ReviewLeaveDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.hr.reviewLeave(user.organizationId!, id, dto, user.id);
+    return this.hr.reviewLeave(
+      user.organizationId!,
+      id,
+      dto,
+      user.id,
+      branchScope,
+    );
   }
 
   @Get('payroll-runs')

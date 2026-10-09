@@ -53,8 +53,13 @@ export class DevicesController {
   register(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RegisterDeviceDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.attendance.registerDevice(user.organizationId!, dto);
+    return this.attendance.registerDevice(
+      user.organizationId!,
+      dto,
+      branchScope,
+    );
   }
 
   /**
@@ -66,8 +71,12 @@ export class DevicesController {
   @RequirePermissions('kiosk.manage')
   @HttpCode(200)
   @Audited({ resource: 'kiosk_device', action: 'revoked' })
-  revoke(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.attendance.revokeDevice(user.organizationId!, id);
+  revoke(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.attendance.revokeDevice(user.organizationId!, id, branchScope);
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   Query,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
@@ -34,8 +35,11 @@ export class SegmentsController {
 
   @Get()
   @RequirePermissions('reports.view')
-  async listSegments(@CurrentUser() user: AuthenticatedUser) {
-    return this.segments.listSegments(user.organizationId!);
+  async listSegments(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.segments.listSegments(user.organizationId!, branchScope);
   }
 
   @Get(':segmentId')
@@ -43,6 +47,7 @@ export class SegmentsController {
   async getSegment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('segmentId', ParseUUIDPipe) segmentId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     const segment = await this.segments.getSegment(
       user.organizationId!,
@@ -54,6 +59,7 @@ export class SegmentsController {
     const memberCount = await this.segments.countSegmentMembers(
       user.organizationId!,
       segmentId,
+      branchScope,
     );
     return { segment, memberCount };
   }
@@ -64,16 +70,19 @@ export class SegmentsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('segmentId', ParseUUIDPipe) segmentId: string,
     @Query() query: SegmentMembersQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     const members = await this.segments.getSegmentMembers(
       user.organizationId!,
       segmentId,
       query.limit ?? 100,
       query.offset ?? 0,
+      branchScope,
     );
     const totalCount = await this.segments.countSegmentMembers(
       user.organizationId!,
       segmentId,
+      branchScope,
     );
     return { members, totalCount };
   }

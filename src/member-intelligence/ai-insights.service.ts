@@ -44,13 +44,26 @@ export class AiInsightsService {
     private readonly analytics: IntelligenceAnalyticsService,
   ) {}
 
+  /** `branchScope` is the caller's enforced branch (see
+   * `@CurrentBranchScope()`): an out-of-branch member 404s before any data
+   * is read or sent to the model. */
   async generateMemberInsight(
     organizationId: string,
     memberId: string,
+    branchScope: string | null = null,
   ): Promise<MemberInsight | null> {
+    await this.riskEngine.assertMemberInBranchScope(
+      organizationId,
+      memberId,
+      branchScope,
+    );
     const [riskProfile, churnAssessment] = await Promise.all([
       this.riskEngine.getMemberIntelligence(organizationId, memberId),
-      this.churnEngine.assessMemberChurn(organizationId, memberId),
+      this.churnEngine.assessMemberChurn(
+        organizationId,
+        memberId,
+        branchScope ?? undefined,
+      ),
     ]);
 
     if (!riskProfile) return null;
@@ -113,10 +126,17 @@ CONFIDENCE: [0.0-1.0 based on data completeness]`;
   async generateChurnReason(
     organizationId: string,
     memberId: string,
+    branchScope: string | null = null,
   ): Promise<MemberInsight | null> {
+    await this.riskEngine.assertMemberInBranchScope(
+      organizationId,
+      memberId,
+      branchScope,
+    );
     const churnAssessment = await this.churnEngine.assessMemberChurn(
       organizationId,
       memberId,
+      branchScope ?? undefined,
     );
 
     if (!churnAssessment || !churnAssessment.isAtRisk) return null;
@@ -179,9 +199,19 @@ CONFIDENCE: [0.0-1.0 based on indicator specificity]`;
     organizationId: string,
     segmentName: string,
     memberIds: string[],
+    branchScope: string | null = null,
   ): Promise<SegmentInsight | null> {
-    const riskOverview = await this.analytics.getRiskOverview(organizationId);
-    const revenueAtRisk = await this.analytics.getRevenueAtRisk(organizationId);
+    // The aggregates below are the only org data this prompt carries
+    // (memberIds is just counted), so a branch-scoped caller gets -- and
+    // the model sees -- their branch's numbers only.
+    const riskOverview = await this.analytics.getRiskOverview(
+      organizationId,
+      branchScope ?? undefined,
+    );
+    const revenueAtRisk = await this.analytics.getRevenueAtRisk(
+      organizationId,
+      branchScope ?? undefined,
+    );
 
     const highRiskCount =
       riskOverview.riskDistribution.find((r) => r.riskLevel === 'HIGH')

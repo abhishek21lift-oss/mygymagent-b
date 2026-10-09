@@ -56,6 +56,16 @@ export class ClassesService {
     }
   }
 
+  /** A branch-scoped caller (`branchScope` set) may only create into their
+   * own branch -- same rule and wording as appointments' `create`. */
+  private assertWithinBranch(branchScope: string | null, branchId: string) {
+    if (branchScope && branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot schedule a class outside your assigned branch',
+      );
+    }
+  }
+
   private async assertInstructor(organizationId: string, id?: string | null) {
     if (!id) return;
     const user = await this.prisma.user.findFirst({
@@ -81,11 +91,22 @@ export class ClassesService {
     }
   }
 
-  async programs(organizationId: string, query: ListClassesDto) {
+  /**
+   * `branchScope` throughout this service is the caller's enforced branch
+   * restriction (null = org-wide). Lists narrow to it, overriding any
+   * requested `branchId`; single-resource reads and actions treat another
+   * branch's session or booking as not found.
+   */
+  async programs(
+    organizationId: string,
+    query: ListClassesDto,
+    branchScope: string | null = null,
+  ) {
+    const branchId = branchScope ?? query.branchId;
     const rows = await this.prisma.classProgram.findMany({
       where: {
         organizationId,
-        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(branchId ? { branchId } : {}),
         ...(query.status ? { status: query.status } : {}),
       },
       include: {
@@ -105,7 +126,12 @@ export class ClassesService {
     }));
   }
 
-  async createProgram(organizationId: string, dto: CreateClassProgramDto) {
+  async createProgram(
+    organizationId: string,
+    dto: CreateClassProgramDto,
+    branchScope: string | null = null,
+  ) {
+    this.assertWithinBranch(branchScope, dto.branchId);
     await this.assertBranch(organizationId, dto.branchId);
     await this.assertInstructor(organizationId, dto.instructorId);
     return this.prisma.classProgram.create({
@@ -121,7 +147,11 @@ export class ClassesService {
     });
   }
 
-  async sessions(organizationId: string, query: ListClassSessionsDto) {
+  async sessions(
+    organizationId: string,
+    query: ListClassSessionsDto,
+    branchScope: string | null = null,
+  ) {
     const from = query.from ? new Date(query.from) : new Date();
     const to = query.to
       ? new Date(query.to)
@@ -132,7 +162,9 @@ export class ClassesService {
       where: {
         organizationId,
         startTime: { gte: from, lte: to },
-        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(branchScope || query.branchId
+          ? { branchId: branchScope ?? query.branchId! }
+          : {}),
       },
       include: {
         classProgram: {
@@ -200,7 +232,12 @@ export class ClassesService {
     return counts;
   }
 
-  async createSession(organizationId: string, dto: CreateClassSessionDto) {
+  async createSession(
+    organizationId: string,
+    dto: CreateClassSessionDto,
+    branchScope: string | null = null,
+  ) {
+    this.assertWithinBranch(branchScope, dto.branchId);
     await this.assertBranch(organizationId, dto.branchId);
     await this.assertInstructor(organizationId, dto.instructorId);
 
@@ -249,13 +286,23 @@ export class ClassesService {
    * taken on the session id, so it also serialises against `cancel()`,
    * which promotes from the same waitlist.
    */
-  async book(organizationId: string, sessionId: string, memberId: string) {
+  async book(
+    organizationId: string,
+    sessionId: string,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
     await this.assertMember(organizationId, memberId);
     return this.prisma.$transaction(async (tx) => {
       await this.lockSession(tx, sessionId);
 
       const session = await tx.classSession.findFirst({
-        where: { id: sessionId, organizationId, status: 'ACTIVE' },
+        where: {
+          id: sessionId,
+          organizationId,
+          status: 'ACTIVE',
+          ...(branchScope ? { branchId: branchScope } : {}),
+        },
         select: {
           id: true,
           branchId: true,
@@ -356,9 +403,17 @@ export class ClassesService {
    * booking order, then the waitlist in queue position, then the settled
    * rows.
    */
-  async sessionBookings(organizationId: string, sessionId: string) {
+  async sessionBookings(
+    organizationId: string,
+    sessionId: string,
+    branchScope: string | null = null,
+  ) {
     const session = await this.prisma.classSession.findFirst({
-      where: { id: sessionId, organizationId },
+      where: {
+        id: sessionId,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       select: { id: true },
     });
     if (!session) throw new NotFoundException('Class session not found');
@@ -402,12 +457,17 @@ export class ClassesService {
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
   }
 
-  async cancel(organizationId: string, bookingId: string) {
+  async cancel(
+    organizationId: string,
+    bookingId: string,
+    branchScope: string | null = null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const booking = await tx.classBooking.findFirst({
         where: {
           id: bookingId,
           organizationId,
+          ...(branchScope ? { branchId: branchScope } : {}),
           status: { in: [...LIVE_STATUSES] },
         },
         select: { id: true, status: true, sessionId: true },
@@ -452,11 +512,13 @@ export class ClassesService {
     organizationId: string,
     bookingId: string,
     status: 'ATTENDED' | 'NO_SHOW',
+    branchScope: string | null = null,
   ) {
     const booking = await this.prisma.classBooking.findFirst({
       where: {
         id: bookingId,
         organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
         status: { in: ['BOOKED', 'ATTENDED', 'NO_SHOW'] },
       },
       select: { id: true },

@@ -679,9 +679,12 @@ export class ToolExecutorService {
     { organizationId, userId, requestedBranchId }: ToolCallContext,
   ) {
     const { leadId } = validateToolArgs(LeadIdArgsDto, rawArgs);
-    await this.resolveAccess(userId, organizationId, requestedBranchId, [
-      'leads.read',
-    ]);
-    return this.leadsService.getScore(organizationId, leadId);
+    const { branchScope } = await this.resolveAccess(
+      userId,
+      organizationId,
+      requestedBranchId,
+      ['leads.read'],
+    );
+    return this.leadsService.getScore(organizationId, leadId, branchScope);
   }
 }

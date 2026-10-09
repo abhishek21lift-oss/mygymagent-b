@@ -20,7 +20,13 @@ export class RiskEngineController {
   async getMemberIntelligence(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ): Promise<MemberIntelligenceResponseDto | null> {
+    await this.riskEngine.assertMemberInBranchScope(
+      user.organizationId!,
+      memberId,
+      branchScope,
+    );
     return this.riskEngine.getMemberIntelligence(
       user.organizationId!,
       memberId,
@@ -32,7 +38,13 @@ export class RiskEngineController {
   async computeRiskProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
+    await this.riskEngine.assertMemberInBranchScope(
+      user.organizationId!,
+      memberId,
+      branchScope,
+    );
     return this.riskEngine.computeRiskProfile(user.organizationId!, memberId);
   }
 

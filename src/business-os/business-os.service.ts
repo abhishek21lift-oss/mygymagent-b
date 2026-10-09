@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -42,8 +43,12 @@ export class BusinessOsService {
     private readonly audit: AuditService,
   ) {}
 
-  async loyaltyAccount(org: string, memberId: string) {
-    await this.ensureMember(org, memberId);
+  async loyaltyAccount(
+    org: string,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
+    await this.ensureMember(org, memberId, branchScope);
     return this.prisma.loyaltyAccount.upsert({
       where: { organizationId_memberId: { organizationId: org, memberId } },
       update: {},
@@ -51,9 +56,23 @@ export class BusinessOsService {
     });
   }
 
-  private async ensureMember(org: string, memberId: string) {
+  /**
+   * `branchScope` (see `@CurrentBranchScope()`) pins the lookup to members
+   * whose home branch is the caller's, so another branch's member is the
+   * same 404 as another org's.
+   */
+  private async ensureMember(
+    org: string,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
     const member = await this.prisma.member.findFirst({
-      where: { id: memberId, organizationId: org, deletedAt: null },
+      where: {
+        id: memberId,
+        organizationId: org,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
       select: { id: true, primaryBranchId: true },
     });
     if (!member) throw new NotFoundException('Member not found');
@@ -67,6 +86,21 @@ export class BusinessOsService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
     return branch;
+  }
+
+  /**
+   * For org-wide books and configuration that carry no branch of their
+   * own -- the accounting ledger and chart of accounts, survey
+   * definitions. Filtering them by branch would hand a branch-scoped
+   * caller a partial (and, for a ledger, unbalanced) view of something
+   * that only makes sense whole, so they are refused outright instead.
+   */
+  private requireOrgWide(branchScope: string | null) {
+    if (branchScope) {
+      throw new ForbiddenException(
+        'This is organization-wide and not available to a branch-scoped role',
+      );
+    }
   }
 
   /**
@@ -106,9 +140,10 @@ export class BusinessOsService {
 
   async loyaltyAdjust(
     org: string, userId: string, memberId: string, points: number, reason: string,
+    branchScope: string | null = null,
   ) {
     if (!Number.isInteger(points) || points === 0) throw new BadRequestException('points must be a non-zero integer');
-    await this.ensureMember(org, memberId);
+    await this.ensureMember(org, memberId, branchScope);
     const updated = await this.prisma.$transaction((tx) =>
       this.creditLoyaltyPoints(tx, org, memberId, points, s(reason, 'Manual adjustment')),
     );
@@ -116,8 +151,12 @@ export class BusinessOsService {
     return updated;
   }
 
-  async createReferral(org: string, referrerId: string) {
-    await this.ensureMember(org, referrerId);
+  async createReferral(
+    org: string,
+    referrerId: string,
+    branchScope: string | null = null,
+  ) {
+    await this.ensureMember(org, referrerId, branchScope);
     const code = 'REF-' + randomBytes(5).toString('hex').toUpperCase();
     await this.prisma.referral.create({
       data: { organizationId: org, referrerMemberId: referrerId, code },
@@ -125,11 +164,28 @@ export class BusinessOsService {
     return { code };
   }
 
-  async convertReferral(org: string, id: string, referredMemberId: string) {
-    await this.ensureMember(org, referredMemberId);
+  /**
+   * A branch-scoped caller may convert only a referral whose referrer is a
+   * member of their branch (it credits that member's loyalty points), and
+   * only to a member of their branch.
+   */
+  async convertReferral(
+    org: string,
+    id: string,
+    referredMemberId: string,
+    branchScope: string | null = null,
+  ) {
+    await this.ensureMember(org, referredMemberId, branchScope);
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.referral.updateMany({
-        where: { id, organizationId: org, status: 'PENDING' },
+        where: {
+          id,
+          organizationId: org,
+          status: 'PENDING',
+          ...(branchScope
+            ? { referrerMember: { primaryBranchId: branchScope } }
+            : {}),
+        },
         data: { referredMemberId, status: 'CONVERTED', convertedAt: new Date() },
       });
       if (result.count === 0) throw new NotFoundException('Referral not found or already converted');
@@ -141,9 +197,16 @@ export class BusinessOsService {
     });
   }
 
-  async referrals(org: string) {
+  /** Scoped by the referrer's home branch: a referral belongs to the
+   * member who made it. */
+  async referrals(org: string, branchScope: string | null = null) {
     const rows = await this.prisma.referral.findMany({
-      where: { organizationId: org },
+      where: {
+        organizationId: org,
+        ...(branchScope
+          ? { referrerMember: { primaryBranchId: branchScope } }
+          : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
@@ -159,9 +222,18 @@ export class BusinessOsService {
     }));
   }
 
-  tickets(org: string, status?: string) {
+  /**
+   * A branch-scoped caller sees only tickets filed against their branch.
+   * Tickets with no branch are organization-level and stay with
+   * org-wide staff.
+   */
+  tickets(org: string, status?: string, branchScope: string | null = null) {
     return this.prisma.supportTicket.findMany({
-      where: { organizationId: org, ...(status ? { status } : {}) },
+      where: {
+        organizationId: org,
+        ...(status ? { status } : {}),
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
       // The reply count, so a list can show which tickets actually have a
@@ -184,9 +256,17 @@ export class BusinessOsService {
    * `organizationId` alone: a ticket id from another gym must be
    * indistinguishable from one that does not exist.
    */
-  async ticketMessages(org: string, ticketId: string) {
+  async ticketMessages(
+    org: string,
+    ticketId: string,
+    branchScope: string | null = null,
+  ) {
     const ticket = await this.prisma.supportTicket.findFirst({
-      where: { id: ticketId, organizationId: org },
+      where: {
+        id: ticketId,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       select: { id: true },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
@@ -198,16 +278,28 @@ export class BusinessOsService {
       },
     });
   }
-  async createTicket(org: string, userId: string, b: CreateSupportTicketDto) {
+  async createTicket(
+    org: string,
+    userId: string,
+    b: CreateSupportTicketDto,
+    branchScope: string | null = null,
+  ) {
     const subject = s(b.subject);
     const description = s(b.description);
     if (!subject || !description)
       throw new BadRequestException('subject and description are required');
-    const branchId = b.branchId ? String(b.branchId) : null;
+    if (branchScope && b.branchId && String(b.branchId) !== branchScope)
+      throw new BadRequestException(
+        'Cannot open a ticket outside your assigned branch',
+      );
+    // A branch-scoped caller's ticket is filed against their branch even
+    // when they don't name one; left branchless it would be invisible to
+    // them (see `tickets`) the moment it was created.
+    const branchId = b.branchId ? String(b.branchId) : branchScope;
     const memberId = b.memberId ? String(b.memberId) : null;
     if (branchId) await this.ensureBranch(org, branchId);
     if (memberId) {
-      const member = await this.ensureMember(org, memberId);
+      const member = await this.ensureMember(org, memberId, branchScope);
       if (branchId && member.primaryBranchId !== branchId) throw new BadRequestException('Member does not belong to the selected branch');
     }
     return this.prisma.supportTicket.create({
@@ -228,20 +320,40 @@ export class BusinessOsService {
     userId: string,
     id: string,
     body: string,
+    branchScope: string | null = null,
   ) {
-    const ticket = await this.prisma.supportTicket.findFirst({ where: { id, organizationId: org }, select: { id: true } });
+    const ticket = await this.prisma.supportTicket.findFirst({
+      where: {
+        id,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      select: { id: true },
+    });
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (!s(body)) throw new BadRequestException('body is required');
     return this.prisma.supportTicketMessage.create({
       data: { organizationId: org, ticketId: id, authorUserId: userId, body },
     });
   }
-  async updateTicket(org: string, id: string, status: string) {
+  async updateTicket(
+    org: string,
+    id: string,
+    status: string,
+    branchScope: string | null = null,
+  ) {
     if (
       !['OPEN', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED'].includes(status)
     )
       throw new BadRequestException('Invalid ticket status');
-    const existing = await this.prisma.supportTicket.findFirst({ where: { id, organizationId: org }, select: { resolvedAt: true } });
+    const existing = await this.prisma.supportTicket.findFirst({
+      where: {
+        id,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+      select: { resolvedAt: true },
+    });
     if (!existing) throw new NotFoundException('Ticket not found');
     // Preserves the first resolution timestamp across a later RESOLVED<->CLOSED
     // transition, matching the original SQL's COALESCE(resolved_at, now()).
@@ -255,14 +367,22 @@ export class BusinessOsService {
       orderBy: { createdAt: 'desc' },
     });
   }
-  createSurvey(org: string, b: CreateSurveyDto) {
+  /** Surveys are org-wide definitions every branch answers; creating
+   * one is organization configuration. Listing them (`surveys`) stays
+   * open, since a branch needs them to record a response. */
+  createSurvey(org: string, b: CreateSurveyDto, branchScope: string | null = null) {
+    this.requireOrgWide(branchScope);
     const name = s(b.name);
     if (!name) throw new BadRequestException('name is required');
     return this.prisma.feedbackSurvey.create({
       data: { organizationId: org, name, kind: s(b.kind, 'CSAT') },
     });
   }
-  async respondFeedback(org: string, b: RespondFeedbackDto) {
+  async respondFeedback(
+    org: string,
+    b: RespondFeedbackDto,
+    branchScope: string | null = null,
+  ) {
     if (!b.surveyId || !b.memberId)
       throw new BadRequestException('surveyId and memberId are required');
     const score = n(b.score, -1);
@@ -273,7 +393,7 @@ export class BusinessOsService {
       select: { id: true },
     });
     if (!survey) throw new NotFoundException('Survey not found');
-    await this.ensureMember(org, String(b.memberId));
+    await this.ensureMember(org, String(b.memberId), branchScope);
     return this.prisma.feedbackResponse.create({
       data: {
         organizationId: org,
@@ -284,9 +404,14 @@ export class BusinessOsService {
       },
     });
   }
-  async feedbackSummary(org: string) {
+  /** Scoped by the responding member's home branch; a response with no
+   * member left is org-level and counted only for org-wide callers. */
+  async feedbackSummary(org: string, branchScope: string | null = null) {
     const rows = await this.prisma.feedbackResponse.findMany({
-      where: { organizationId: org },
+      where: {
+        organizationId: org,
+        ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+      },
       select: { surveyId: true, score: true },
     });
     const bySurvey = new Map<string, number[]>();
@@ -308,9 +433,18 @@ export class BusinessOsService {
         };
       });
   }
-  async ptIntelligence(org: string, memberId: string) {
+  async ptIntelligence(
+    org: string,
+    memberId: string,
+    branchScope: string | null = null,
+  ) {
     const member = await this.prisma.member.findFirst({
-      where: { id: memberId, organizationId: org, deletedAt: null },
+      where: {
+        id: memberId,
+        organizationId: org,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
       select: {
         id: true,
         firstName: true,
@@ -358,7 +492,13 @@ export class BusinessOsService {
               : 'LOW',
     };
   }
-  async accountingJournal(org: string, userId: string, b: PostJournalDto) {
+  async accountingJournal(
+    org: string,
+    userId: string,
+    b: PostJournalDto,
+    branchScope: string | null = null,
+  ) {
+    this.requireOrgWide(branchScope);
     const lines = Array.isArray(b.lines) ? b.lines : [];
     if (lines.length < 2) throw new BadRequestException('at least two journal lines are required');
     const debit = lines.reduce((a, l) => a + n(l.debit), 0);
@@ -400,7 +540,13 @@ export class BusinessOsService {
     if (!from && !to) return undefined;
     return { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) };
   }
-  async taxSummary(org: string, from?: string, to?: string) {
+  async taxSummary(
+    org: string,
+    from?: string,
+    to?: string,
+    branchScope: string | null = null,
+  ) {
+    this.requireOrgWide(branchScope);
     const agg = await this.prisma.accountingEntry.aggregate({
       where: { organizationId: org, ...(this.entryDateRange(from, to) ? { entryDate: this.entryDateRange(from, to) } : {}) },
       _sum: { debit: true, credit: true },
@@ -414,16 +560,32 @@ export class BusinessOsService {
     }];
   }
 
-  campaigns(org: string) {
+  /**
+   * Campaigns carry a branch, so a branch-scoped caller works only with
+   * their branch's. Branchless campaigns are organization-wide sends and
+   * stay with org-wide staff.
+   */
+  campaigns(org: string, branchScope: string | null = null) {
     return this.prisma.marketingCampaign.findMany({
-      where: { organizationId: org },
+      where: {
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
   }
-  async createCampaign(org: string, b: CreateCampaignDto) {
+  async createCampaign(
+    org: string,
+    b: CreateCampaignDto,
+    branchScope: string | null = null,
+  ) {
     const name = s(b.name);
     if (!name) throw new BadRequestException('name is required');
+    if (branchScope && b.branchId && String(b.branchId) !== branchScope)
+      throw new BadRequestException(
+        'Cannot create a campaign outside your assigned branch',
+      );
     const channel = s(b.channel, 'EMAIL');
     if (!['EMAIL', 'WHATSAPP', 'SMS'].includes(channel)) throw new BadRequestException('channel must be EMAIL, WHATSAPP or SMS');
     if (b.branchId) await this.ensureBranch(org, String(b.branchId));
@@ -431,7 +593,9 @@ export class BusinessOsService {
     return this.prisma.marketingCampaign.create({
       data: {
         organizationId: org,
-        branchId: b.branchId ?? null,
+        // Same reasoning as `createTicket`: an unnamed branch defaults to
+        // the scoped caller's own, or the campaign would vanish from them.
+        branchId: b.branchId ?? branchScope,
         name,
         channel,
         templateKey: s(b.templateKey) || null,
@@ -467,6 +631,7 @@ export class BusinessOsService {
   private async campaignAudienceWhere(
     org: string,
     raw: unknown,
+    branchScope: string | null = null,
   ): Promise<Prisma.MemberWhereInput> {
     const filter =
       raw && typeof raw === 'object' && !Array.isArray(raw)
@@ -503,6 +668,11 @@ export class BusinessOsService {
       const cutoff = new Date(Date.now() - max * 86400000);
       and.push({ attendances: { some: { checkInAt: { gte: cutoff } } } });
     }
+    // A campaign's own `branchId` does not constrain its audience (only
+    // the stored filter does), so a branch-scoped caller's audience is
+    // pinned here on top of whatever the filter says. A filter naming
+    // another branch then simply matches nobody.
+    if (branchScope) and.push({ primaryBranchId: branchScope });
     if (and.length > 0) where.AND = and;
     return where;
   }
@@ -515,14 +685,26 @@ export class BusinessOsService {
    * There was no way to ask "how many, and who" first, so the first
    * honest look at a filter's effect was after the send.
    */
-  async previewCampaign(org: string, id: string) {
+  async previewCampaign(
+    org: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const camp = await this.prisma.marketingCampaign.findFirst({
-      where: { id, organizationId: org },
+      where: {
+        id,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       select: { id: true, name: true, channel: true, status: true, audienceFilter: true },
     });
     if (!camp) throw new NotFoundException('Campaign not found');
 
-    const where = await this.campaignAudienceWhere(org, camp.audienceFilter);
+    const where = await this.campaignAudienceWhere(
+      org,
+      camp.audienceFilter,
+      branchScope,
+    );
     const [matched, alreadyEnqueued, sample] = await Promise.all([
       this.prisma.member.count({ where }),
       this.prisma.marketingCampaignMember.count({ where: { campaignId: id, organizationId: org } }),
@@ -551,12 +733,26 @@ export class BusinessOsService {
     };
   }
 
-  async enrollCampaign(org: string, id: string) {
-    const camp = await this.prisma.marketingCampaign.findFirst({ where: { id, organizationId: org } });
+  async enrollCampaign(
+    org: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    const camp = await this.prisma.marketingCampaign.findFirst({
+      where: {
+        id,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+    });
     if (!camp) throw new NotFoundException('Campaign not found');
     // The same resolver `previewCampaign` uses, deliberately: the number
     // you were shown is the number that gets written.
-    const where = await this.campaignAudienceWhere(org, camp.audienceFilter);
+    const where = await this.campaignAudienceWhere(
+      org,
+      camp.audienceFilter,
+      branchScope,
+    );
 
     const members = await this.prisma.member.findMany({
       where,
@@ -577,11 +773,29 @@ export class BusinessOsService {
     });
     return { enrolled: members.length, audienceFilter: camp.audienceFilter };
   }
-  async runCampaign(org: string, id: string) {
-    const camp = await this.prisma.marketingCampaign.findFirst({ where: { id, organizationId: org } });
+  async runCampaign(
+    org: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
+    const camp = await this.prisma.marketingCampaign.findFirst({
+      where: {
+        id,
+        organizationId: org,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
+    });
     if (!camp) throw new NotFoundException('Campaign not found');
+    // The queue may have been filled by an org-wide caller with an
+    // unpinned audience; a branch-scoped run sends only to its own
+    // branch's members and leaves the rest queued for someone who may.
     const queued = await this.prisma.marketingCampaignMember.findMany({
-      where: { campaignId: id, organizationId: org, status: 'QUEUED' },
+      where: {
+        campaignId: id,
+        organizationId: org,
+        status: 'QUEUED',
+        ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
+      },
       take: 500,
     });
     const members = await this.prisma.member.findMany({
@@ -615,7 +829,8 @@ export class BusinessOsService {
     await this.prisma.marketingCampaign.updateMany({ where: { id, organizationId: org }, data: { status: remaining > 0 ? 'RUNNING' : 'COMPLETED' } });
     return { processed: queued.length, sent, failed };
   }
-  accounts(org: string) {
+  accounts(org: string, branchScope: string | null = null) {
+    this.requireOrgWide(branchScope);
     return this.prisma.accountingAccount.findMany({
       where: { organizationId: org },
       orderBy: { code: 'asc' },
@@ -640,7 +855,9 @@ export class BusinessOsService {
   async entries(
     org: string,
     opts: { accountId?: string; from?: string; to?: string } = {},
+    branchScope: string | null = null,
   ) {
+    this.requireOrgWide(branchScope);
     const range = this.entryDateRange(opts.from, opts.to);
     const rows = await this.prisma.accountingEntry.findMany({
       where: {
@@ -667,7 +884,12 @@ export class BusinessOsService {
       branch: r.branch,
     }));
   }
-  createAccount(org: string, b: CreateAccountingAccountDto) {
+  createAccount(
+    org: string,
+    b: CreateAccountingAccountDto,
+    branchScope: string | null = null,
+  ) {
+    this.requireOrgWide(branchScope);
     const code = s(b.code),
       name = s(b.name),
       type = s(b.type, 'EXPENSE');
@@ -678,7 +900,13 @@ export class BusinessOsService {
       data: { organizationId: org, code, name, type },
     });
   }
-  async trialBalance(org: string, from?: string, to?: string) {
+  async trialBalance(
+    org: string,
+    from?: string,
+    to?: string,
+    branchScope: string | null = null,
+  ) {
+    this.requireOrgWide(branchScope);
     const accounts = await this.prisma.accountingAccount.findMany({
       where: { organizationId: org },
       orderBy: { code: 'asc' },

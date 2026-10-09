@@ -186,7 +186,17 @@ export class HrPayrollService {
     });
   }
 
-  async leaveRequests(organizationId: string, status?: string) {
+  /**
+   * Leave belongs to a staff member, and a staff member belongs to the
+   * branch on their StaffProfile -- the same mapping `listStaffPayroll`
+   * scopes by. A branch-scoped caller sees only their branch's staff;
+   * staff with no branch (org-level) are outside every one-branch grant.
+   */
+  async leaveRequests(
+    organizationId: string,
+    status?: string,
+    branchScope: string | null = null,
+  ) {
     const allowedStatuses = [
       'PENDING',
       'APPROVED',
@@ -203,6 +213,7 @@ export class HrPayrollService {
     return this.prisma.leaveRequest.findMany({
       where: {
         organizationId,
+        ...(branchScope ? { staffProfile: { branchId: branchScope } } : {}),
         ...(status
           ? { status: status as (typeof allowedStatuses)[number] }
           : {}),
@@ -222,12 +233,24 @@ export class HrPayrollService {
     });
   }
 
-  async createLeaveRequest(organizationId: string, dto: CreateLeaveRequestDto) {
+  async createLeaveRequest(
+    organizationId: string,
+    dto: CreateLeaveRequestDto,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && dto.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot file leave outside your assigned branch',
+      );
+    }
     const [staff, leaveType, branch] = await Promise.all([
       this.prisma.staffProfile.findFirst({
         where: {
           id: dto.staffProfileId,
           organizationId,
+          // Another branch's staff (or an org-level one) reads as not in
+          // this organization to a branch-scoped caller, as everywhere else.
+          ...(branchScope ? { branchId: branchScope } : {}),
           user: { deletedAt: null },
         },
         select: { id: true, branchId: true },
@@ -326,11 +349,18 @@ export class HrPayrollService {
     id: string,
     dto: ReviewLeaveDto,
     reviewerId: string,
+    branchScope: string | null = null,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
         const existing = await tx.leaveRequest.findFirst({
-          where: { id, organizationId, status: 'PENDING' },
+          where: {
+            id,
+            organizationId,
+            status: 'PENDING',
+            // Scoped like `leaveRequests`: out-of-branch reads as not found.
+            ...(branchScope ? { staffProfile: { branchId: branchScope } } : {}),
+          },
           include: {
             leaveType: true,
             staffProfile: { select: { id: true } },

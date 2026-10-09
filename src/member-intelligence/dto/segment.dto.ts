@@ -5,8 +5,10 @@ import {
   IsDefined,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Max,
   Min,
@@ -119,4 +121,19 @@ export class SegmentMembersQueryDto {
   @IsInt()
   @Min(0)
   offset?: number;
+}
+
+/** Body of POST /analytics/segments/insights. A class so the global
+ * ValidationPipe checks it: the inline type it replaced was never checked,
+ * so any size of name went into the prompt. */
+export class SegmentInsightRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  segmentName!: string;
+
+  @IsArray()
+  @ArrayMaxSize(5000)
+  @IsUUID('all', { each: true })
+  memberIds!: string[];
 }
