@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import type { AccessTokenPayload } from '../tokens.service';
 import { MfaPolicyService } from '../mfa/mfa-policy.service';
+import { assertOrganizationOpen } from '../organization-access';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -46,13 +47,23 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         // Joined rather than fetched separately: the policy is read on
         // every authenticated request, and an organization that never
         // switched enforcement on must not pay for a second round trip.
-        organization: { select: { mfaPolicy: true, mfaGraceUntil: true } },
+        organization: {
+          select: {
+            mfaPolicy: true,
+            mfaGraceUntil: true,
+            status: true,
+            deletedAt: true,
+          },
+        },
       },
     });
 
     if (!user || user.deletedAt || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Account is not active');
     }
+    // Takes effect on the next request after a suspension, not when the
+    // access token runs out.
+    assertOrganizationOpen(user.organization);
 
     // Only organizations that opted in get past `isEngaged`, so this is a
     // field comparison for everyone else.

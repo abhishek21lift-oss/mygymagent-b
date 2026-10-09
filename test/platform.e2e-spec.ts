@@ -17,6 +17,7 @@ describe('Platform administration (e2e)', () => {
   let platformToken: string;
   const platformEmail = `platform-admin-${Date.now()}@example.com`;
   const platformPassword = 'CorrectHorseBattery9';
+  const ownerEmail = `platform-test-org-${Date.now()}@example.com`;
 
   beforeAll(async () => {
     const result = await createTestApp();
@@ -27,7 +28,7 @@ describe('Platform administration (e2e)', () => {
       .post('/auth/register')
       .send({
         organizationName: 'Platform Test Gym',
-        email: `platform-test-org-${Date.now()}@example.com`,
+        email: ownerEmail,
         password: 'CorrectHorseBattery9',
         firstName: 'Owner',
         lastName: 'Gym',
@@ -142,5 +143,40 @@ describe('Platform administration (e2e)', () => {
     });
     expect(auditRow).not.toBeNull();
     expect(auditRow?.organizationId).toBe(org.organizationId);
+  });
+
+  it("cuts a suspended gym's staff off: open sessions and new logins", async () => {
+    // Suspended by the test above.
+    await request(app.getHttpServer())
+      .get('/members')
+      .set('Authorization', `Bearer ${org.accessToken}`)
+      .expect(401);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: ownerEmail, password: 'CorrectHorseBattery9' })
+      .expect(401);
+    expect(login.body.error.message).toMatch(/suspended/);
+
+    // Platform staff belong to no gym and keep working.
+    await request(app.getHttpServer())
+      .get(`/platform/organizations/${org.organizationId}`)
+      .set('Authorization', `Bearer ${platformToken}`)
+      .expect(200);
+  });
+
+  it('lets them back in once the gym is reactivated', async () => {
+    await request(app.getHttpServer())
+      .patch(`/platform/organizations/${org.organizationId}/status`)
+      .set('Authorization', `Bearer ${platformToken}`)
+      .send({ status: 'ACTIVE' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/members')
+      .set('Authorization', `Bearer ${org.accessToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: ownerEmail, password: 'CorrectHorseBattery9' })
+      .expect(201);
   });
 });
