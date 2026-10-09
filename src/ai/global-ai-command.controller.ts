@@ -5,10 +5,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { GlobalAiCommandService } from './global-ai-command.service';
-import type {
-  GlobalCommandRequest,
-  GlobalCommandResponse,
-} from './global-ai-command.service';
+import type { GlobalCommandResponse } from './global-ai-command.service';
+import { GlobalCommandDto } from './dto/global-command.dto';
 
 /**
  * Global AI Command Interface (P3B): Provides a unified AI command interface
@@ -32,13 +30,14 @@ export class GlobalAiCommandController {
   @RequirePermissions('ai.generate')
   async processCommand(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() request: GlobalCommandRequest,
+    @Body() dto: GlobalCommandDto,
   ): Promise<GlobalCommandResponse> {
-    // Ensure the request contains the correct organization and user IDs from the authenticated context
-    // This prevents users from spoofing organization/user IDs
-    request.organizationId = user.organizationId!;
-    request.userId = user.id;
-
-    return this.globalAiCommand.processCommand(request);
+    // The organization and user come from the session, never the body.
+    return this.globalAiCommand.processCommand({
+      organizationId: user.organizationId!,
+      userId: user.id,
+      command: dto.command,
+      context: dto.context,
+    });
   }
 }
