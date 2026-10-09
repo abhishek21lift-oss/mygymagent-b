@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { AutomationKey, MessageCategory } from '@prisma/client';
+import type { AutomationKey, MessageCategory, Prisma } from '@prisma/client';
 import { CommunicationsService } from '../communications/communications.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { AutomationRunService } from './automation-run.service';
 
 type Outcome = 'SENT' | 'SKIPPED' | 'FAILED' | 'COOLDOWN' | 'NO_CHANNEL';
@@ -54,10 +55,16 @@ export class MemberMessenger {
     string,
     { ready: boolean; at: number }
   >();
+  /** Control Center toggles, per gym+key. No row means enabled. */
+  private readonly toggles = new Map<
+    string,
+    { enabled: boolean; at: number }
+  >();
 
   constructor(
     private readonly communications: CommunicationsService,
     private readonly runs: AutomationRunService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** Whether this gym's automations should go on WhatsApp right now.
@@ -71,8 +78,46 @@ export class MemberMessenger {
     return ready;
   }
 
+  /** The Control Center toggle for one gym+key. Cached for a minute like
+   * the WhatsApp check above: a scan asks once per member. */
+  async automationEnabled(
+    organizationId: string,
+    key: AutomationKey,
+  ): Promise<boolean> {
+    const cacheKey = `${organizationId}:${key}`;
+    const cached = this.toggles.get(cacheKey);
+    if (cached && Date.now() - cached.at < 60_000) return cached.enabled;
+    const row = await this.prisma.automationSetting.findUnique({
+      where: { organizationId_key: { organizationId, key } },
+      select: { enabled: true },
+    });
+    const enabled = row?.enabled ?? true;
+    this.toggles.set(cacheKey, { enabled, at: Date.now() });
+    return enabled;
+  }
+
   async deliver(message: MemberAutomationMessage): Promise<Delivery> {
     const { organizationId, key, subjectId, member, whatsapp } = message;
+
+    // The Control Center's master switch, checked before any WhatsApp or
+    // email attempt: a disabled key sends nothing and records why.
+    // channelOverride / quietHours / cooldownDays are stored, not
+    // enforced yet -- the quiet-hours task reads them, not this path.
+    if (!(await this.automationEnabled(organizationId, key))) {
+      await this.prisma.automationRun.create({
+        data: {
+          organizationId,
+          key,
+          subjectId,
+          status: 'SKIPPED',
+          detail: {
+            ...message.detail,
+            disabled: true,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      return { outcome: 'SKIPPED', channel: null };
+    }
 
     if (
       whatsapp &&

@@ -162,6 +162,7 @@ model Organization {
   notifications            Notification[]
   notificationPreferences  NotificationPreference[]
   automationRuns           AutomationRun[]
+  automationSettings       AutomationSetting[]
   aiActions                AiAction[]
   aiConversations          AiConversation[]
   memberDocumentVersions   MemberDocumentVersion[]
@@ -2684,6 +2685,14 @@ enum AutomationKey {
   INVOICE_DUE_REMINDER
   LEAD_FIRST_TOUCH
   PT_EXPIRY_REMINDER
+  /// Birthday greeting, driven by Member.dateOfBirth. No scanner yet --
+  /// the Control Center stores the toggle first so the schedule it will
+  /// need (one row per member per year) can reuse the same setting shape.
+  BIRTHDAY_WISH
+  /// Follow-ups after a membership has already lapsed. Renewal stages
+  /// t7/t3/t0 under MEMBERSHIP_RENEWAL_REMINDER only cover the window
+  /// before endDate; this key covers the days after it.
+  MEMBERSHIP_POST_EXPIRY
 }
 
 enum AutomationRunStatus {
@@ -2716,6 +2725,41 @@ model AutomationRun {
 
   @@index([organizationId, key, subjectId, createdAt])
   @@map("automation_runs")
+}
+
+/// One row per gym per automation key: the Control Center's ON/OFF switch
+/// plus the schedule overrides the scanners will read. No row means the
+/// code default (enabled, AUTO channel, scanner's own cooldown) -- rows
+/// are only written when a gym changes something, so existing gyms keep
+/// exactly the behavior they have today.
+model AutomationSetting {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key AutomationKey
+  /// Master switch. MemberMessenger.deliver() checks this before any
+  /// WhatsApp/email attempt; a disabled key records a SKIPPED
+  /// AutomationRun and sends nothing.
+  enabled Boolean @default(true)
+  /// Channel override, null = AUTO (WhatsApp when the gym's own number is
+  /// linked, else email -- the MemberMessenger default). Stored, not
+  /// enforced yet: no scanner reads it until the per-channel routing task
+  /// lands. Validated in the DTO (AUTO|WHATSAPP|EMAIL).
+  channelOverride String?
+  /// Cooldown override in days, null = the scanner's coded default.
+  cooldownDays Int?
+  /// Quiet hours as HH:mm 24h, both-or-neither, null = off. Stored, not
+  /// enforced yet: enforcement lands with the quiet-hours task.
+  quietHoursStart String?
+  quietHoursEnd   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("automation_settings")
 }
 
 /// -- src/ai-actions/ (P3 "Gym Brain": Action Center) ---------------------
