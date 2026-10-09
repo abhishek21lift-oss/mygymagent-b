@@ -42,9 +42,25 @@ export class LeadsService {
     branchScope: string | null = null,
   ) {
     const timezone = await organizationTimezone(this.prisma, organizationId);
+    // `search` came with the shared pagination DTO but was never applied,
+    // so searching for an enquiry quietly returned the newest twenty.
+    const search = query.search?.trim();
     const where: Prisma.LeadWhereInput = {
       organizationId,
       ...(query.status ? { status: query.status } : {}),
+      ...(query.openOnly === 'true' && !query.status
+        ? { status: { notIn: ['WON', 'LOST'] } }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search } },
+            ],
+          }
+        : {}),
       ...(query.assignedToUserId
         ? { assignedToUserId: query.assignedToUserId }
         : {}),
