@@ -1,5 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UnrecoverableError, type Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
@@ -9,6 +10,7 @@ import {
   postWebhook,
 } from './webhook-send';
 import type { WebhookJobData } from './webhook-dispatcher.service';
+import { resolveSigningSecret } from './webhook-secret.vault';
 
 const FALLBACK_ATTEMPTS = 3;
 const FALLBACK_BACKOFF_MS = 60_000;
@@ -24,7 +26,10 @@ const FALLBACK_BACKOFF_MS = 60_000;
 export class WebhookDeliveryProcessor extends WorkerHost {
   private readonly logger = new Logger(WebhookDeliveryProcessor.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
     super();
   }
 
@@ -43,8 +48,24 @@ export class WebhookDeliveryProcessor extends WorkerHost {
         `Webhook subscription ${subscriptionId} is gone`,
       );
     }
+    let secret: string;
     try {
-      const { httpStatus } = await postWebhook(sub.url, sub.secret, {
+      secret = await resolveSigningSecret(
+        this.prisma,
+        sub,
+        this.config.get<string>('MFA_TOTP_KEY'),
+        this.logger,
+      );
+    } catch (error) {
+      // Fail closed: an envelope we cannot open (tampered, or the key is
+      // missing/rotated) is never "signed" with the raw column value, and
+      // retrying cannot fix it.
+      const reason = describe(error);
+      await this.fail(job, deliveryId, reason);
+      throw new UnrecoverableError(reason);
+    }
+    try {
+      const { httpStatus } = await postWebhook(sub.url, secret, {
         event,
         organizationId,
         timestamp: new Date().toISOString(),

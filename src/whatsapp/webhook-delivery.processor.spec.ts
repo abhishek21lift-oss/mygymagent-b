@@ -32,12 +32,16 @@ beforeEach(() => {
   seen.length = 0;
 });
 
-function processor(sub: unknown) {
+function processor(sub: unknown, env: Record<string, string> = {}) {
   const prisma = {
-    webhookSubscription: { findFirst: jest.fn(async () => sub) },
+    webhookSubscription: {
+      findFirst: jest.fn(async () => sub),
+      updateMany: jest.fn(async () => ({ count: 1 })),
+    },
     webhookDelivery: { update: jest.fn(async () => undefined) },
   };
-  const svc = new WebhookDeliveryProcessor(prisma as never);
+  const config = { get: (name: string) => env[name] };
+  const svc = new WebhookDeliveryProcessor(prisma as never, config as never);
   return { svc, prisma };
 }
 
