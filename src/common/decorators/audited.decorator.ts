@@ -5,6 +5,10 @@ export const AUDITED_KEY = 'audited';
 export interface AuditedOptions {
   resource: string;
   action: string;
+  /** Response fields to leave out of afterState, on top of the
+   * credentials the interceptor always drops: for a secret under a
+   * generic name, such as a device's `key`. */
+  redact?: readonly string[];
 }
 
 /** Marks a mutating handler for automatic audit logging by AuditInterceptor.

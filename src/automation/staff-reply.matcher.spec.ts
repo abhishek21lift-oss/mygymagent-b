@@ -79,6 +79,21 @@ describe('matchRule', () => {
     expect(() => matchRule(rules, 'fee(s', false)).not.toThrow();
     expect(matchRule(rules, 'slot 5', false)?.id).toBe('r6');
   });
+
+  it('gives up on a catastrophic pattern instead of stalling', () => {
+    const evil: StaffRule = {
+      id: 'evil',
+      keyword: '(a+)+$',
+      matchType: 'REGEX',
+      scope: 'ALL',
+      answer: 'x',
+      enabled: true,
+      priority: 1,
+    };
+    const started = Date.now();
+    expect(matchRule([evil], 'a'.repeat(40) + '!', false)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });
 
 describe('parseBotCommand', () => {

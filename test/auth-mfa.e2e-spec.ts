@@ -258,6 +258,26 @@ describe('Auth MFA (e2e)', () => {
     await resetLockout();
   });
 
+  it('does not refill the code budget on a fresh password login', async () => {
+    // Password, wrong code, password again, ...: the correct password must
+    // not wipe the bad codes before it, or the lockout never arrives.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const challenge = await login().expect(201);
+      await request(app.getHttpServer())
+        .post('/auth/mfa/verify')
+        .send({ mfaToken: challenge.body.data.mfaToken, code: '000000' })
+        .expect(401);
+    }
+
+    const locked = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { lockedUntil: true },
+    });
+    expect(locked.lockedUntil).toBeTruthy();
+    await login().expect(401);
+    await resetLockout();
+  });
+
   describe('disabling', () => {
     it('requires the password as well as a code', async () => {
       await authed(accessToken)(

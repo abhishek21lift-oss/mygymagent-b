@@ -15,6 +15,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { unsafeRegexReason } from '../automation/safe-regex';
 
 class CreateAutoReplyRuleDto {
   @IsString()
@@ -73,16 +74,12 @@ function validate(dto: CreateAutoReplyRuleDto): void {
   if (!['ALL', 'PRIVATE', 'GROUP'].includes(dto.scope)) {
     throw new BadRequestException('scope must be ALL, PRIVATE or GROUP');
   }
-  // A rule saved with a broken regex would never fire; reject it here too
-  // (the matcher also skips it at runtime if one slips through).
+  // A broken regex would never fire, and one that backtracks without end
+  // would stall the API for every gym on the first message that trips it.
+  // The matcher also skips either at runtime if one slips through.
   if (dto.matchType === 'REGEX') {
-    try {
-      new RegExp(keyword, 'i');
-    } catch {
-      throw new BadRequestException(
-        'keyword is not a valid regular expression',
-      );
-    }
+    const reason = unsafeRegexReason(keyword);
+    if (reason) throw new BadRequestException(reason);
   }
 }
 

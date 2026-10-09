@@ -14,7 +14,28 @@ import {
   type AuditedOptions,
 } from '../decorators/audited.decorator';
 
-const SENSITIVE_KEYS = new Set(['passwordHash', 'password']);
+/**
+ * Response fields that are credentials, dropped at any depth before the
+ * response becomes `afterState`. The audit log is readable by roles that
+ * must never hold these (a manager reading an owner's TOTP seed defeats
+ * the second factor), and it lands in every backup. An endpoint whose
+ * credential sits under a generic name lists it in `@Audited({ redact })`.
+ */
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'passwordHash',
+  'secret',
+  'secretEnc',
+  'otpauthUri',
+  'recoveryCodes',
+  'token',
+  'tokenHash',
+  'keyHash',
+  'accessToken',
+  'refreshToken',
+  'qrDataUrl',
+  'pairingCode',
+]);
 
 /**
  * Produces a JSON-safe copy for the audit log's `Json` column. Deliberately
@@ -24,10 +45,13 @@ const SENSITIVE_KEYS = new Set(['passwordHash', 'password']);
  * walk picks up Decimal's internal own-enumerable `constructor` property
  * and produces a value Prisma's JSON serializer rejects.
  */
-function sanitize(value: unknown): unknown {
+export function sanitize(
+  value: unknown,
+  redact: readonly string[] = [],
+): unknown {
   if (value === undefined) return null;
   const replacer = (key: string, val: unknown): unknown =>
-    SENSITIVE_KEYS.has(key) ? undefined : val;
+    SENSITIVE_KEYS.has(key) || redact.includes(key) ? undefined : val;
   return JSON.parse(JSON.stringify(value, replacer)) as unknown;
 }
 
@@ -73,7 +97,7 @@ export class AuditInterceptor implements NestInterceptor {
                 : request.params?.id) ??
               (response as { id?: string })?.id ??
               null,
-            afterState: sanitize(response),
+            afterState: sanitize(response, options.redact),
             ipAddress: request.ip,
             userAgent,
             requestId: request.requestId,

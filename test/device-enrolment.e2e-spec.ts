@@ -102,6 +102,19 @@ describe('Turnstile enrolment (e2e, B-P1-8)', () => {
         .send({ branchId, name: 'Front Turnstile', kind: 'BIOMETRIC' }),
     ).expect(201);
     turnstileKey = device.body.data.key;
+    // The key is shown once, to the caller; the audit trail keeps the
+    // device but never the credential.
+    // Written after the response goes out.
+    let audited = null;
+    for (let i = 0; i < 20 && !audited; i++) {
+      audited = await prisma.auditLog.findFirst({
+        where: { resource: 'kiosk_device', resourceId: device.body.data.id },
+      });
+      if (!audited) await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!audited) throw new Error('device registration was not audited');
+    expect(JSON.stringify(audited.afterState)).not.toContain(turnstileKey);
+    expect(audited.afterState).toMatchObject({ name: 'Front Turnstile' });
 
     const invited = await asOwner(
       request(app.getHttpServer())

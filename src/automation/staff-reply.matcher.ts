@@ -1,3 +1,5 @@
+import { boundedTest } from './safe-regex';
+
 /**
  * Pure matching for P4 staff rules + bot commands: no DB, no I/O, so the
  * spec pins behavior without fakes. Ordering: EXACT, then CONTAINS, then
@@ -44,7 +46,8 @@ export function matchRule(
           // A staff typo must never break the reply chain.
           continue;
         }
-        if (re.test(body)) return rule;
+        // A pattern that runs out of time counts as no match.
+        if (boundedTest(re, body)) return rule;
       }
     }
   }

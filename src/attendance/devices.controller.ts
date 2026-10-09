@@ -49,7 +49,7 @@ export class DevicesController {
 
   @Post()
   @RequirePermissions('kiosk.manage')
-  @Audited({ resource: 'kiosk_device', action: 'created' })
+  @Audited({ resource: 'kiosk_device', action: 'created', redact: ['key'] })
   register(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RegisterDeviceDto,
