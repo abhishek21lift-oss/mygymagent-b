@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import type { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import ms from 'ms';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,9 +16,24 @@ export function hashOpaqueToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * Pinned on every JWT this service family signs and required on every
+ * verify. The algorithm is fixed so a token can never pick its own (`none`,
+ * or an asymmetric alg against an HMAC secret). Issuer/audience bind a token
+ * to its purpose: access and MFA-challenge tokens share JWT_ACCESS_SECRET, so
+ * besides their `type` claim they carry different audiences, and neither
+ * verifies as the other.
+ */
+export const JWT_ALGORITHM = 'HS256' as const;
+export const JWT_ISSUER = 'mygymagent';
+export const ACCESS_TOKEN_AUDIENCE = 'mygymagent:access';
+export const MFA_CHALLENGE_AUDIENCE = 'mygymagent:mfa-challenge';
+
 export interface AccessTokenPayload {
   sub: string;
   type: 'access';
+  /** User.tokenVersion at signing time; JwtStrategy rejects a mismatch. */
+  ver: number;
 }
 
 export interface IssuedRefreshToken {
@@ -33,11 +49,23 @@ export class TokensService {
     private readonly prisma: PrismaService,
   ) {}
 
-  signAccessToken(userId: string): string {
-    const payload: AccessTokenPayload = { sub: userId, type: 'access' };
+  /**
+   * `tokenVersion` must be the user's current User.tokenVersion -- a token
+   * signed with any other value is refused by JwtStrategy. It defaults to
+   * 0, the value every account starts with.
+   */
+  signAccessToken(userId: string, tokenVersion = 0): string {
+    const payload: AccessTokenPayload = {
+      sub: userId,
+      type: 'access',
+      ver: tokenVersion,
+    };
     const expiresIn = this.config.get<string>('JWT_ACCESS_EXPIRES_IN', '15m');
     return this.jwt.sign(payload, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      algorithm: JWT_ALGORITHM,
+      issuer: JWT_ISSUER,
+      audience: ACCESS_TOKEN_AUDIENCE,
       // `ms`'s TS types demand a branded literal string we can't produce
       // from a runtime env value; the value is genuinely a duration string.
       expiresIn: expiresIn as unknown as number,
@@ -47,6 +75,9 @@ export class TokensService {
   verifyAccessToken(token: string): AccessTokenPayload {
     return this.jwt.verify<AccessTokenPayload>(token, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      algorithms: [JWT_ALGORITHM],
+      issuer: JWT_ISSUER,
+      audience: ACCESS_TOKEN_AUDIENCE,
     });
   }
 
@@ -164,4 +195,34 @@ export class TokensService {
       data: { revokedAt: new Date() },
     });
   }
+
+  /**
+   * Ends every session the user has: bumps User.tokenVersion (so each
+   * outstanding access token fails JwtStrategy's version check on its next
+   * request) and revokes every live refresh token (so none can mint a new
+   * one). For credential changes -- password reset, MFA disable,
+   * deactivation. Pass `tx` to run inside the caller's transaction.
+   */
+  async endAllSessions(
+    userId: string,
+    tx: Pick<Prisma.TransactionClient, 'user' | 'refreshToken'> = this.prisma,
+  ): Promise<void> {
+    await endAllSessions(tx, userId);
+  }
+}
+
+/** Free-function form of TokensService.endAllSessions, for services that
+ * hold a Prisma client (or transaction) but not TokensService. */
+export async function endAllSessions(
+  db: Pick<Prisma.TransactionClient, 'user' | 'refreshToken'>,
+  userId: string,
+): Promise<void> {
+  await db.user.update({
+    where: { id: userId },
+    data: { tokenVersion: { increment: 1 } },
+  });
+  await db.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
 }

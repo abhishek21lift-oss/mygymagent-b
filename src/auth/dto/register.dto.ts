@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 import { NormaliseEmail } from '../../common/transforms/normalise-email';
 
 /** Self-serve signup: creates a brand-new Organization, its first Branch,
@@ -15,6 +15,7 @@ export class RegisterDto {
 
   @IsString()
   @MinLength(10, { message: 'Password must be at least 10 characters' })
+  @MaxLength(128)
   password!: string;
 
   @IsString()

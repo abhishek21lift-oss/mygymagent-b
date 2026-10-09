@@ -13,6 +13,7 @@ import { PermissionsService } from '../rbac/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberOtpService } from './member-otp.service';
 import {
+  endAllSessions,
   generateOpaqueToken,
   hashOpaqueToken,
   TokensService,
@@ -389,7 +390,7 @@ export class AuthService {
     }
     assertOrganizationOpen(user.organization);
 
-    const accessToken = this.tokens.signAccessToken(user.id);
+    const accessToken = this.tokens.signAccessToken(user.id, user.tokenVersion);
 
     return {
       user: publicUser(user),
@@ -404,7 +405,9 @@ export class AuthService {
   }
 
   async logoutAll(userId: string): Promise<void> {
-    await this.tokens.revokeAllRefreshTokens(userId);
+    // Access tokens too, not just refresh tokens: "sign out everywhere"
+    // that leaves a stolen access token working for 15 minutes is not.
+    await this.tokens.endAllSessions(userId);
     await this.audit.record({
       organizationId: null,
       actorUserId: userId,
@@ -504,8 +507,8 @@ export class AuthService {
     const activating = account.status === 'INVITED';
 
     const passwordHash = await argon2.hash(newPassword);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: record.userId },
         data: {
           passwordHash,
@@ -516,11 +519,17 @@ export class AuthService {
             ? { status: 'ACTIVE', emailVerifiedAt: new Date() }
             : {}),
         },
-      }),
-    ]);
-
-    // Force re-authentication on every device after a password reset.
-    await this.tokens.revokeAllRefreshTokens(record.userId);
+      });
+      // Force re-authentication on every device: refresh tokens revoked,
+      // and outstanding access tokens die on their next request.
+      await endAllSessions(tx, record.userId);
+      // Any other reset or invite link still in someone's inbox would
+      // otherwise set the password again over this one.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: record.userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+    });
 
     await this.audit.record({
       organizationId: null,
@@ -609,10 +618,16 @@ export class AuthService {
   private async issueSession(userId: string, meta: RequestMeta) {
     const owner = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { organization: { select: { status: true, deletedAt: true } } },
+      select: {
+        tokenVersion: true,
+        organization: { select: { status: true, deletedAt: true } },
+      },
     });
     assertOrganizationOpen(owner?.organization ?? null);
-    const accessToken = this.tokens.signAccessToken(userId);
+    const accessToken = this.tokens.signAccessToken(
+      userId,
+      owner?.tokenVersion ?? 0,
+    );
     const { token: refreshToken, expiresAt: refreshExpiresAt } =
       await this.tokens.issueRefreshToken(userId, meta);
     return { accessToken, refreshToken, refreshExpiresAt };

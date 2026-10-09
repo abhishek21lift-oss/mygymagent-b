@@ -72,8 +72,11 @@ export class HrPayrollController {
 
   @Get('leave-types')
   @RequirePermissions('hr.read')
-  leaveTypes(@CurrentUser() user: AuthenticatedUser) {
-    return this.hr.leaveTypes(user.organizationId!);
+  leaveTypes(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.leaveTypes(user.organizationId!, branchScope);
   }
 
   @Post('leave-types')
@@ -82,8 +85,9 @@ export class HrPayrollController {
   createLeaveType(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateLeaveTypeDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.hr.createLeaveType(user.organizationId!, dto);
+    return this.hr.createLeaveType(user.organizationId!, dto, branchScope);
   }
 
   @Get('leave-requests')
@@ -127,8 +131,11 @@ export class HrPayrollController {
 
   @Get('payroll-runs')
   @RequirePermissions('payroll.read')
-  payrollRuns(@CurrentUser() user: AuthenticatedUser) {
-    return this.hr.listPayrollRuns(user.organizationId!);
+  payrollRuns(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.listPayrollRuns(user.organizationId!, branchScope);
   }
 
   @Post('payroll-runs')
@@ -137,8 +144,14 @@ export class HrPayrollController {
   createPayrollRun(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePayrollRunDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.hr.createPayrollRun(user.organizationId!, user.id, dto);
+    return this.hr.createPayrollRun(
+      user.organizationId!,
+      user.id,
+      dto,
+      branchScope,
+    );
   }
 
   @Patch('payroll-runs/:id/items')
@@ -148,21 +161,40 @@ export class HrPayrollController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: PayrollItemAdjustmentDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.hr.adjustPayrollItem(user.organizationId!, id, dto);
+    return this.hr.adjustPayrollItem(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+    );
   }
 
   @Post('payroll-runs/:id/approve')
   @RequirePermissions('payroll.manage')
   @Audited({ resource: 'payroll_run', action: 'approve' })
-  approve(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.hr.approvePayrollRun(user.organizationId!, id, user.id);
+  approve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.approvePayrollRun(
+      user.organizationId!,
+      id,
+      user.id,
+      branchScope,
+    );
   }
 
   @Post('payroll-runs/:id/process')
   @RequirePermissions('payroll.manage')
   @Audited({ resource: 'payroll_run', action: 'process' })
-  process(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.hr.processPayrollRun(user.organizationId!, id);
+  process(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.hr.processPayrollRun(user.organizationId!, id, branchScope);
   }
 }

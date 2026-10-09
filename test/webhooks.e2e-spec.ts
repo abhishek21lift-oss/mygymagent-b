@@ -186,6 +186,14 @@ describe('WhatsApp webhooks (e2e)', () => {
 
   it('delivers a signed POST on inbound', async () => {
     const sub = await subscribe(`${base}/ok`, ['message.received']);
+    // At rest the column holds an AES-GCM envelope, never the plaintext
+    // the API handed back once (src/whatsapp/webhook-secret.vault.ts).
+    const row = await prisma.webhookSubscription.findUniqueOrThrow({
+      where: { id: sub.id },
+      select: { secret: true },
+    });
+    expect(row.secret).toMatch(/^v1\.[0-9a-f]{24}\.[0-9a-f]{32}\.[0-9a-f]+$/);
+    expect(row.secret).not.toContain(sub.secret);
     inbound1to1('919876543211', 'hello gym');
     const hit = await eventually(
       async () => hits.find((h) => h.url === '/ok'),

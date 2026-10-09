@@ -328,10 +328,22 @@ export class InvoicesService {
       receipt: invoice.number,
       notes: { invoiceId: invoice.id, organizationId },
     });
-    await this.prisma.invoice.update({
-      where: { id: invoice.id },
-      data: { providerOrderId: order.id },
-    });
+    // The order row is what the webhook trusts: it resolves a capture to
+    // its invoice by order id and checks the captured amount against it.
+    await this.prisma.$transaction([
+      this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { providerOrderId: order.id },
+      }),
+      this.prisma.razorpayOrder.create({
+        data: {
+          id: order.id,
+          invoiceId: invoice.id,
+          amount: amountPaise,
+          currency: invoice.currency.toUpperCase(),
+        },
+      }),
+    ]);
     return {
       invoiceId: invoice.id,
       invoiceNumber: invoice.number,

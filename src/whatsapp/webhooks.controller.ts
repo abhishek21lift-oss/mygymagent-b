@@ -4,12 +4,14 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
 import crypto from 'node:crypto';
@@ -21,6 +23,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WEBHOOK_EVENTS } from './webhook-events';
 import { WebhookBlockedError, assertPublicUrl } from './webhook-ssrf';
 import { postWebhook } from './webhook-send';
+import {
+  deriveWebhookSecretKey,
+  resolveSigningSecret,
+  sealWebhookSecret,
+} from './webhook-secret.vault';
 
 const MAX_SUBSCRIPTIONS = 10;
 
@@ -93,7 +100,30 @@ async function validateUrl(url: unknown): Promise<string> {
 @Controller('whatsapp/webhooks')
 @Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class WebhooksController {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(WebhooksController.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  /** Fresh signing secret plus what to store. Sealed when MFA_TOTP_KEY is
+   * set; on a deployment without it the secret is stored as before, so
+   * webhooks keep working, and is sealed on its first delivery once the
+   * key is configured (resolveSigningSecret). */
+  private newSecret(): { plaintext: string; stored: string } {
+    const plaintext = crypto.randomBytes(32).toString('hex');
+    let key: Buffer;
+    try {
+      key = deriveWebhookSecretKey(this.config.get<string>('MFA_TOTP_KEY'));
+    } catch {
+      this.logger.warn(
+        'MFA_TOTP_KEY is not set: webhook signing secret stored unencrypted',
+      );
+      return { plaintext, stored: plaintext };
+    }
+    return { plaintext, stored: sealWebhookSecret(plaintext, key) };
+  }
 
   @Get()
   @RequirePermissions('whatsapp.read')
@@ -139,16 +169,20 @@ export class WebhooksController {
     }
     const url = await validateUrl(dto.url);
     const events = validateEvents(dto.events);
-    return this.prisma.webhookSubscription.create({
+    const { plaintext, stored } = this.newSecret();
+    const created = await this.prisma.webhookSubscription.create({
       data: {
         organizationId,
         url,
         events,
-        secret: crypto.randomBytes(32).toString('hex'),
+        secret: stored,
         enabled: dto.enabled ?? true,
         createdByUserId: user.id,
       },
     });
+    // The only time the plaintext leaves the server; the row holds the
+    // envelope.
+    return { ...created, secret: plaintext };
   }
 
   @Patch(':id')
@@ -197,13 +231,13 @@ export class WebhooksController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const secret = crypto.randomBytes(32).toString('hex');
+    const { plaintext, stored } = this.newSecret();
     const { count } = await this.prisma.webhookSubscription.updateMany({
       where: { id, organizationId: user.organizationId! },
-      data: { secret },
+      data: { secret: stored },
     });
     if (count === 0) throw new NotFoundException('Webhook not found');
-    return { secret };
+    return { secret: plaintext };
   }
 
   @Post(':id/test')
@@ -223,7 +257,13 @@ export class WebhooksController {
       select: { id: true },
     });
     try {
-      const { httpStatus } = await postWebhook(sub.url, sub.secret, {
+      // Inside the try: an unreadable envelope fails this delivery closed.
+      const secret = await resolveSigningSecret(
+        this.prisma,
+        sub,
+        this.config.get<string>('MFA_TOTP_KEY'),
+      );
+      const { httpStatus } = await postWebhook(sub.url, secret, {
         event: 'test',
         organizationId: user.organizationId!,
         timestamp: new Date().toISOString(),

@@ -7,6 +7,7 @@ import {
   sourceNotes,
   splitName,
   toE164,
+  validEmail,
 } from './customer-enquiry-mapping';
 
 /**
@@ -14,6 +15,18 @@ import {
  * 1342-row export. Each `it` below, run against the old code, fails.
  */
 describe('customer enquiry mapping', () => {
+  describe('validEmail', () => {
+    it('keeps a normal address, lower-cased', () => {
+      expect(validEmail(' Rahul@Example.COM ')).toBe('rahul@example.com');
+    });
+
+    it('refuses an over-long cell quickly instead of backtracking on it', () => {
+      const started = Date.now();
+      expect(validEmail('a@' + 'a.'.repeat(50_000))).toBeNull();
+      expect(Date.now() - started).toBeLessThan(50);
+    });
+  });
+
   describe('parseDayFirstDate', () => {
     it('reads DD-MM-YYYY as written', () => {
       expect(parseDayFirstDate('11-05-2026')?.toISOString().slice(0, 10)).toBe(
