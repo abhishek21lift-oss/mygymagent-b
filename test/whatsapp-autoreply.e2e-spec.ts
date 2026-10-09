@@ -274,5 +274,16 @@ describe('WhatsApp staff replies (e2e)', () => {
         answer: 'Broken',
       })
       .expect(400);
+    // One inbound message against this would stall every gym's requests.
+    const catastrophic = await as(gym.accessToken)
+      .post('/whatsapp/auto-replies')
+      .send({
+        keyword: '(a+)+$',
+        matchType: 'REGEX',
+        scope: 'ALL',
+        answer: 'Stall',
+      })
+      .expect(400);
+    expect(catastrophic.body.error.message).toMatch(/repeats/);
   }, 60_000);
 });

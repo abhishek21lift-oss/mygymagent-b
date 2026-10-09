@@ -246,15 +246,19 @@ export class AuthService {
       throw new UnauthorizedException('Account is not active');
     }
 
-    // The password is proven, so the guessing budget resets here. Whether
-    // the *session* starts depends on the second factor below, so
-    // lastLoginAt is only stamped once authentication actually completes.
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { failedLoginAttempts: 0, lockedUntil: null },
-    });
+    // With a second factor, the guessing budget only resets once that
+    // passes too (MfaService.verifyLogin). Resetting it on the password
+    // alone let someone who held the password alternate password and
+    // code guesses forever without ever reaching the lockout.
+    const mfaEnabled = await this.mfa.isEnabled(user.id);
+    if (!mfaEnabled) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
 
-    if (await this.mfa.isEnabled(user.id)) {
+    if (mfaEnabled) {
       await this.audit.record({
         organizationId: user.organizationId,
         actorUserId: user.id,
