@@ -143,6 +143,76 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
+  it('does not let a token killed by a mass revocation sign out a newer session', async () => {
+    // Two browsers on one account, each with its own session.
+    const loginA = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const loginB = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const cookieA = loginA.headers['set-cookie'][0];
+    const cookieB = loginB.headers['set-cookie'][0];
+
+    // A replays a rotated token: the family dies, B's token with it.
+    const rotated = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', cookieA)
+      .expect(201);
+    expect(rotated.headers['set-cookie']?.[0]).toMatch(/refresh_token=/);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', cookieA)
+      .expect(401);
+
+    // A signs back in. B then refreshes with its now-dead token: that is
+    // a 401 for B, and nothing more -- A's new session must survive it.
+    const relogin = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const freshCookie = relogin.headers['set-cookie'][0];
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', cookieB)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', freshCookie)
+      .expect(201);
+  });
+
+  it('does not treat a logged-out token as a replay', async () => {
+    const loggedOut = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const other = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const loggedOutCookie = loggedOut.headers['set-cookie'][0];
+
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .set('Cookie', loggedOutCookie)
+      .expect((res) => expect(res.status).toBeLessThan(300));
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', loggedOutCookie)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', other.headers['set-cookie'][0])
+      .expect(201);
+  });
+
   it('locks the account after repeated failed logins', async () => {
     const lockEmail = `lockout-e2e-${Date.now()}@example.com`;
     await request(app.getHttpServer())
