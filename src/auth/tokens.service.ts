@@ -122,11 +122,12 @@ export class TokensService {
    * replacement inside a single transaction so two concurrent presentations
    * of the same token cannot both mint a session.
    *
-   * Reuse detection: presenting an already-revoked (but unexpired) token
-   * means the token was compromised and replayed -- the whole token family
-   * for that user is revoked so the attacker session dies too. Returns
-   * `{ reused: true }` in that case; the caller must reject with 401 and
-   * should audit the event. An unknown or expired token returns null.
+   * Reuse detection: presenting a token that was already rotated (but is
+   * unexpired) means it was compromised and replayed -- the whole token
+   * family for that user is revoked so the attacker session dies too.
+   * Returns `{ reused: true }` in that case; the caller must reject with
+   * 401 and should audit the event. An unknown, expired, or otherwise
+   * revoked token returns null.
    */
   async rotateRefreshToken(
     token: string,
@@ -146,9 +147,21 @@ export class TokensService {
     return this.prisma.$transaction(async (tx) => {
       const record = await tx.refreshToken.findUnique({
         where: { tokenHash },
-        select: { id: true, userId: true, revokedAt: true, expiresAt: true },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          rotatedAt: true,
+          expiresAt: true,
+        },
       });
       if (!record || record.expiresAt < now) return null;
+      // Revoked by logout, a credential change, or an earlier mass
+      // revocation: just dead. Treating these as replays made the signal
+      // feed itself -- every other browser still holding a token killed by
+      // the last mass revocation fired a new one on its next refresh,
+      // signing out whichever device had just signed back in, forever.
+      if (record.revokedAt && !record.rotatedAt) return null;
       if (record.revokedAt) {
         // No grace window: ANY presentation of a rotated-out token is a
         // compromise signal. A grace period would let an attacker who raced
@@ -163,7 +176,7 @@ export class TokensService {
 
       await tx.refreshToken.update({
         where: { id: record.id },
-        data: { revokedAt: now },
+        data: { revokedAt: now, rotatedAt: now },
       });
 
       const newToken = randomBytes(64).toString('hex');
