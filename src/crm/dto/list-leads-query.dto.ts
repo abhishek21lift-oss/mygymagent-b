@@ -41,4 +41,10 @@ export class ListLeadsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   branchId?: string;
+
+  /** Only leads still in the pipeline: not yet won, not lost. What the
+   * add-member form searches when a member is joining from an enquiry. */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  openOnly?: 'true' | 'false';
 }

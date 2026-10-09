@@ -173,4 +173,45 @@ describe('CRM / leads (e2e)', () => {
       res.body.data.items.every((l: { status: string }) => l.status === 'NEW'),
     ).toBe(true);
   });
+
+  it('searches open enquiries by name or phone, leaving converted ones out', async () => {
+    const make = async (firstName: string, phone: string) =>
+      (
+        await authed(org.accessToken)(
+          request(app.getHttpServer())
+            .post('/leads')
+            .send({ firstName, lastName: 'Searchable', phone }),
+        ).expect(201)
+      ).body.data.id as string;
+    await make('Zorawar', '9811100001');
+    const won = await make('Zubin', '9811100002');
+    await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .post(`/leads/${won}/convert`)
+        .send({ branchId: org.branchId }),
+    ).expect(201);
+
+    const byName = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .get('/leads')
+        .query({ search: 'zorA', openOnly: 'true' }),
+    ).expect(200);
+    expect(
+      byName.body.data.items.map((l: { firstName: string }) => l.firstName),
+    ).toEqual(['Zorawar']);
+
+    const byPhone = await authed(org.accessToken)(
+      request(app.getHttpServer())
+        .get('/leads')
+        .query({ search: '98111000', openOnly: 'true' }),
+    ).expect(200);
+    expect(
+      byPhone.body.data.items.map((l: { firstName: string }) => l.firstName),
+    ).toEqual(['Zorawar']);
+
+    const all = await authed(org.accessToken)(
+      request(app.getHttpServer()).get('/leads').query({ search: '98111000' }),
+    ).expect(200);
+    expect(all.body.data.total).toBe(2);
+  });
 });
