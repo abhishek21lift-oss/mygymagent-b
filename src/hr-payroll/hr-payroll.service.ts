@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -129,18 +130,61 @@ export function monthlyShare(
   return total.toDecimalPlaces(2);
 }
 
+/**
+ * Gate for mutating a payroll run. Missing, or another branch's run for a
+ * branch-scoped caller, is the same 404 (no existence oracle). An
+ * organization-wide run (branchId null) is visible to a branch-scoped
+ * caller in the list, so refusing it is an honest 403: approving or
+ * paying it would act on every branch's staff, not just theirs.
+ */
+function assertRunInScope<T extends { branchId: string | null }>(
+  run: T | null,
+  branchScope: string | null,
+  notFoundMessage: string,
+): asserts run is T {
+  if (!run || (branchScope && run.branchId && run.branchId !== branchScope)) {
+    throw new NotFoundException(notFoundMessage);
+  }
+  if (branchScope && run.branchId === null) {
+    throw new ForbiddenException(
+      'This payroll run covers the whole organization; only an organization-wide role can change it',
+    );
+  }
+}
+
 @Injectable()
 export class HrPayrollService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async leaveTypes(organizationId: string) {
+  /**
+   * A branch-scoped caller sees the organization-wide types (branchId
+   * null, which apply to every branch) plus their own branch's.
+   */
+  async leaveTypes(organizationId: string, branchScope: string | null = null) {
     return this.prisma.leaveType.findMany({
-      where: { organizationId, active: true },
+      where: {
+        organizationId,
+        active: true,
+        ...(branchScope
+          ? { OR: [{ branchId: null }, { branchId: branchScope }] }
+          : {}),
+      },
       orderBy: { name: 'asc' },
     });
   }
 
-  async createLeaveType(organizationId: string, dto: CreateLeaveTypeDto) {
+  /** A branch-scoped caller may only define types for their own branch;
+   * an organization-wide type would apply to every other branch too. */
+  async createLeaveType(
+    organizationId: string,
+    dto: CreateLeaveTypeDto,
+    branchScope: string | null = null,
+  ) {
+    if (branchScope && dto.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot create a leave type outside your assigned branch',
+      );
+    }
     const code = dto.code.trim().toUpperCase();
     if (!code || !dto.name.trim()) {
       throw new BadRequestException('Leave type name and code are required');
@@ -433,13 +477,39 @@ export class HrPayrollService {
     );
   }
 
-  async listPayrollRuns(organizationId: string) {
+  /**
+   * Branch scoping for payroll. A run either belongs to one branch
+   * (`PayrollRun.branchId`) or covers the whole organization (null). A
+   * branch-scoped caller sees their branch's runs in full, and
+   * organization-wide runs with only the lines for their branch's staff
+   * (by `StaffProfile.branchId`, as leave is scoped) -- never colleagues'
+   * pay at other branches. Other branches' runs are invisible.
+   */
+  async listPayrollRuns(
+    organizationId: string,
+    branchScope: string | null = null,
+  ) {
     return this.prisma.payrollRun.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(branchScope
+          ? { OR: [{ branchId: branchScope }, { branchId: null }] }
+          : {}),
+      },
       orderBy: { periodStart: 'desc' },
       include: {
         branch: { select: { id: true, name: true } },
         items: {
+          ...(branchScope
+            ? {
+                where: {
+                  OR: [
+                    { payrollRun: { branchId: branchScope } },
+                    { staffProfile: { branchId: branchScope } },
+                  ],
+                },
+              }
+            : {}),
           include: {
             staffProfile: {
               include: {
@@ -458,7 +528,14 @@ export class HrPayrollService {
     organizationId: string,
     userId: string,
     dto: CreatePayrollRunDto,
+    branchScope: string | null = null,
   ) {
+    // An organization-wide run (no branchId) pays every branch's staff.
+    if (branchScope && dto.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot create a payroll run outside your assigned branch',
+      );
+    }
     const start = new Date(dto.periodStart);
     const end = new Date(dto.periodEnd);
 
@@ -610,15 +687,14 @@ export class HrPayrollService {
     organizationId: string,
     runId: string,
     dto: PayrollItemAdjustmentDto,
+    branchScope: string | null = null,
   ) {
     const run = await this.prisma.payrollRun.findFirst({
       where: { id: runId, organizationId, status: 'DRAFT' },
-      select: { id: true, periodStart: true, periodEnd: true },
+      select: { id: true, branchId: true, periodStart: true, periodEnd: true },
     });
 
-    if (!run) {
-      throw new NotFoundException('Draft payroll run not found');
-    }
+    assertRunInScope(run, branchScope, 'Draft payroll run not found');
 
     const item = await this.prisma.payrollItem.findFirst({
       where: {
@@ -693,17 +769,16 @@ export class HrPayrollService {
     organizationId: string,
     runId: string,
     userId: string,
+    branchScope: string | null = null,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
         const run = await tx.payrollRun.findFirst({
           where: { id: runId, organizationId, status: 'DRAFT' },
-          select: { id: true },
+          select: { id: true, branchId: true },
         });
 
-        if (!run) {
-          throw new NotFoundException('Draft payroll run not found');
-        }
+        assertRunInScope(run, branchScope, 'Draft payroll run not found');
 
         const itemCount = await tx.payrollItem.count({
           where: { payrollRunId: runId, organizationId },
@@ -729,7 +804,11 @@ export class HrPayrollService {
     );
   }
 
-  async processPayrollRun(organizationId: string, runId: string) {
+  async processPayrollRun(
+    organizationId: string,
+    runId: string,
+    branchScope: string | null = null,
+  ) {
     return this.prisma.$transaction(
       async (tx) => {
         const run = await tx.payrollRun.findFirst({
@@ -742,9 +821,7 @@ export class HrPayrollService {
           },
         });
 
-        if (!run) {
-          throw new NotFoundException('Approved payroll run not found');
-        }
+        assertRunInScope(run, branchScope, 'Approved payroll run not found');
 
         const result = await tx.payrollItem.updateMany({
           where: {
