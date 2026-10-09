@@ -365,4 +365,155 @@ describe('Assignment scoping outside Members (e2e, F-05)', () => {
       expect(res.body.data.items).toHaveLength(0);
     });
   });
+
+  describe('trainer writes stay with their own clients', () => {
+    // Write routes are reached through permissions every trainer holds
+    // (`workouts.assign`, `pt-sessions.update`, `appointments.update`), so
+    // the scope comes from @AssignedOnlyUnless, not from a `*_assigned`
+    // grant. Before it, a trainer could act on any member in the gym.
+    const inAnHour = (hours: number) =>
+      new Date(Date.now() + hours * 3_600_000).toISOString();
+    let planId: string;
+
+    beforeAll(async () => {
+      const exercise = await asOwner(
+        request(app.getHttpServer())
+          .post('/exercises')
+          .send({ name: `Deadlift ${Date.now()}`, muscleGroup: 'BACK' }),
+      ).expect(201);
+      const plan = await asOwner(
+        request(app.getHttpServer())
+          .post('/workout-plans')
+          .send({
+            name: 'Pull Block',
+            exercises: [
+              {
+                exerciseId: exercise.body.data.id,
+                order: 1,
+                sets: 3,
+                reps: '3',
+              },
+            ],
+          }),
+      ).expect(201);
+      planId = plan.body.data.id;
+    });
+
+    it('assigns a plan only to their own client', async () => {
+      await asTrainer(
+        request(app.getHttpServer())
+          .post(`/workout-plans/${planId}/assign`)
+          .send({ memberId: unassignedMemberId }),
+      ).expect(404);
+      await asTrainer(
+        request(app.getHttpServer())
+          .post(`/workout-plans/${planId}/assign`)
+          .send({ memberId: assignedMemberId }),
+      ).expect(201);
+    });
+
+    it('cannot book, complete or take over another member’s PT session', async () => {
+      await asTrainer(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: unassignedMemberId,
+            branchId,
+            startTime: inAnHour(48),
+            endTime: inAnHour(49),
+          }),
+      ).expect(403);
+
+      const theirs = await asOwner(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: unassignedMemberId,
+            branchId,
+            startTime: inAnHour(50),
+            endTime: inAnHour(51),
+          }),
+      ).expect(201);
+      await asTrainer(
+        request(app.getHttpServer()).patch(
+          `/pt-sessions/${theirs.body.data.id}/complete`,
+        ),
+      ).expect(404);
+
+      // The owner still can: the scope only narrows a trainer.
+      await asOwner(
+        request(app.getHttpServer()).patch(
+          `/pt-sessions/${theirs.body.data.id}/cancel`,
+        ),
+      ).expect(200);
+
+      const mine = await asTrainer(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: assignedMemberId,
+            branchId,
+            startTime: inAnHour(52),
+            endTime: inAnHour(53),
+          }),
+      ).expect(201);
+      await asTrainer(
+        request(app.getHttpServer())
+          .patch(`/pt-sessions/${mine.body.data.id}`)
+          .send({ memberId: unassignedMemberId }),
+      ).expect(403);
+    });
+
+    it('cannot book or close appointments for someone else’s client', async () => {
+      await asTrainer(
+        request(app.getHttpServer())
+          .post('/appointments')
+          .send({
+            branchId,
+            memberId: unassignedMemberId,
+            type: 'CONSULTATION',
+            title: 'Not mine',
+            startTime: inAnHour(60),
+            endTime: inAnHour(61),
+          }),
+      ).expect(403);
+
+      const theirs = await asOwner(
+        request(app.getHttpServer())
+          .post('/appointments')
+          .send({
+            branchId,
+            memberId: unassignedMemberId,
+            type: 'CONSULTATION',
+            title: 'Owner booked',
+            startTime: inAnHour(62),
+            endTime: inAnHour(63),
+          }),
+      ).expect(201);
+      await asTrainer(
+        request(app.getHttpServer()).patch(
+          `/appointments/${theirs.body.data.id}/complete`,
+        ),
+      ).expect(404);
+
+      const mine = await asTrainer(
+        request(app.getHttpServer())
+          .post('/appointments')
+          .send({
+            branchId,
+            memberId: assignedMemberId,
+            type: 'CONSULTATION',
+            title: 'My client',
+            startTime: inAnHour(64),
+            endTime: inAnHour(65),
+          }),
+      ).expect(201);
+      expect(mine.body.data.staffId).toBe(trainerId);
+      await asTrainer(
+        request(app.getHttpServer()).patch(
+          `/appointments/${mine.body.data.id}/complete`,
+        ),
+      ).expect(200);
+    });
+  });
 });

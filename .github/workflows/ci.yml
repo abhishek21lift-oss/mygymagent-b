@@ -12,6 +12,11 @@ concurrency:
   # main run is what starts the production deploy (deploy.yml).
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# The jobs only read the repository; nothing here needs a token that can
+# write to it.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

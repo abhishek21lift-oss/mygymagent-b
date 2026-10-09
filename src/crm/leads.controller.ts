@@ -57,8 +57,12 @@ export class LeadsController {
 
   @Get(':id/score')
   @RequirePermissions('leads.read')
-  getScore(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.leadsService.getScore(user.organizationId!, id);
+  getScore(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.leadsService.getScore(user.organizationId!, id, branchScope);
   }
 
   @Post(':id/message')

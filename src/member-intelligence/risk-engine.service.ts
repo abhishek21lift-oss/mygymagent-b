@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   RISK_FACTORS,
@@ -34,6 +34,31 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 @Injectable()
 export class RiskEngineService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 404s a member outside the caller's enforced branch (see
+   * `@CurrentBranchScope()`) -- the same answer the members module gives,
+   * so a branch-scoped manager can't probe other branches' member ids.
+   * Called before any work (or LLM call) on a member-id route; a no-op for
+   * org-wide callers, whose missing-member handling stays the caller's.
+   */
+  async assertMemberInBranchScope(
+    organizationId: string,
+    memberId: string,
+    branchScope: string | null,
+  ): Promise<void> {
+    if (!branchScope) return;
+    const member = await this.prisma.member.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+        deletedAt: null,
+        primaryBranchId: branchScope,
+      },
+      select: { id: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+  }
 
   async computeRiskProfile(
     organizationId: string,

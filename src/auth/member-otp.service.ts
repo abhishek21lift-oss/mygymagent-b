@@ -32,6 +32,10 @@ const MAX_ATTEMPTS = 5;
  * so a hostile caller cannot bill the gym for SMS or flood a member's
  * handset by holding down a button. */
 const RESEND_COOLDOWN_MS = 60_000;
+/** Codes one number can be sent in a day. The cooldown alone still let a
+ * script send one a minute -- 1,440 billed messages a day per number. */
+const MAX_CODES_PER_DAY = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function hashCode(code: string): string {
   return createHash('sha256').update(code).digest('hex');
@@ -139,6 +143,16 @@ export class MemberOtpService {
       select: { id: true },
     });
     if (recent) return generic;
+
+    const sentToday = await this.prisma.memberOtpChallenge.count({
+      where: { phone, createdAt: { gt: new Date(Date.now() - DAY_MS) } },
+    });
+    if (sentToday >= MAX_CODES_PER_DAY) {
+      this.logger.warn(
+        `SMS login code limit reached for member ${member.id}; not sending`,
+      );
+      return generic;
+    }
 
     // randomInt is the CSPRNG; Math.random would make the code guessable
     // from a previous one. (Under OTP_PROVIDER=mock this is the fixed

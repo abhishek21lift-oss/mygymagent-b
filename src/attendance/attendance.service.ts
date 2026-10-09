@@ -351,11 +351,13 @@ export class AttendanceService {
     organizationId: string,
     memberId: string,
     assignmentScope: string | null = null,
+    branchScope: string | null = null,
   ): Promise<{ token: string; rotatesAt: string; memberId: string }> {
     const id = await this.qrTokenMember(
       organizationId,
       memberId,
       assignmentScope,
+      branchScope,
     );
     const key = qrTokenKey(this.config);
     // Compare-and-swap rather than a plain upsert: two screens asking at
@@ -398,11 +400,13 @@ export class AttendanceService {
     organizationId: string,
     memberId: string,
     assignmentScope: string | null = null,
+    branchScope: string | null = null,
   ): Promise<{ token: string; rotatesAt: string; memberId: string }> {
     const id = await this.qrTokenMember(
       organizationId,
       memberId,
       assignmentScope,
+      branchScope,
     );
     const fresh = freshQrCredential(qrTokenKey(this.config), id);
     await this.prisma.memberQrToken.upsert({
@@ -419,14 +423,16 @@ export class AttendanceService {
 
   /**
    * Both routes hand out a working entry credential, so both respect
-   * assignment scope like any other member-addressed route: an
-   * assignment-scoped caller asking for a member who isn't theirs gets
-   * the same "not found" as if the member were in another org.
+   * assignment and branch scope like any other member-addressed route: an
+   * assignment-scoped caller asking for a member who isn't theirs, or a
+   * branch-scoped one asking for a member whose home branch is another,
+   * gets the same "not found" as if the member were in another org.
    */
   private async qrTokenMember(
     organizationId: string,
     memberId: string,
     assignmentScope: string | null,
+    branchScope: string | null = null,
   ): Promise<string> {
     const member = await this.prisma.member.findFirst({
       where: {
@@ -434,6 +440,7 @@ export class AttendanceService {
         organizationId,
         deletedAt: null,
         ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
       },
       select: { id: true },
     });
@@ -544,7 +551,16 @@ export class AttendanceService {
   async registerDevice(
     organizationId: string,
     input: { branchId: string; name: string; kind?: DeviceKind },
+    branchScope: string | null = null,
   ) {
+    // A branch-scoped manager administers their own branch's hardware
+    // only; a key minted into another branch would let them stand up a
+    // scanner that admits people there.
+    if (branchScope && input.branchId !== branchScope) {
+      throw new BadRequestException(
+        'Cannot register a device outside your assigned branch',
+      );
+    }
     const branch = await this.prisma.branch.findFirst({
       where: { id: input.branchId, organizationId, deletedAt: null },
       select: { id: true },
@@ -610,9 +626,18 @@ export class AttendanceService {
    * already-revoked device is a no-op, not an error, because the operator
    * doing it is trying to be sure.
    */
-  async revokeDevice(organizationId: string, deviceId: string) {
+  async revokeDevice(
+    organizationId: string,
+    deviceId: string,
+    branchScope: string | null = null,
+  ) {
+    // Another branch's device reads as "not found", same as another org's.
     const device = await this.prisma.kioskDevice.findFirst({
-      where: { id: deviceId, organizationId },
+      where: {
+        id: deviceId,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       select: { id: true, active: true },
     });
     if (!device) throw new NotFoundException('Device not found');

@@ -11,7 +11,11 @@ import {
 } from '@nestjs/common';
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import {
+  AssignedOnlyUnless,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { ListPtSessionsDto } from './dto/list-pt-sessions.dto';
 import { Audited } from '../common/decorators/audited.decorator';
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
@@ -74,41 +78,65 @@ export class PtSessionsController {
 
   @Post()
   @RequirePermissions('pt-sessions.create')
+  @AssignedOnlyUnless('pt-sessions.read')
   @Audited({ resource: 'pt_session', action: 'book' })
   async book(
     @Body() dto: BookPtSessionDto,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.ptSessionsService.book(requireOrgId(user), dto, user.id);
+    return this.ptSessionsService.book(
+      requireOrgId(user),
+      dto,
+      user.id,
+      assignmentScope,
+    );
   }
 
   @Patch(':id')
   @RequirePermissions('pt-sessions.update')
+  @AssignedOnlyUnless('pt-sessions.read')
   @Audited({ resource: 'pt_session', action: 'update' })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePtSessionDto,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.ptSessionsService.update(requireOrgId(user), id, dto, user.id);
+    return this.ptSessionsService.update(
+      requireOrgId(user),
+      id,
+      dto,
+      user.id,
+      assignmentScope,
+    );
   }
 
   @Patch(':id/complete')
   @RequirePermissions('pt-sessions.update')
+  @AssignedOnlyUnless('pt-sessions.read')
   @Audited({ resource: 'pt_session', action: 'complete' })
   async complete(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.ptSessionsService.complete(requireOrgId(user), id, user.id);
+    return this.ptSessionsService.complete(
+      requireOrgId(user),
+      id,
+      user.id,
+      assignmentScope,
+    );
   }
 
   @Patch(':id/cancel')
   @RequirePermissions('pt-sessions.update')
+  @AssignedOnlyUnless('pt-sessions.read')
   @Audited({ resource: 'pt_session', action: 'cancel' })
   async cancel(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null,
     @Query('reason') cancellationReason?: string,
   ) {
     return this.ptSessionsService.cancel(
@@ -116,16 +144,24 @@ export class PtSessionsController {
       id,
       user.id,
       cancellationReason,
+      assignmentScope,
     );
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('pt-sessions.update')
+  @AssignedOnlyUnless('pt-sessions.read')
   @Audited({ resource: 'pt_session', action: 'no-show' })
   async markNoShow(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.ptSessionsService.markNoShow(requireOrgId(user), id, user.id);
+    return this.ptSessionsService.markNoShow(
+      requireOrgId(user),
+      id,
+      user.id,
+      assignmentScope,
+    );
   }
 }

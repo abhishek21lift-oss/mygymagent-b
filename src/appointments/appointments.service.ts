@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -67,6 +68,33 @@ export class AppointmentsService {
           ],
         }
       : {};
+  }
+
+  /** A caller limited to their own clients may only name themselves as
+   * staff and only their assigned members. */
+  private async assertWithinAssignment(
+    organizationId: string,
+    assignmentScope: string | null,
+    staffId: string | null | undefined,
+    memberId: string | null | undefined,
+  ) {
+    if (!assignmentScope) return;
+    if (staffId && staffId !== assignmentScope)
+      throw new ForbiddenException(
+        'You can only book appointments for yourself',
+      );
+    if (memberId) {
+      const assigned = await this.prisma.member.findFirst({
+        where: {
+          id: memberId,
+          organizationId,
+          assignedTrainerId: assignmentScope,
+        },
+        select: { id: true },
+      });
+      if (!assigned)
+        throw new ForbiddenException('That member is not assigned to you');
+    }
   }
 
   private async validateReferences(
@@ -205,7 +233,18 @@ export class AppointmentsService {
     dto: CreateAppointmentDto,
     createdByUserId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
+    await this.assertWithinAssignment(
+      organizationId,
+      assignmentScope,
+      dto.staffId,
+      dto.memberId,
+    );
+    // Booked with no one named, a trainer's appointment is theirs, so it
+    // stays on the calendar they can see.
+    if (assignmentScope && !dto.staffId)
+      dto = { ...dto, staffId: assignmentScope };
     if (branchScope && dto.branchId !== branchScope)
       throw new BadRequestException(
         'Cannot book an appointment outside your assigned branch',
@@ -243,8 +282,14 @@ export class AppointmentsService {
     id: string,
     dto: UpdateAppointmentDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const existing = await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED')
       throw new BadRequestException(
         'Completed or cancelled appointments cannot be edited. Reschedule or re-book instead.',
@@ -255,6 +300,12 @@ export class AppointmentsService {
       memberId: dto.memberId,
       leadId: dto.leadId,
     });
+    await this.assertWithinAssignment(
+      organizationId,
+      assignmentScope,
+      dto.staffId,
+      dto.memberId,
+    );
     const start = dto.startTime ? new Date(dto.startTime) : existing.startTime;
     const end = dto.endTime ? new Date(dto.endTime) : existing.endTime;
     if (!(start < end))
@@ -290,8 +341,14 @@ export class AppointmentsService {
     id: string,
     dto: RescheduleAppointmentDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const existing = await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED')
       throw new BadRequestException(
         'Completed or cancelled appointments cannot be rescheduled',
@@ -327,8 +384,14 @@ export class AppointmentsService {
     id: string,
     dto: CancelAppointmentDto,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const existing = await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (existing.status === 'CANCELLED')
       throw new BadRequestException('Appointment is already cancelled');
     if (existing.status === 'COMPLETED')
@@ -349,8 +412,14 @@ export class AppointmentsService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const existing = await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (existing.status === 'COMPLETED')
       throw new BadRequestException('Appointment is already completed');
     if (existing.status === 'CANCELLED')
@@ -368,8 +437,14 @@ export class AppointmentsService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const existing = await this.getOne(organizationId, id, branchScope);
+    const existing = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED')
       throw new BadRequestException(
         'Completed or cancelled appointments cannot be marked no-show',

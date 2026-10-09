@@ -78,7 +78,8 @@ describe('Auth / member SMS OTP (e2e)', () => {
   async function clearCooldown(phone: string) {
     await prisma.memberOtpChallenge.updateMany({
       where: { phone },
-      data: { createdAt: new Date(Date.now() - 10 * 60_000) },
+      // Past the daily limit's window too, not just the cooldown.
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60_000) },
     });
   }
 
@@ -247,6 +248,29 @@ describe('Auth / member SMS OTP (e2e)', () => {
     // Same generic answer, no second message.
     await requestCode(PHONE).expect(201);
     expect(sent).toHaveLength(1);
+  });
+
+  it('stops sending to one number after ten codes in a day', async () => {
+    const capped = `+91${String(Date.now()).slice(-9).padStart(10, '8')}`;
+    await makeMember(capped);
+    // Ten earlier codes today, each past the one-minute cooldown.
+    const member = await prisma.member.findFirstOrThrow({
+      where: { phone: capped },
+      select: { id: true },
+    });
+    await prisma.memberOtpChallenge.createMany({
+      data: Array.from({ length: 10 }, (_, i) => ({
+        memberId: member.id,
+        phone: capped,
+        codeHash: 'x',
+        expiresAt: new Date(Date.now() - 60_000),
+        createdAt: new Date(Date.now() - (i + 2) * 60 * 60_000),
+      })),
+    });
+
+    // Same generic answer, nothing sent.
+    await requestCode(capped).expect(201);
+    expect(sent).toHaveLength(0);
   });
 
   it('will not guess between two members sharing one number', async () => {

@@ -55,6 +55,7 @@ export class BroadcastService {
     organizationId: string,
     userId: string,
     dto: CreateBroadcastDto,
+    branchScope: string | null = null,
   ) {
     const text = dto.text.trim();
     if (!text) throw new BadRequestException('text is required');
@@ -69,9 +70,12 @@ export class BroadcastService {
       await this.whatsapp.assertSendableImage(organizationId, dto.mediaKey);
     }
     // 404 for missing/foreign segments propagates -- nothing enqueued.
+    // Segments are org-wide definitions, so a branch-scoped sender's
+    // audience is narrowed to their own branch's members here.
     const audience = await this.segments.getSegmentPhones(
       organizationId,
       dto.segmentId,
+      branchScope,
     );
     const emailable = audience.filter((a) => a.phone?.trim());
     const skipped = audience.length - emailable.length;
@@ -196,6 +200,8 @@ export class BroadcastService {
       );
     }
     if (row.status === 'PENDING') {
+      // Deliberately unscoped: the row doesn't record the sender's branch,
+      // and removing a job id that was never queued is a no-op.
       const audience = await this.segments.getSegmentPhones(
         organizationId,
         row.segmentId,

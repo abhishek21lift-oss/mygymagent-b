@@ -6,10 +6,12 @@ import {
   Body,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
+import { SegmentInsightRequestDto } from './dto/segment.dto';
 import {
   AiInsightsService,
   MemberInsight,
@@ -26,8 +28,13 @@ export class AiInsightsController {
   async getMemberInsight(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ): Promise<MemberInsight | null> {
-    return this.insights.generateMemberInsight(user.organizationId!, memberId);
+    return this.insights.generateMemberInsight(
+      user.organizationId!,
+      memberId,
+      branchScope,
+    );
   }
 
   @Get(':memberId/insights/churn-reason')
@@ -35,8 +42,13 @@ export class AiInsightsController {
   async getChurnReason(
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentBranchScope() branchScope: string | null,
   ): Promise<MemberInsight | null> {
-    return this.insights.generateChurnReason(user.organizationId!, memberId);
+    return this.insights.generateChurnReason(
+      user.organizationId!,
+      memberId,
+      branchScope,
+    );
   }
 }
 
@@ -49,12 +61,14 @@ export class AiSegmentInsightsController {
   @RequirePermissions('reports.view')
   async getSegmentInsight(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { segmentName: string; memberIds: string[] },
+    @Body() body: SegmentInsightRequestDto,
+    @CurrentBranchScope() branchScope: string | null,
   ): Promise<SegmentInsight | null> {
     return this.insights.generateSegmentInsight(
       user.organizationId!,
       body.segmentName,
       body.memberIds,
+      branchScope,
     );
   }
 }

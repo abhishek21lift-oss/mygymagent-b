@@ -511,9 +511,17 @@ export class LeadsService {
    * 0-100. WON/LOST leads still score (history view), but the grade is
    * informational -- the pipeline already decided them.
    */
-  async getScore(organizationId: string, leadId: string) {
+  async getScore(
+    organizationId: string,
+    leadId: string,
+    branchScope: string | null = null,
+  ) {
     const lead = await this.prisma.lead.findFirst({
-      where: { id: leadId, organizationId },
+      where: {
+        id: leadId,
+        organizationId,
+        ...(branchScope ? { branchId: branchScope } : {}),
+      },
       include: { followUps: { select: { completedAt: true } } },
     });
     if (!lead) throw new NotFoundException('Lead not found');

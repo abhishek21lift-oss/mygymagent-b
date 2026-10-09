@@ -118,7 +118,8 @@ describe('Auth / member OTP via the mock provider (e2e)', () => {
   async function clearCooldown(phone: string) {
     await prisma.memberOtpChallenge.updateMany({
       where: { phone },
-      data: { createdAt: new Date(Date.now() - 10 * 60_000) },
+      // Past the daily limit's window too, not just the cooldown.
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60_000) },
     });
     await prisma.memberOtpChallenge.updateMany({
       where: { phone, consumedAt: null },

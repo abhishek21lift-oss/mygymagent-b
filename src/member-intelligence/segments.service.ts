@@ -111,8 +111,14 @@ export class SegmentsService {
     });
   }
 
+  /**
+   * Segments themselves are org-level definitions, so every caller sees
+   * the same list; `branchScope` (see `@CurrentBranchScope()`) only
+   * narrows each `memberCount` to the caller's branch.
+   */
   async listSegments(
     organizationId: string,
+    branchScope: string | null = null,
   ): Promise<{ segment: MemberSegment; memberCount: number }[]> {
     await this.ensureSystemSegments(organizationId);
 
@@ -127,6 +133,7 @@ export class SegmentsService {
       const memberCount = await this.countSegmentMembers(
         organizationId,
         seg.id,
+        branchScope,
       );
       results.push({ segment: seg, memberCount });
     }
@@ -200,6 +207,7 @@ export class SegmentsService {
     segmentId: string,
     limit: number = 100,
     offset: number = 0,
+    branchScope: string | null = null,
   ): Promise<MemberSegmentResult[]> {
     const segment = await this.prisma.memberSegment.findFirst({
       where: { id: segmentId, organizationId },
@@ -215,6 +223,7 @@ export class SegmentsService {
       rules,
       limit,
       offset,
+      branchScope,
     );
 
     return members.map((m) => ({
@@ -229,12 +238,14 @@ export class SegmentsService {
 
   /**
    * Phones for a broadcast: live rule evaluation (not the stored
-   * assignments, which go stale), org-scoped. Missing/foreign segment
-   * is 404 -- never an empty fan-out.
+   * assignments, which go stale), org-scoped, and narrowed to
+   * `branchScope`'s members for a branch-scoped sender. Missing/foreign
+   * segment is 404 -- never an empty fan-out.
    */
   async getSegmentPhones(
     organizationId: string,
     segmentId: string,
+    branchScope: string | null = null,
   ): Promise<{ memberId: string; phone: string | null }[]> {
     const segment = await this.prisma.memberSegment.findFirst({
       where: { id: segmentId, organizationId },
@@ -248,6 +259,7 @@ export class SegmentsService {
       rules,
       10000,
       0,
+      branchScope,
     );
     return members.map((m) => ({ memberId: m.id, phone: m.phone ?? null }));
   }
@@ -255,6 +267,7 @@ export class SegmentsService {
   async countSegmentMembers(
     organizationId: string,
     segmentId: string,
+    branchScope: string | null = null,
   ): Promise<number> {
     const segment = await this.prisma.memberSegment.findFirst({
       where: { id: segmentId, organizationId },
@@ -268,20 +281,29 @@ export class SegmentsService {
       rules,
       10000,
       0,
+      branchScope,
     );
 
     return allMembers.length;
   }
 
+  /** `branchScope` restricts the pool to members whose home branch is the
+   * caller's, before any rule is evaluated. */
   private async resolveSegmentMembers(
     organizationId: string,
     rules: SegmentRule[],
     limit: number,
     offset: number,
+    branchScope: string | null = null,
   ): Promise<any[]> {
+    const where = {
+      organizationId,
+      deletedAt: null,
+      ...(branchScope ? { primaryBranchId: branchScope } : {}),
+    };
     if (rules.length === 0) {
       return this.prisma.member.findMany({
-        where: { organizationId, deletedAt: null },
+        where,
         select: {
           id: true,
           firstName: true,
@@ -298,7 +320,7 @@ export class SegmentsService {
     }
 
     const members = await this.prisma.member.findMany({
-      where: { organizationId, deletedAt: null },
+      where,
       include: {
         riskProfile: { select: { riskLevel: true, overallScore: true } },
         memberships: {

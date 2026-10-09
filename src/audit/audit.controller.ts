@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -22,15 +23,19 @@ export class AuditController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListAuditLogsDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.audit.list(user.organizationId!, query);
+    return this.audit.list(user.organizationId!, query, branchScope);
   }
 
   /** The distinct resources and actions present, so the filters offer what
    * this organization has actually done rather than a hardcoded guess. */
   @Get('facets')
   @RequirePermissions('audit.read')
-  facets(@CurrentUser() user: AuthenticatedUser) {
-    return this.audit.facets(user.organizationId!);
+  facets(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.audit.facets(user.organizationId!, branchScope);
   }
 }

@@ -9,6 +9,7 @@ import type { Request } from 'express';
 export const CurrentAssignmentScope = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string | null => {
     const request = ctx.switchToHttp().getRequest<Request>();
+    if (request.assignedOnly) return request.user?.id ?? null;
     const granted = request.grantedViaPermission;
     if (!granted) return null;
     if (

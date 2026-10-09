@@ -89,11 +89,13 @@ export class AttendanceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
     @CurrentAssignmentScope() assignmentScope: string | null,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.attendanceService.currentQrToken(
       user.organizationId!,
       memberId,
       assignmentScope,
+      branchScope,
     );
   }
 
@@ -106,11 +108,13 @@ export class AttendanceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('memberId') memberId: string,
     @CurrentAssignmentScope() assignmentScope: string | null,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
     return this.attendanceService.rotateQrToken(
       user.organizationId!,
       memberId,
       assignmentScope,
+      branchScope,
     );
   }
 

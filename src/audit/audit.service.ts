@@ -62,10 +62,20 @@ export class AuditService {
    * Scoped to one organization like every other read. Rows whose
    * organizationId is null are platform-level and deliberately excluded:
    * they belong to no tenant, and a gym must not see another's.
+   *
+   * A branch-scoped caller (`branchScope` set) sees only that branch's
+   * rows. Equality on `branchId` also drops the org-level rows (branchId
+   * null) on purpose: those record org-wide changes -- roles, settings,
+   * other branches' setup -- that a one-branch grant must not read.
    */
-  async list(organizationId: string, query: ListAuditLogsDto) {
+  async list(
+    organizationId: string,
+    query: ListAuditLogsDto,
+    branchScope: string | null = null,
+  ) {
     const where: Prisma.AuditLogWhereInput = {
       organizationId,
+      ...(branchScope ? { branchId: branchScope } : {}),
       ...(query.resource ? { resource: query.resource } : {}),
       ...(query.action ? { action: query.action } : {}),
       ...(query.resourceId ? { resourceId: query.resourceId } : {}),
@@ -127,17 +137,24 @@ export class AuditService {
     );
   }
 
-  async facets(organizationId: string) {
+  /** Same scoping as `list`: a branch-scoped caller's filter options come
+   * from their branch's rows only, or the counts would size up activity
+   * they cannot read. */
+  async facets(organizationId: string, branchScope: string | null = null) {
+    const where: Prisma.AuditLogWhereInput = {
+      organizationId,
+      ...(branchScope ? { branchId: branchScope } : {}),
+    };
     const [resources, actions] = await Promise.all([
       this.prisma.auditLog.groupBy({
         by: ['resource'],
-        where: { organizationId },
+        where,
         _count: { _all: true },
         orderBy: { resource: 'asc' },
       }),
       this.prisma.auditLog.groupBy({
         by: ['action'],
-        where: { organizationId },
+        where,
         _count: { _all: true },
         orderBy: { action: 'asc' },
       }),

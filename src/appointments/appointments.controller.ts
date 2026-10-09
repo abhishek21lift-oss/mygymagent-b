@@ -14,6 +14,7 @@ import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.de
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
+  AssignedOnlyUnless,
   RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
@@ -159,80 +160,116 @@ export class AppointmentsController {
 
   @Post()
   @RequirePermissions('appointments.create')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'create' })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAppointmentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.appointments.create(
       user.organizationId!,
       dto,
       user.id,
       branchScope,
+      assignmentScope,
     );
   }
 
   @Patch(':id')
   @RequirePermissions('appointments.update')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'update' })
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateAppointmentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.appointments.update(user.organizationId!, id, dto, branchScope);
+    return this.appointments.update(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Patch(':id/reschedule')
   @RequirePermissions('appointments.update')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'reschedule' })
   reschedule(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: RescheduleAppointmentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.appointments.reschedule(
       user.organizationId!,
       id,
       dto,
       branchScope,
+      assignmentScope,
     );
   }
 
   @Patch(':id/cancel')
   @RequirePermissions('appointments.update')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'cancel' })
   cancel(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: CancelAppointmentDto,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.appointments.cancel(user.organizationId!, id, dto, branchScope);
+    return this.appointments.cancel(
+      user.organizationId!,
+      id,
+      dto,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Patch(':id/complete')
   @RequirePermissions('appointments.update')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'complete' })
   complete(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.appointments.complete(user.organizationId!, id, branchScope);
+    return this.appointments.complete(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Patch(':id/no-show')
   @RequirePermissions('appointments.update')
+  @AssignedOnlyUnless('appointments.read')
   @Audited({ resource: 'appointment', action: 'no_show' })
   noShow(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.appointments.noShow(user.organizationId!, id, branchScope);
+    return this.appointments.noShow(
+      user.organizationId!,
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 }

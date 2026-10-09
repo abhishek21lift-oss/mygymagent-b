@@ -21,6 +21,7 @@ import type { LoginDto } from './dto/login.dto';
 import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
 import type { RegisterDto } from './dto/register.dto';
+import { assertOrganizationOpen } from './organization-access';
 
 /** Exported so the MFA second factor reuses this same lockout rather than
  * inventing a parallel one -- a 6-digit code is a small keyspace, so code
@@ -378,11 +379,15 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: rotated.userId },
-      include: { member: { select: { id: true } } },
+      include: {
+        member: { select: { id: true } },
+        organization: { select: { status: true, deletedAt: true } },
+      },
     });
     if (!user || user.status !== 'ACTIVE' || user.deletedAt) {
       throw new UnauthorizedException('Account is not active');
     }
+    assertOrganizationOpen(user.organization);
 
     const accessToken = this.tokens.signAccessToken(user.id);
 
@@ -599,7 +604,14 @@ export class AuthService {
     };
   }
 
+  /** Every way in -- password, second factor, SMS code, sign-up -- ends
+   * here, so a suspended gym is refused in one place. */
   private async issueSession(userId: string, meta: RequestMeta) {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { organization: { select: { status: true, deletedAt: true } } },
+    });
+    assertOrganizationOpen(owner?.organization ?? null);
     const accessToken = this.tokens.signAccessToken(userId);
     const { token: refreshToken, expiresAt: refreshExpiresAt } =
       await this.tokens.issueRefreshToken(userId, meta);

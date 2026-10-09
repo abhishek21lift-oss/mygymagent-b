@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Audited } from '../common/decorators/audited.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -131,8 +132,14 @@ export class WhatsappController {
   createBroadcast(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateBroadcastDto,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.broadcasts.create(user.organizationId!, user.id, dto);
+    return this.broadcasts.create(
+      user.organizationId!,
+      user.id,
+      dto,
+      branchScope,
+    );
   }
 
   @Get('broadcasts/:id')
