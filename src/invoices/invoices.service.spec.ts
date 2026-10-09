@@ -201,6 +201,44 @@ describe('InvoicesService', () => {
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
       expect(razorpay.createOrder).not.toHaveBeenCalled();
     });
+
+    it('records the order with the amount it was created for', async () => {
+      (prisma.invoice.findFirst as jest.Mock).mockResolvedValue({
+        id: 'inv_1',
+        number: 'INV-2026-0001',
+        status: 'ISSUED',
+        currency: 'INR',
+        grandTotal: new Prisma.Decimal(100),
+        paymentLinks: [],
+        dunningAttempts: [],
+      });
+      razorpay.createOrder.mockResolvedValue({
+        id: 'order_1',
+        amount: 10_000,
+        currency: 'INR',
+      });
+      const razorpayOrder = { create: jest.fn((args: unknown) => args) };
+      Object.assign(prisma, { razorpayOrder });
+      (prisma.invoice.update as jest.Mock).mockImplementation(
+        (args: unknown) => args,
+      );
+      prisma.$transaction.mockImplementation(async (ops: unknown) => ops);
+
+      await service.retryCollection('org_1', 'inv_1');
+
+      expect(razorpayOrder.create).toHaveBeenCalledWith({
+        data: {
+          id: 'order_1',
+          invoiceId: 'inv_1',
+          amount: 10_000,
+          currency: 'INR',
+        },
+      });
+      expect(prisma.invoice.update).toHaveBeenCalledWith({
+        where: { id: 'inv_1' },
+        data: { providerOrderId: 'order_1' },
+      });
+    });
   });
 
   describe('recomputeInvoiceStatus', () => {

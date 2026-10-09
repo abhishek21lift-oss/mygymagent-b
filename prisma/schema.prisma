@@ -343,6 +343,12 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
+  /// Session generation. Carried in every access token (`ver`) and
+  /// compared on each request by JwtStrategy; bumped whenever a credential
+  /// changes (password reset/invite accept, MFA disable, deactivation) so
+  /// every access token minted before the change dies with it.
+  tokenVersion Int @default(0)
+
   primaryBranchId String?
   primaryBranch   Branch? @relation("UserPrimaryBranch", fields: [primaryBranchId], references: [id])
 
@@ -1373,6 +1379,11 @@ model Invoice {
   /// POST /payments/online/razorpay/order for this invoice.
   providerOrderId String?
 
+  /// Every Razorpay order ever created for this invoice, with the amount
+  /// it was created for -- the webhook resolves a capture by its order and
+  /// checks the captured amount against it.
+  razorpayOrders RazorpayOrder[]
+
   issuedAt DateTime?
   dueAt    DateTime?
   paidAt   DateTime?
@@ -1389,6 +1400,36 @@ model Invoice {
   @@index([organizationId, status, dueAt])
   @@index([memberId])
   @@map("invoices")
+}
+
+/// A Razorpay order created server-side by POST /invoices/:id/retry-collection.
+/// `id` is Razorpay's `order_...` id. Kept per order (not just the latest on
+/// Invoice.providerOrderId) so a capture against an earlier, superseded order
+/// still resolves to its invoice -- and so the webhook can compare the
+/// captured amount with what this order asked for, rather than trusting the
+/// payment's client-settable `notes`.
+model RazorpayOrder {
+  id        String  @id
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Smallest currency unit (paise for INR), as sent to Razorpay.
+  amount    Int
+  currency  String
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@map("razorpay_orders")
+}
+
+/// Razorpay webhook deliveries already processed, keyed by the
+/// `x-razorpay-event-id` header. Razorpay redelivers the same event on
+/// timeouts; the primary key makes a second delivery a no-op.
+model RazorpayWebhookEvent {
+  id        String   @id
+  createdAt DateTime @default(now())
+
+  @@map("razorpay_webhook_events")
 }
 
 /// Links an immutable Payment row against the invoice it settles. A payment
@@ -2588,6 +2629,11 @@ model Broadcast {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  /// Branch of the branch-scoped sender who created it (their audience was
+  /// narrowed to it); null for an org-wide sender and for rows created
+  /// before this column existed. Branch-scoped callers only see their own.
+  branchId String?
+
   segmentId   String
   body        String
   mediaFileId String?
@@ -2607,6 +2653,7 @@ model Broadcast {
   updatedAt       DateTime @updatedAt
 
   @@index([organizationId, status])
+  @@index([organizationId, branchId])
   @@map("broadcasts")
 }
 

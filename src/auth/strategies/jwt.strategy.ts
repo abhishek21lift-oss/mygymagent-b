@@ -4,7 +4,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import type { AccessTokenPayload } from '../tokens.service';
+import {
+  ACCESS_TOKEN_AUDIENCE,
+  JWT_ALGORITHM,
+  JWT_ISSUER,
+  type AccessTokenPayload,
+} from '../tokens.service';
 import { MfaPolicyService } from '../mfa/mfa-policy.service';
 import { assertOrganizationOpen } from '../organization-access';
 
@@ -19,6 +24,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      // Pinned, never read from the token header; and only tokens minted
+      // as access tokens by this issuer pass (an MFA challenge token is
+      // signed with the same secret but for a different audience).
+      algorithms: [JWT_ALGORITHM],
+      issuer: JWT_ISSUER,
+      audience: ACCESS_TOKEN_AUDIENCE,
     });
   }
 
@@ -30,7 +41,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * per request (candidate for a short-TTL cache once load requires it).
    */
   async validate(payload: AccessTokenPayload): Promise<AuthenticatedUser> {
-    if (payload.type !== 'access') throw new UnauthorizedException();
+    if (payload.type !== 'access' || typeof payload.ver !== 'number') {
+      throw new UnauthorizedException();
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -44,6 +57,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         primaryBranchId: true,
         status: true,
         deletedAt: true,
+        tokenVersion: true,
         // Joined rather than fetched separately: the policy is read on
         // every authenticated request, and an organization that never
         // switched enforcement on must not pay for a second round trip.
@@ -60,6 +74,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     if (!user || user.deletedAt || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Account is not active');
+    }
+    // A password reset, MFA disable or deactivation bumps the version, so
+    // every access token minted before it stops working here rather than
+    // living out its 15 minutes.
+    if (payload.ver !== user.tokenVersion) {
+      throw new UnauthorizedException('Session has ended; sign in again');
     }
     // Takes effect on the next request after a suspension, not when the
     // access token runs out.

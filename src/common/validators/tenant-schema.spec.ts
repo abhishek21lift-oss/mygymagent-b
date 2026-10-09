@@ -46,6 +46,8 @@ const EXEMPT: Record<string, string> = {
   WaAuthKey: 'reached only through an org-scoped WaSession',
   WaContact: 'reached only through an org-scoped WaSession',
   DunningAttempt: 'reached only through an org-scoped Invoice',
+  RazorpayOrder: 'reached only through an org-scoped Invoice',
+  RazorpayWebhookEvent: 'provider delivery ledger keyed on event id',
   AiMessage: 'reached only through an org-scoped AiConversation',
   InventoryPurchaseOrderItem:
     'reached only through an org-scoped purchase order',

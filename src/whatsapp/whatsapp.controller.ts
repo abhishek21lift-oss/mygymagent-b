@@ -147,20 +147,23 @@ export class WhatsappController {
   broadcastProgress(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.broadcasts.progress(user.organizationId!, id);
+    return this.broadcasts.progress(user.organizationId!, id, branchScope);
   }
 
   @Get('broadcasts')
   @RequirePermissions('whatsapp.read')
   listBroadcasts(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
     @Query('limit') limitRaw?: string,
   ) {
     const limit = limitRaw ? Number(limitRaw) : 50;
     return this.broadcasts.list(
       user.organizationId!,
       Number.isFinite(limit) ? limit : 50,
+      branchScope,
     );
   }
 
@@ -170,8 +173,9 @@ export class WhatsappController {
   cancelBroadcast(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @CurrentBranchScope() branchScope: string | null,
   ) {
-    return this.broadcasts.cancel(user.organizationId!, id);
+    return this.broadcasts.cancel(user.organizationId!, id, branchScope);
   }
 
   @Get('contacts')

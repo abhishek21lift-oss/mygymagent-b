@@ -30,6 +30,20 @@ interface RazorpayPaymentEntity {
   notes?: Record<string, string> | string[] | null;
 }
 
+/** The invoice a payment belongs to, as the server-created order says. */
+interface ResolvedInvoice {
+  id: string;
+  organizationId: string;
+  /** Paise the order was created for; null for an order created before
+   * orders were recorded (only Invoice.providerOrderId knows it). */
+  expectedAmount: number | null;
+  currency: string;
+}
+
+/** Razorpay's event ids are short (`evt_` + 14 chars); anything far longer
+ * is not one, and is not worth a primary-key row. */
+const MAX_EVENT_ID_LENGTH = 128;
+
 /**
  * Razorpay's webhook. It is @Public() (Razorpay signs deliveries with the
  * webhook secret, not a user JWT) and always answers 200 once the
@@ -59,6 +73,7 @@ export class RazorpayController {
   async handleWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers('x-razorpay-signature') signature: string,
+    @Headers('x-razorpay-event-id') eventId?: string,
   ) {
     if (!this.razorpay.isWebhookConfigured()) {
       this.logger.error('Razorpay webhook secret not configured');
@@ -85,6 +100,15 @@ export class RazorpayController {
       event = JSON.parse(text);
     } catch {
       throw new BadRequestException('Malformed webhook payload');
+    }
+
+    // Razorpay redelivers an event it did not see acknowledged in time.
+    // Claiming the id first makes the second delivery a no-op; without the
+    // header there is nothing to key on, and the per-payment idempotency
+    // in applyOnlineCapture is what holds.
+    if (eventId && !(await this.claimEvent(eventId))) {
+      this.logger.log(`Ignoring duplicate Razorpay event ${eventId}`);
+      return { received: true };
     }
 
     try {
@@ -120,26 +144,116 @@ export class RazorpayController {
     return entity ?? null;
   }
 
-  private async resolveInvoice(entity: RazorpayPaymentEntity) {
+  /** True when this delivery is the first with this event id. */
+  private async claimEvent(eventId: string): Promise<boolean> {
+    if (eventId.length > MAX_EVENT_ID_LENGTH) return true;
+    try {
+      await this.prisma.razorpayWebhookEvent.create({ data: { id: eventId } });
+      return true;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The invoice is whatever the order says -- the order is created by the
+   * server (InvoicesService.retryCollection) and Razorpay will not capture
+   * against it for anyone else's merchant account. The payment's `notes`
+   * are only a cross-check: Checkout lets the payer set them, so a note
+   * naming a different invoice than the order is refused, never followed.
+   */
+  private async resolveInvoice(
+    entity: RazorpayPaymentEntity,
+  ): Promise<ResolvedInvoice | null> {
+    if (!entity.order_id) {
+      this.logger.warn(
+        `Ignoring Razorpay payment ${entity.id}: no order id to resolve an invoice from`,
+      );
+      return null;
+    }
+
+    let resolved: ResolvedInvoice | null = null;
+    const order = await this.prisma.razorpayOrder.findUnique({
+      where: { id: entity.order_id },
+      select: {
+        amount: true,
+        currency: true,
+        invoice: { select: { id: true, organizationId: true } },
+      },
+    });
+    if (order) {
+      resolved = {
+        id: order.invoice.id,
+        organizationId: order.invoice.organizationId,
+        expectedAmount: order.amount,
+        currency: order.currency.toUpperCase(),
+      };
+    } else {
+      // An order created before razorpay_orders existed.
+      const legacy = await this.prisma.invoice.findFirst({
+        where: { providerOrderId: entity.order_id },
+        select: { id: true, organizationId: true, currency: true },
+      });
+      if (legacy) {
+        resolved = {
+          id: legacy.id,
+          organizationId: legacy.organizationId,
+          expectedAmount: null,
+          currency: legacy.currency.toUpperCase(),
+        };
+      }
+    }
+    if (!resolved) {
+      this.logger.warn(
+        `Ignoring Razorpay payment ${entity.id}: no invoice for order ${entity.order_id}`,
+      );
+      return null;
+    }
+
     const notes =
       entity.notes && !Array.isArray(entity.notes) ? entity.notes : {};
-    const organizationId = notes.organizationId;
-    const noteInvoiceId = notes.invoiceId;
-    if (organizationId && noteInvoiceId) {
-      const byNote = await this.prisma.invoice.findFirst({
-        where: { id: noteInvoiceId, organizationId },
-        select: { id: true, organizationId: true },
-      });
-      if (byNote) return byNote;
+    if (
+      (notes.invoiceId && notes.invoiceId !== resolved.id) ||
+      (notes.organizationId && notes.organizationId !== resolved.organizationId)
+    ) {
+      this.logger.warn(
+        `Refusing Razorpay payment ${entity.id}: notes name invoice ${notes.invoiceId ?? '-'} (org ${notes.organizationId ?? '-'}) but order ${entity.order_id} belongs to invoice ${resolved.id}`,
+      );
+      return null;
     }
-    if (entity.order_id) {
-      const byOrder = await this.prisma.invoice.findFirst({
-        where: { providerOrderId: entity.order_id },
-        select: { id: true, organizationId: true },
-      });
-      if (byOrder) return byOrder;
+    return resolved;
+  }
+
+  /** The captured amount must be what the order asked for, in its
+   * currency. A legacy order's amount is unknown, so the bound there is
+   * the invoice's outstanding balance. */
+  private async amountMatches(
+    amount: number,
+    currency: string | undefined,
+    invoice: ResolvedInvoice,
+  ): Promise<boolean> {
+    if ((currency ?? invoice.currency).toUpperCase() !== invoice.currency) {
+      return false;
     }
-    return null;
+    if (!Number.isInteger(amount) || amount <= 0) return false;
+    if (invoice.expectedAmount !== null) {
+      return amount === invoice.expectedAmount;
+    }
+    const current = await this.invoices.getOne(
+      invoice.organizationId,
+      invoice.id,
+    );
+    const outstandingPaise = new Prisma.Decimal(current.outstanding)
+      .mul(100)
+      .round()
+      .toNumber();
+    return amount <= outstandingPaise;
   }
 
   private async handleCaptured(
@@ -150,9 +264,10 @@ export class RazorpayController {
       return;
     }
     const invoice = await this.resolveInvoice(entity);
-    if (!invoice) {
+    if (!invoice) return;
+    if (!(await this.amountMatches(entity.amount, entity.currency, invoice))) {
       this.logger.warn(
-        `Ignoring payment.captured ${entity.id}: no invoice for order ${entity.order_id ?? 'unknown'}`,
+        `Refusing Razorpay payment ${entity.id}: captured ${entity.amount} ${entity.currency ?? '?'} but order ${entity.order_id} expects ${invoice.expectedAmount ?? 'at most the outstanding balance'} ${invoice.currency}`,
       );
       return;
     }
@@ -175,12 +290,7 @@ export class RazorpayController {
       return;
     }
     const invoice = await this.resolveInvoice(entity);
-    if (!invoice) {
-      this.logger.warn(
-        `Ignoring payment.failed ${entity.id}: no invoice for order ${entity.order_id ?? 'unknown'}`,
-      );
-      return;
-    }
+    if (!invoice) return;
     // Stale failure for a payment that already captured (out-of-order
     // delivery) -- the money is recorded; nothing to dun about.
     const captured = await this.prisma.payment.findUnique({

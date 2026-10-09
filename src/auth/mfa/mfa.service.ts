@@ -16,6 +16,12 @@ import {
   MAX_FAILED_LOGIN_ATTEMPTS,
 } from '../auth.service';
 import {
+  endAllSessions,
+  JWT_ALGORITHM,
+  JWT_ISSUER,
+  MFA_CHALLENGE_AUDIENCE,
+} from '../tokens.service';
+import {
   decryptMfaSecret,
   encryptMfaSecret,
   parseMfaVaultKey,
@@ -213,8 +219,12 @@ export class MfaService {
     await this.consumeSecondFactor(userId, record, code);
     // Deleting the row (rather than clearing enabledAt) takes the secret
     // and every recovery code with it -- cascade on the FK -- so nothing
-    // decryptable survives a disable.
-    await this.prisma.userMfa.delete({ where: { id: record.id } });
+    // decryptable survives a disable. Like any credential change it ends
+    // every session, this one included, so the user signs in again.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userMfa.delete({ where: { id: record.id } });
+      await endAllSessions(tx, userId);
+    });
     return { enabled: false };
   }
 
@@ -231,6 +241,9 @@ export class MfaService {
     return {
       mfaToken: this.jwt.sign(payload, {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        algorithm: JWT_ALGORITHM,
+        issuer: JWT_ISSUER,
+        audience: MFA_CHALLENGE_AUDIENCE,
         expiresIn: CHALLENGE_TTL_SECONDS,
       }),
       expiresIn: CHALLENGE_TTL_SECONDS,
@@ -244,6 +257,9 @@ export class MfaService {
     try {
       payload = this.jwt.verify<MfaChallengePayload>(mfaToken, {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        algorithms: [JWT_ALGORITHM],
+        issuer: JWT_ISSUER,
+        audience: MFA_CHALLENGE_AUDIENCE,
       });
     } catch {
       throw new UnauthorizedException('Invalid or expired verification token');

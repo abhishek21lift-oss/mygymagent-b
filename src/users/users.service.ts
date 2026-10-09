@@ -13,7 +13,11 @@ import {
   paginate,
   skipTake,
 } from '../common/dto/pagination-query.dto';
-import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
+import {
+  endAllSessions,
+  generateOpaqueToken,
+  hashOpaqueToken,
+} from '../auth/tokens.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
@@ -426,9 +430,13 @@ export class UsersService {
       ...userFields
     } = dto;
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id }, data: userFields }),
-      this.prisma.staffProfile.updateMany({
+    // Switching an account off ends its sessions: without this its refresh
+    // tokens would come back to life the day it is reactivated.
+    const switchingOff = dto.status !== undefined && dto.status !== 'ACTIVE';
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: userFields });
+      if (switchingOff) await endAllSessions(tx, id);
+      await tx.staffProfile.updateMany({
         where: { userId: id },
         data: {
           jobTitle,
@@ -442,8 +450,8 @@ export class UsersService {
             ? { branchId: dto.primaryBranchId }
             : {}),
         },
-      }),
-    ]);
+      });
+    });
     return this.getOne(organizationId, id);
   }
 
@@ -456,10 +464,16 @@ export class UsersService {
     await this.getOne(organizationId, id, branchScope);
     await this.assertMayManage(organizationId, actorId, id);
     await this.assertNotLastOwner(organizationId, id);
-    return this.prisma.user.update({
-      where: { id },
-      data: { status: 'DISABLED', deletedAt: new Date() },
+    const user = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: { status: 'DISABLED', deletedAt: new Date() },
+      });
+      await endAllSessions(tx, id);
+      return updated;
     });
+    // The raw row carried the argon2 password hash into the response.
+    return sanitize(user);
   }
 
   async assignRole(

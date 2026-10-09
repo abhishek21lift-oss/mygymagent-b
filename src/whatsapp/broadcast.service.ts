@@ -31,6 +31,14 @@ export interface BroadcastItemJob {
 }
 
 /**
+ * A branch-scoped caller sees only broadcasts sent from their branch; an
+ * org-wide caller sees every row, including org-wide (null-branch) ones.
+ */
+function scopeWhere(branchScope: string | null) {
+  return branchScope ? { branchId: branchScope } : {};
+}
+
+/**
  * One staff-composed message to a whole segment (P3), fanned out over
  * the normal queues: now → `sendAdHoc` per member (which queues paced
  * `wa-send` jobs); future → delayed `wa-sched` broadcast-item jobs that
@@ -85,6 +93,9 @@ export class BroadcastService {
     const broadcast = await this.prisma.broadcast.create({
       data: {
         organizationId,
+        // Recorded so a branch-scoped sender's colleagues at other
+        // branches cannot list, read or cancel it (see scopeWhere).
+        branchId: branchScope,
         segmentId: dto.segmentId,
         body: text,
         mediaFileId: dto.mediaKey,
@@ -168,18 +179,22 @@ export class BroadcastService {
     return row;
   }
 
-  async progress(organizationId: string, id: string) {
+  async progress(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const row = await this.prisma.broadcast.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...scopeWhere(branchScope) },
     });
     if (!row) throw new NotFoundException('Broadcast not found');
     return row;
   }
 
-  list(organizationId: string, limit = 50) {
+  list(organizationId: string, limit = 50, branchScope: string | null = null) {
     const take = Math.min(Math.max(limit, 1), 200);
     return this.prisma.broadcast.findMany({
-      where: { organizationId },
+      where: { organizationId, ...scopeWhere(branchScope) },
       orderBy: { createdAt: 'desc' },
       take,
     });
@@ -190,9 +205,13 @@ export class BroadcastService {
    * In-flight `wa-send` jobs already queued still send -- cancelling
    * unsends nothing. DONE/CANCELLED rows are 404: counters are frozen.
    */
-  async cancel(organizationId: string, id: string) {
+  async cancel(
+    organizationId: string,
+    id: string,
+    branchScope: string | null = null,
+  ) {
     const row = await this.prisma.broadcast.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...scopeWhere(branchScope) },
     });
     if (!row || row.status === 'DONE' || row.status === 'CANCELLED') {
       throw new NotFoundException(
@@ -200,8 +219,8 @@ export class BroadcastService {
       );
     }
     if (row.status === 'PENDING') {
-      // Deliberately unscoped: the row doesn't record the sender's branch,
-      // and removing a job id that was never queued is a no-op.
+      // Deliberately unscoped: rows from before branchId was recorded
+      // carry none, and removing a job id that was never queued is a no-op.
       const audience = await this.segments.getSegmentPhones(
         organizationId,
         row.segmentId,

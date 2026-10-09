@@ -10,7 +10,7 @@ export class ConfirmMfaDto {
 export class DisableMfaDto {
   @IsString()
   @MinLength(1)
-  @MaxLength(200)
+  @MaxLength(128)
   password!: string;
 
   /** A current 6-digit code, or an unused recovery code. */
