@@ -169,6 +169,21 @@ describe('WhatsApp webhooks (e2e)', () => {
     restoreWaAuthTestEnv();
   });
 
+  it('rejects private URLs and unknown events with 400', async () => {
+    await api(gym.accessToken)
+      .post('/whatsapp/webhooks')
+      .send({ url: 'http://192.168.1.5/hook', events: ['message.received'] })
+      .expect(400);
+    await api(gym.accessToken)
+      .post('/whatsapp/webhooks')
+      .send({ url: `${base}/ok`, events: ['group.update'] })
+      .expect(400);
+    await api(gym.accessToken)
+      .post('/whatsapp/webhooks')
+      .send({ url: `${base}/ok`, events: [] })
+      .expect(400);
+  }, 60_000);
+
   it('delivers a signed POST on inbound', async () => {
     const sub = await subscribe(`${base}/ok`, ['message.received']);
     inbound1to1('919876543211', 'hello gym');

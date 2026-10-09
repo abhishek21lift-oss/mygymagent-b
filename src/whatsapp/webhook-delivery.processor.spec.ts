@@ -121,6 +121,62 @@ describe('WebhookDeliveryProcessor', () => {
     });
   });
 
+  it('recovers on retry: 500 then 200 marks SENT with 2 attempts', async () => {
+    let calls = 0;
+    const flapping = http.createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        calls += 1;
+        if (calls === 1) res.writeHead(500).end('boom');
+        else res.writeHead(200).end('ok');
+      });
+    });
+    await new Promise<void>((resolve) =>
+      flapping.listen(0, '127.0.0.1', resolve),
+    );
+    const url = `http://127.0.0.1:${(flapping.address() as AddressInfo).port}/hook`;
+    try {
+      const { svc, prisma } = processor({
+        id: 's1',
+        organizationId: 'o1',
+        url,
+        secret: 's',
+        enabled: true,
+      });
+      const data = {
+        subscriptionId: 's1',
+        deliveryId: 'd1',
+        organizationId: 'o1',
+        event: 'message.received',
+        data: { from: '9198' },
+      };
+      await expect(
+        svc.process({
+          name: JOB_NAMES.DELIVER_WEBHOOK,
+          data,
+          attemptsMade: 0,
+          opts: { attempts: 3 },
+        } as never),
+      ).rejects.toThrow(WebhookHttpError);
+      await svc.process({
+        name: JOB_NAMES.DELIVER_WEBHOOK,
+        data,
+        attemptsMade: 1,
+        opts: { attempts: 3 },
+      } as never);
+      expect(prisma.webhookDelivery.update).toHaveBeenLastCalledWith({
+        where: { id: 'd1' },
+        data: expect.objectContaining({
+          status: 'SENT',
+          httpStatus: 200,
+          attempts: 2,
+        }),
+      });
+    } finally {
+      await new Promise((resolve) => flapping.close(resolve));
+    }
+  });
+
   it('never POSTs for a removed or disabled subscription', async () => {
     for (const sub of [null, { id: 's1', enabled: false }]) {
       seen.length = 0;
