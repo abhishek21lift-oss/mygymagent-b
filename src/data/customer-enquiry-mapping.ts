@@ -147,7 +147,10 @@ export function phoneKey(value: string | null | undefined): string | null {
 
 export function validEmail(value: unknown): string | null {
   const v = clean(value)?.toLowerCase() ?? null;
-  return v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : null;
+  // Length first: the pattern backtracks quadratically on a long cell
+  // (50,000 characters took 1.6 s), and no address is longer than 254.
+  if (!v || v.length > 254) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : null;
 }
 
 export function mapGender(value: unknown): 'MALE' | 'FEMALE' | 'OTHER' | null {

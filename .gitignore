@@ -5,6 +5,16 @@ node_modules
 .env.local
 .env.test.local
 .env.*.local
+.env.production
+.env.staging
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
 
 # Build output
 dist
