@@ -16,6 +16,7 @@ import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.de
 import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
+  AssignedOnlyUnless,
   RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
@@ -66,6 +67,7 @@ export class WorkoutSessionsController {
 
   @Post('assignment/:assignmentId/start')
   @RequirePermissions('workouts.assign')
+  @AssignedOnlyUnless('workouts.read')
   @Audited({ resource: 'workout_session', action: 'start' })
   start(
     @CurrentUser() user: AuthenticatedUser,
@@ -82,6 +84,7 @@ export class WorkoutSessionsController {
 
   @Post(':sessionId/exercises/:sessionExerciseId/sets')
   @RequirePermissions('workouts.assign')
+  @AssignedOnlyUnless('workouts.read')
   @Audited({ resource: 'workout_session_set', action: 'log' })
   logSet(
     @CurrentUser() user: AuthenticatedUser,
@@ -101,6 +104,7 @@ export class WorkoutSessionsController {
 
   @Patch(':id/complete')
   @RequirePermissions('workouts.assign')
+  @AssignedOnlyUnless('workouts.read')
   @Audited({ resource: 'workout_session', action: 'complete' })
   complete(
     @CurrentUser() user: AuthenticatedUser,

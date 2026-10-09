@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -132,6 +133,66 @@ export class PtSessionsService {
     if (!member)
       throw new BadRequestException('Member not found in this organization');
   }
+  /**
+   * For a caller limited to their own clients (a trainer): the member must
+   * be assigned to them, and any trainer named must be them. Without this
+   * a trainer could book, re-assign or complete any member's session --
+   * completing one draws down the member's package and counts towards the
+   * trainer's commission.
+   */
+  private async assertWithinAssignment(
+    organizationId: string,
+    assignmentScope: string | null,
+    memberId: string | undefined,
+    trainerId: string | null | undefined,
+  ) {
+    if (!assignmentScope) return;
+    if (memberId) {
+      const assigned = await this.prisma.member.findFirst({
+        where: {
+          id: memberId,
+          organizationId,
+          assignedTrainerId: assignmentScope,
+        },
+        select: { id: true },
+      });
+      if (!assigned)
+        throw new ForbiddenException('That member is not assigned to you');
+    }
+    if (trainerId) {
+      const owner = await trainerUserId(this.prisma, organizationId, trainerId);
+      if (owner !== assignmentScope)
+        throw new ForbiddenException('You can only book sessions for yourself');
+    }
+  }
+
+  /** The session's member is assigned to the caller, or the caller is its
+   * trainer. */
+  private async assertSessionWithinAssignment(
+    organizationId: string,
+    assignmentScope: string | null,
+    session: { memberId: string; trainerId: string | null },
+  ) {
+    if (!assignmentScope) return;
+    if (session.trainerId) {
+      const owner = await trainerUserId(
+        this.prisma,
+        organizationId,
+        session.trainerId,
+      );
+      if (owner === assignmentScope) return;
+    }
+    const assigned = await this.prisma.member.findFirst({
+      where: {
+        id: session.memberId,
+        organizationId,
+        assignedTrainerId: assignmentScope,
+      },
+      select: { id: true },
+    });
+    if (!assigned) throw new NotFoundException('PT session not found');
+  }
+
   private async assertTrainerBelongsToOrg(
     organizationId: string,
     trainerId: string,
@@ -178,8 +239,15 @@ export class PtSessionsService {
     organizationId: string,
     dto: BookPtSessionDto,
     bookedByUserId: string,
+    assignmentScope: string | null = null,
   ) {
     await this.assertMemberBelongsToOrg(organizationId, dto.memberId);
+    await this.assertWithinAssignment(
+      organizationId,
+      assignmentScope,
+      dto.memberId,
+      dto.trainerId,
+    );
     if (dto.trainerId)
       await this.assertTrainerBelongsToOrg(organizationId, dto.trainerId);
     await this.assertBranchBelongsToOrg(organizationId, dto.branchId);
@@ -250,8 +318,20 @@ export class PtSessionsService {
     id: string,
     dto: UpdatePtSessionDto,
     updatedByUserId: string,
+    assignmentScope: string | null = null,
   ) {
     const session = await this.getOne(organizationId, id);
+    await this.assertSessionWithinAssignment(
+      organizationId,
+      assignmentScope,
+      session,
+    );
+    await this.assertWithinAssignment(
+      organizationId,
+      assignmentScope,
+      dto.memberId,
+      dto.trainerId,
+    );
     if (
       session.status !== 'SCHEDULED' &&
       dto.status === undefined &&
@@ -398,12 +478,14 @@ export class PtSessionsService {
     organizationId: string,
     id: string,
     completedByUserId: string,
+    assignmentScope: string | null = null,
   ) {
     return this.update(
       organizationId,
       id,
       { status: 'COMPLETED', completedByUserId },
       completedByUserId,
+      assignmentScope,
     );
   }
   async cancel(
@@ -411,20 +493,28 @@ export class PtSessionsService {
     id: string,
     cancelledByUserId: string,
     cancellationReason?: string,
+    assignmentScope: string | null = null,
   ) {
     return this.update(
       organizationId,
       id,
       { status: 'CANCELLED', cancelledByUserId, notes: cancellationReason },
       cancelledByUserId,
+      assignmentScope,
     );
   }
-  async markNoShow(organizationId: string, id: string, markedByUserId: string) {
+  async markNoShow(
+    organizationId: string,
+    id: string,
+    markedByUserId: string,
+    assignmentScope: string | null = null,
+  ) {
     return this.update(
       organizationId,
       id,
       { status: 'NO_SHOW' },
       markedByUserId,
+      assignmentScope,
     );
   }
 }

@@ -9,7 +9,11 @@ import {
 } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import {
+  AssignedOnlyUnless,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AssignWorkoutPlanDto } from './dto/assign-workout-plan.dto';
@@ -59,17 +63,20 @@ export class WorkoutPlansController {
 
   @Post(':id/assign')
   @RequirePermissions('workouts.assign')
+  @AssignedOnlyUnless('workouts.read')
   @Audited({ resource: 'workout_assignment', action: 'create' })
   assign(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: AssignWorkoutPlanDto,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.workoutPlansService.assign(
       user.organizationId!,
       id,
       dto,
       user.id,
+      assignmentScope,
     );
   }
 }

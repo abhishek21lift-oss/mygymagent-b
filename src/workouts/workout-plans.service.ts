@@ -113,11 +113,17 @@ export class WorkoutPlansService {
     workoutPlanId: string,
     dto: AssignWorkoutPlanDto,
     assignedByUserId: string,
+    assignmentScope: string | null = null,
   ) {
     const [plan, member] = await Promise.all([
       this.getOne(organizationId, workoutPlanId),
       this.prisma.member.findFirst({
-        where: { id: dto.memberId, organizationId, deletedAt: null },
+        where: {
+          id: dto.memberId,
+          organizationId,
+          deletedAt: null,
+          ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
+        },
       }),
     ]);
     if (!member) throw new NotFoundException('Member not found');

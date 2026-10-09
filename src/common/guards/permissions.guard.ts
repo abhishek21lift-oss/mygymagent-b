@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PermissionsService } from '../../rbac/permissions.service';
 import {
+  ASSIGNED_ONLY_UNLESS_KEY,
   PERMISSIONS_ANY_KEY,
   PERMISSIONS_KEY,
 } from '../decorators/permissions.decorator';
@@ -27,6 +28,10 @@ declare module 'express-serve-static-core' {
      * different result scoping (see that decorator's comment). Undefined for
      * a route using the plain (AND-only) @RequirePermissions(). */
     grantedViaPermission?: string;
+    /** Set by PermissionsGuard on an @AssignedOnlyUnless() route when the
+     * caller lacks that read permission: they may act only on members
+     * assigned to them. */
+    assignedOnly?: boolean;
   }
 }
 
@@ -154,6 +159,19 @@ export class PermissionsGuard implements CanActivate {
         );
       }
       request.grantedViaPermission = matchedKey;
+    }
+
+    const readKey = this.reflector.getAllAndOverride<string | undefined>(
+      ASSIGNED_ONLY_UNLESS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (readKey) {
+      request.assignedOnly = !(await this.permissionsService.hasPermission(
+        user.id,
+        user.organizationId,
+        readKey,
+        branchId,
+      ));
     }
 
     request.branchScope = branchScope;

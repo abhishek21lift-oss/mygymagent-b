@@ -3,6 +3,7 @@ import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
+  AssignedOnlyUnless,
   RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
@@ -34,16 +35,19 @@ export class WorkoutAssignmentsController {
 
   @Patch(':id/status')
   @RequirePermissions('workouts.assign')
+  @AssignedOnlyUnless('workouts.read')
   @Audited({ resource: 'workout_assignment', action: 'update_status' })
   updateStatus(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateWorkoutAssignmentStatusDto,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.workoutAssignmentsService.updateStatus(
       user.organizationId!,
       id,
       dto,
+      assignmentScope,
     );
   }
 }
