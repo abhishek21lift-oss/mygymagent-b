@@ -632,6 +632,15 @@ export class TaskGeneratorService {
       take: 5000,
     });
     if (!members.length) return [];
+    const alreadyOpen = await this.prisma.task.count({
+      where: {
+        organizationId,
+        category: 'INACTIVE_MEMBER',
+        status: { in: OPEN_STATUSES },
+      },
+    });
+    const room = Math.max(0, settings.maxOpenInactiveTasks - alreadyOpen);
+    if (room === 0) return [];
     const visits = await this.prisma.attendance.groupBy({
       by: ['memberId'],
       where: {
@@ -649,6 +658,7 @@ export class TaskGeneratorService {
       .sort(
         (a, b) => (a.lastVisit?.getTime() ?? 0) - (b.lastVisit?.getTime() ?? 0),
       )
+      .slice(0, room)
       .map(({ m, lastVisit }) => {
         const days = lastVisit
           ? Math.floor((day.now.getTime() - lastVisit.getTime()) / DAY_MS)

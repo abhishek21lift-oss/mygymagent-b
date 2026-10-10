@@ -43,4 +43,10 @@ export class UpdateActionCenterSettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(23) quietHoursStart?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(23) quietHoursEnd?: number | null;
   @IsOptional() @IsInt() @Min(1) @Max(1000) maxNewTasksPerSource?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(500)
+  maxOpenInactiveTasks?: number;
 }

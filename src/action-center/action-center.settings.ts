@@ -28,6 +28,10 @@ export interface ActionCenterSettings {
   quietHoursEnd: number | null;
   /** Cap on tasks a single source adds per run, so a backlog trickles in. */
   maxNewTasksPerSource: number;
+  /** Open "inactive member" calls at any one time, longest-absent first:
+   * a gym with hundreds of lapsed regulars gets a workable list, not a
+   * wall of them. */
+  maxOpenInactiveTasks: number;
 }
 
 export const DEFAULT_ACTION_CENTER_SETTINGS: ActionCenterSettings = {
@@ -42,6 +46,7 @@ export const DEFAULT_ACTION_CENTER_SETTINGS: ActionCenterSettings = {
   quietHoursStart: 22,
   quietHoursEnd: 7,
   maxNewTasksPerSource: 100,
+  maxOpenInactiveTasks: 20,
 };
 
 function intIn(
@@ -125,6 +130,12 @@ export function normaliseSettings(raw: unknown): ActionCenterSettings {
       1,
       1000,
       d.maxNewTasksPerSource,
+    ),
+    maxOpenInactiveTasks: intIn(
+      s.maxOpenInactiveTasks,
+      0,
+      500,
+      d.maxOpenInactiveTasks,
     ),
   };
 }
