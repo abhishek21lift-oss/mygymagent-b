@@ -177,6 +177,8 @@ describe('Action Center (e2e)', () => {
     ).expect(200);
     expect(summary.body.data.due.payments).toBeGreaterThanOrEqual(1);
     expect(summary.body.data.due.renewals).toBeGreaterThanOrEqual(1);
+    // Both are calls to the same member: the call queue counts them.
+    expect(summary.body.data.due.calls).toBeGreaterThanOrEqual(2);
     expect(summary.body.data.tasks.total).toBeGreaterThanOrEqual(2);
 
     const queue = await as(receptionist)(

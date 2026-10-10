@@ -24,7 +24,6 @@ import {
 import type { DayQueryDto } from './dto/action-center.dto';
 
 const DAY_MS = 86_400_000;
-const CALL_CATEGORIES: TaskCategory[] = ['CALL', 'FOLLOW_UP', 'LEAD_FOLLOW_UP'];
 const PAYMENT_CATEGORIES: TaskCategory[] = [
   'PAYMENT_FOLLOW_UP',
   'PAYMENT_PROMISE',
@@ -88,6 +87,7 @@ export class ActionCenterService {
       promisesDue,
       escalated,
       unassigned,
+      callsDue,
     ] = await Promise.all([
       this.prisma.task.groupBy({
         by: ['status'],
@@ -152,6 +152,14 @@ export class ActionCenterService {
       this.prisma.task.count({
         where: { ...openByEnd, assignedToUserId: null },
       }),
+      // The call queue: every open task due today about a member or lead,
+      // whatever its category -- a renewal or a dues task is a call too.
+      this.prisma.task.count({
+        where: {
+          ...openByEnd,
+          OR: [{ memberId: { not: null } }, { leadId: { not: null } }],
+        },
+      }),
     ]);
 
     const statusCount = (s: string) =>
@@ -194,7 +202,7 @@ export class ActionCenterService {
         escalated,
       },
       due: {
-        calls: category(CALL_CATEGORIES),
+        calls: callsDue,
         payments: category(PAYMENT_CATEGORIES),
         renewals: category(['RENEWAL']),
         newLeads: category(['LEAD_FOLLOW_UP']),

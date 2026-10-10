@@ -119,7 +119,7 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
     ]);
 
     this.logger.log(
-      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + membership status hourly + QR rotation every 7d`,
+      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + membership status hourly + QR rotation every 7d + Action Center tasks hourly and reminders every 15m`,
     );
   }
 }
