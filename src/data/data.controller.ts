@@ -22,10 +22,14 @@ export class DataController {
     @CurrentUser() u: AuthenticatedUser,
     @Res() res: Response,
   ) {
-    const csv = await this.data.exportMembers(u.organizationId!);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="members.csv"');
-    res.send(csv);
+    // Streamed, not buffered: the export used to materialize the whole
+    // org's member table (and its CSV) in memory before the first byte.
+    for await (const chunk of this.data.exportMemberChunks(u.organizationId!)) {
+      res.write(chunk);
+    }
+    res.end();
   }
 
   @Get('members/template')
