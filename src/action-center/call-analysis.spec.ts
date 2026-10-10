@@ -9,7 +9,10 @@ import {
 } from './call-analysis';
 
 // 9 Oct 2026, 15:00 in India.
-const ctx = { timezone: 'Asia/Kolkata', calledAt: new Date('2026-10-09T09:30:00Z') };
+const ctx = {
+  timezone: 'Asia/Kolkata',
+  calledAt: new Date('2026-10-09T09:30:00Z'),
+};
 
 function istLocal(iso: string): string {
   return new Date(iso).toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' });
@@ -74,12 +77,17 @@ describe('call note analysis', () => {
           },
         ],
       },
-      { outcome: 'NOT_INTERESTED', response: 'Not interested in renewing this month.' },
+      {
+        outcome: 'NOT_INTERESTED',
+        response: 'Not interested in renewing this month.',
+      },
       ctx,
     );
     expect(analysis.commitments).toHaveLength(0);
     expect(analysis.discarded[0]).toMatch(/not backed by a quote/);
-    expect(proposalsFrom(analysis).some((p) => p.kind === 'PAYMENT_PROMISE')).toBe(false);
+    expect(
+      proposalsFrom(analysis).some((p) => p.kind === 'PAYMENT_PROMISE'),
+    ).toBe(false);
   });
 
   it('refuses an amount that is not written in the note', () => {
@@ -147,18 +155,31 @@ describe('call note analysis', () => {
           },
         ],
       },
-      { outcome: 'CALL_BACK_REQUESTED', response: 'Call me tomorrow after 5 PM.' },
+      {
+        outcome: 'CALL_BACK_REQUESTED',
+        response: 'Call me tomorrow after 5 PM.',
+      },
       ctx,
     );
-    expect(istLocal(analysis.commitments[0].dueAt!.toISOString())).toBe('2026-10-10 17:00:00');
+    expect(istLocal(analysis.commitments[0].dueAt!.toISOString())).toBe(
+      '2026-10-10 17:00:00',
+    );
     expect(proposalsFrom(analysis)[0].kind).toBe('FOLLOW_UP_CALL');
   });
 
   it('rejects past, impossible and far-future dates', () => {
-    expect(resolveLocalDate('2026-10-08', null, ctx).problem).toMatch(/before the day/);
-    expect(resolveLocalDate('2026-02-30', null, ctx).problem).toMatch(/not a calendar date/);
-    expect(resolveLocalDate('2027-12-01', null, ctx).problem).toMatch(/more than 180 days/);
-    expect(resolveLocalDate('12/10/2026', null, ctx).problem).toMatch(/YYYY-MM-DD/);
+    expect(resolveLocalDate('2026-10-08', null, ctx).problem).toMatch(
+      /before the day/,
+    );
+    expect(resolveLocalDate('2026-02-30', null, ctx).problem).toMatch(
+      /not a calendar date/,
+    );
+    expect(resolveLocalDate('2027-12-01', null, ctx).problem).toMatch(
+      /more than 180 days/,
+    );
+    expect(resolveLocalDate('12/10/2026', null, ctx).problem).toMatch(
+      /YYYY-MM-DD/,
+    );
     // The call's own day is fine, even late in the UTC day.
     expect(resolveLocalDate('2026-10-09', '18:30', ctx).problem).toBeNull();
   });
@@ -190,14 +211,25 @@ describe('call note analysis', () => {
             date: null,
           },
         ],
-        recommendedAction: { kind: 'MARK_PAID', title: 'Mark paid', priority: 'URGENT' },
+        recommendedAction: {
+          kind: 'MARK_PAID',
+          title: 'Mark paid',
+          priority: 'URGENT',
+        },
       },
       note,
       ctx,
     );
     const proposals = proposalsFrom(analysis);
     for (const p of proposals) {
-      expect(['FOLLOW_UP_CALL', 'PAYMENT_PROMISE', 'RENEWAL_FOLLOW_UP', 'TRIAL_VISIT', 'MANAGER_ESCALATION', 'OTHER']).toContain(p.kind);
+      expect([
+        'FOLLOW_UP_CALL',
+        'PAYMENT_PROMISE',
+        'RENEWAL_FOLLOW_UP',
+        'TRIAL_VISIT',
+        'MANAGER_ESCALATION',
+        'OTHER',
+      ]).toContain(p.kind);
     }
     // The unknown kind collapses to OTHER and still needs a person.
     expect(proposals.find((p) => !p.explicit)?.kind).toBe('OTHER');
@@ -206,11 +238,21 @@ describe('call note analysis', () => {
   });
 
   it('throws on malformed replies instead of guessing', () => {
-    expect(() => extractJson('Sure! Here is the analysis.')).toThrow(AnalysisValidationError);
-    expect(() => extractJson('{"summary": "x",')).toThrow(AnalysisValidationError);
-    expect(() => validateAnalysis([], salaryNote, ctx)).toThrow(AnalysisValidationError);
-    expect(() => validateAnalysis({ intent: 'PAYMENT' }, salaryNote, ctx)).toThrow(/no summary/);
-    expect(extractJson('```json\n{"summary":"ok"}\n```')).toEqual({ summary: 'ok' });
+    expect(() => extractJson('Sure! Here is the analysis.')).toThrow(
+      AnalysisValidationError,
+    );
+    expect(() => extractJson('{"summary": "x",')).toThrow(
+      AnalysisValidationError,
+    );
+    expect(() => validateAnalysis([], salaryNote, ctx)).toThrow(
+      AnalysisValidationError,
+    );
+    expect(() =>
+      validateAnalysis({ intent: 'PAYMENT' }, salaryNote, ctx),
+    ).toThrow(/no summary/);
+    expect(extractJson('```json\n{"summary":"ok"}\n```')).toEqual({
+      summary: 'ok',
+    });
   });
 
   it('coerces unknown enum values and caps list sizes', () => {
@@ -236,13 +278,19 @@ describe('call note analysis', () => {
 
   it('turns a complaint into a manager escalation proposal', () => {
     const analysis = validateAnalysis(
-      { summary: 'Complained about the trainer.', intent: 'COMPLAINT', sentiment: 'NEGATIVE' },
+      {
+        summary: 'Complained about the trainer.',
+        intent: 'COMPLAINT',
+        sentiment: 'NEGATIVE',
+      },
       {
         outcome: 'COMPLAINT_RAISED',
         response: 'Complained about the trainer and wants a manager to call.',
       },
       ctx,
     );
-    expect(proposalsFrom(analysis).map((p) => p.kind)).toContain('MANAGER_ESCALATION');
+    expect(proposalsFrom(analysis).map((p) => p.kind)).toContain(
+      'MANAGER_ESCALATION',
+    );
   });
 });

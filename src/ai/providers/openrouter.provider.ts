@@ -104,7 +104,15 @@ export class OpenRouterProvider {
 
   constructor(private readonly config: ConfigService) {}
 
-  async chatCompletion(messages: ChatMessage[]): Promise<OpenRouterCompletion> {
+  /**
+   * `tools: false` for a plain completion: the call-note analysis wants a
+   * JSON answer, and offering it the assistant's tools (which act on CRM
+   * data) would only be an invitation to call them.
+   */
+  async chatCompletion(
+    messages: ChatMessage[],
+    options: { tools?: boolean } = {},
+  ): Promise<OpenRouterCompletion> {
     const apiKey = this.config.get<string>('OPENROUTER_API_KEY');
     if (!apiKey) {
       throw new ServiceUnavailableException(
@@ -116,7 +124,12 @@ export class OpenRouterProvider {
     let lastError: HttpException | undefined;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        return await this.attemptCompletion(apiKey, model, messages);
+        return await this.attemptCompletion(
+          apiKey,
+          model,
+          messages,
+          options.tools !== false,
+        );
       } catch (error) {
         if (!(error instanceof HttpException)) {
           // Unexpected non-HTTP failure (e.g. parse error) — wrap generically.
@@ -145,6 +158,7 @@ export class OpenRouterProvider {
     apiKey: string,
     model: string | undefined,
     messages: ChatMessage[],
+    withTools: boolean,
   ): Promise<OpenRouterCompletion> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -162,7 +176,7 @@ export class OpenRouterProvider {
         body: JSON.stringify({
           model,
           messages,
-          tools: AI_TOOL_DEFINITIONS,
+          ...(withTools ? { tools: AI_TOOL_DEFINITIONS } : {}),
           max_tokens: MAX_OUTPUT_TOKENS,
           usage: { include: true },
         }),

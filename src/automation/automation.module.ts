@@ -1,3 +1,4 @@
+import { ActionCenterModule } from '../action-center/action-center.module';
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { CommunicationsModule } from '../communications/communications.module';
@@ -33,6 +34,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     CommunicationsModule,
     MemberIntelligenceModule,
     NotificationsModule,
+    ActionCenterModule,
   ],
   controllers: [AutomationController],
   // See the note in notifications.module.ts: re-exported so the Command

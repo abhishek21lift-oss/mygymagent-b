@@ -1,3 +1,4 @@
+import { ActionCenterModule } from './action-center/action-center.module';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -106,6 +107,7 @@ import { AdminAiModule } from './admin-ai/admin-ai.module';
     PtSessionsModule,
     PtPackagesModule,
     NotificationsModule,
+    ActionCenterModule,
     SearchModule,
     AnalyticsModule,
     GymHealthModule,

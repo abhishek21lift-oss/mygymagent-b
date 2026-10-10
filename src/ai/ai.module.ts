@@ -72,6 +72,6 @@ import { GlobalAiCommandService } from './global-ai-command.service';
   ],
   // MemberIntelligenceModule's AiInsightsService calls the model directly
   // rather than going through AiService's tool-calling loop.
-  exports: [OpenRouterProvider],
+  exports: [OpenRouterProvider, AiUsageService],
 })
 export class AiModule {}

@@ -102,6 +102,20 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
         { every: 60 * 60 * 1000 },
         { name: JOB_NAMES.SCAN_MEMBERSHIP_STATUS },
       ),
+      // Daily Action Center. Hourly rather than once a day: each gym's
+      // "today" starts at its own midnight, and every run is idempotent
+      // (dedupe keys), so an hourly pass both catches each gym's new day
+      // and closes tasks soon after a member pays or renews.
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.GENERATE_ACTION_TASKS,
+        { every: 60 * 60 * 1000 },
+        { name: JOB_NAMES.GENERATE_ACTION_TASKS },
+      ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.TASK_REMINDERS,
+        { every: 15 * 60 * 1000 },
+        { name: JOB_NAMES.TASK_REMINDERS },
+      ),
     ]);
 
     this.logger.log(
