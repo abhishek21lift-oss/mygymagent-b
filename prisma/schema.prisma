@@ -24,12 +24,14 @@
 // ============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  extensions   = [pg_trgm]
 }
 
 // ----------------------------------------------------------------------------
@@ -862,6 +864,16 @@ model Member {
   @@index([organizationId, status])
   @@index([email])
   @@index([phone])
+  // Trigram indexes for the global topbar search, which ILIKEs all four
+  // of these columns with a leading wildcard (`%term%`). Without these
+  // the query seq-scans every member row the org has; with them each
+  // ILIKE is an index probe. GIN because the writes are member
+  // create/update, not a per-keystroke workload, and search latency is
+  // the user-visible one. Requires the pg_trgm extension (datasource).
+  @@index([firstName(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_first_name_trgm_idx")
+  @@index([lastName(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_last_name_trgm_idx")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_phone_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_email_trgm_idx")
   @@map("members")
 }
 
