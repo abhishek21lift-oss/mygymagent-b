@@ -37,6 +37,12 @@ export const JOB_NAMES = {
   SCAN_PT_EXPIRY: 'scan-pt-expiry',
   SCAN_RISK_PROFILES: 'scan-risk-profiles',
   SCAN_MEMBERSHIP_STATUS: 'scan-membership-status',
+  /** Daily Action Center: one call note through the AI. */
+  ANALYZE_CALL_NOTE: 'analyze-call-note',
+  /** Daily Action Center: build every gym's worklist from CRM records. */
+  GENERATE_ACTION_TASKS: 'generate-action-tasks',
+  /** Daily Action Center: due-soon reminders and overdue escalations. */
+  TASK_REMINDERS: 'task-reminders',
 } as const;
 
 /** BullMQ job-scheduler ids (`Queue.upsertJobScheduler`'s first arg) --
@@ -56,4 +62,6 @@ export const JOB_SCHEDULER_IDS = {
   SCAN_PT_EXPIRY: 'scan-pt-expiry-daily',
   SCAN_RISK_PROFILES: 'scan-risk-profiles-nightly',
   SCAN_MEMBERSHIP_STATUS: 'scan-membership-status-hourly',
+  GENERATE_ACTION_TASKS: 'generate-action-tasks-hourly',
+  TASK_REMINDERS: 'task-reminders-15min',
 } as const;

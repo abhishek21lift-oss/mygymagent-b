@@ -17,6 +17,9 @@ import { InvoiceDunningScanner } from './scanners/invoice-dunning.scanner';
 import { PtExpiryScanner } from './scanners/pt-expiry.scanner';
 import { DataRetentionScanner } from './scanners/data-retention.scanner';
 import { RiskEngineService } from '../member-intelligence/risk-engine.service';
+import { ActionCenterService } from '../action-center/action-center.service';
+import { CallAnalysisService } from '../action-center/call-analysis.service';
+import { TaskGeneratorService } from '../action-center/task-generator.service';
 
 const LOW_STOCK_COOLDOWN_DAYS = 1;
 
@@ -45,6 +48,9 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly dataRetentionScanner: DataRetentionScanner,
     private readonly riskEngine: RiskEngineService,
     private readonly membershipStatusScanner: MembershipStatusScanner,
+    private readonly taskGenerator: TaskGeneratorService,
+    private readonly actionCenter: ActionCenterService,
+    private readonly callAnalysis: CallAnalysisService,
   ) {
     super();
   }
@@ -74,6 +80,19 @@ export class AutomationScanProcessor extends WorkerHost {
         return this.dataRetentionScanner.scan();
       case JOB_NAMES.SCAN_MEMBERSHIP_STATUS:
         return this.membershipStatusScanner.scan();
+      case JOB_NAMES.GENERATE_ACTION_TASKS:
+        return this.taskGenerator.runAll();
+      case JOB_NAMES.TASK_REMINDERS:
+        return this.actionCenter.sweepReminders();
+      case JOB_NAMES.ANALYZE_CALL_NOTE: {
+        const data = job.data as { organizationId: string; callLogId: string };
+        const attempts = job.opts.attempts ?? 1;
+        return this.callAnalysis.run(
+          data.organizationId,
+          data.callLogId,
+          job.attemptsMade + 1 >= attempts,
+        );
+      }
       case JOB_NAMES.SCAN_RISK_PROFILES:
         return this.scanRiskProfiles();
       case JOB_NAMES.SEND_LOW_STOCK_ALERT:
