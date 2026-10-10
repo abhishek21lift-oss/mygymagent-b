@@ -5,12 +5,13 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TestableThrottlerGuard } from './common/guards/testable-throttler.guard';
-import { throttlerConfig } from './common/rate-limit/throttler.config';
+import { throttlerEntry } from './common/rate-limit/throttler.config';
+import { RedisThrottlerStorage } from './common/rate-limit/redis-throttler-storage';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { QueueModule, QueueConnection } from './queue/queue.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { PublicRateLimitModule } from './common/rate-limit/public-rate-limit.module';
-import { QueueModule } from './queue/queue.module';
 import { FilesModule } from './files/files.module';
 import { AuditModule } from './audit/audit.module';
 import { RbacModule } from './rbac/rbac.module';
@@ -70,8 +71,17 @@ import { AdminAiModule } from './admin-ai/admin-ai.module';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
     // One unnamed entry, deliberately -- see throttler.config.ts for why
-    // a list of them silently divides every limit in the app.
-    ThrottlerModule.forRoot(throttlerConfig),
+    // a list of them silently divides every limit in the app. forRootAsync
+    // (not forRoot) because the storage needs the shared QueueConnection:
+    // the default in-memory Map counts once per replica, so N replicas
+    // would advertise 5 logins/min and actually allow 5N.
+    ThrottlerModule.forRootAsync({
+      inject: [QueueConnection],
+      useFactory: (queue: QueueConnection) => ({
+        throttlers: [throttlerEntry],
+        storage: new RedisThrottlerStorage(queue.client),
+      }),
+    }),
     PrismaModule,
     // Converges the code-owned catalogs at boot. Must come after
     // PrismaModule so its bootstrap hook has a live client.

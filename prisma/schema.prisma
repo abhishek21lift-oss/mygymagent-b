@@ -4389,21 +4389,6 @@ model AiCommandLog {
   @@map("ai_command_logs")
 }
 
-/// Composite-keyed (scope, key) fixed-window counter backing rate limiting
-/// for the two `@Public()` Business OS endpoints (portal bootstrap, kiosk
-/// check-in). `key` is always a SHA-256 hash of the caller's IP, never the
-/// raw address, per `BusinessOsService.rateLimit()`.
-model PublicEndpointRateLimit {
-  scope           String
-  key             String
-  hits            Int      @default(0)
-  windowStartedAt DateTime @default(now()) @map("window_started_at") @db.Timestamptz(6)
-
-  @@id([scope, key])
-  @@index([windowStartedAt], map: "public_endpoint_rate_limits_window_idx")
-  @@map("public_endpoint_rate_limits")
-}
-
 // ----------------------------------------------------------------------------
 // Group training (B-P0-8). These three tables were created by raw DDL and
 // driven entirely through `$queryRawUnsafe`, with no model block at all --
