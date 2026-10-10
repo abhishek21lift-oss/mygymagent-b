@@ -236,11 +236,17 @@ describe('CooBriefingService.getBriefing', () => {
     );
     const briefing = await service.getBriefing('org-1', 'branch-1');
     expect(figuresService.gymDay).toHaveBeenCalledWith('org-1', 1);
-    expect(figuresService.forDay).toHaveBeenCalledWith('org-1', 'branch-1');
+    expect(figuresService.forDay).toHaveBeenCalledWith(
+      'org-1',
+      'branch-1',
+      undefined,
+      expect.any(Map),
+    );
     expect(figuresService.forDay).toHaveBeenCalledWith(
       'org-1',
       'branch-1',
       '2026-10-07',
+      expect.any(Map),
     );
     expect(briefing.today).toMatchObject({ date: '2026-10-08', checkIns: 3 });
     expect(briefing.deltas.checkinsPct).toBe(200);

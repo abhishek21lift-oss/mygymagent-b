@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
-import { FinanceService } from '../analytics/finance.service';
+import {
+  FinanceService,
+  type OutstandingScopeCache,
+} from '../analytics/finance.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
 import { TodayFiguresService } from '../analytics/today-figures.service';
 import {
@@ -70,6 +73,9 @@ export class OwnerOsService {
   ): Promise<OwnerOsBriefing> {
     const now = new Date();
     const branch = branchScope ?? null;
+    // Same snapshot shared by forDay's day-range revenue and the direct
+    // outstanding total below — one membership scan per briefing.
+    const outstandingCache: OutstandingScopeCache = new Map();
     // Today's attendance, revenue, expiring terms and dues come from the
     // services behind the dashboard, so the AI agent quotes the figures
     // the owner sees on screen. This used to count them its own way:
@@ -102,9 +108,18 @@ export class OwnerOsService {
           ...(branchScope ? { member: { primaryBranchId: branchScope } } : {}),
         },
       }),
-      this.todayFigures.forDay(organizationId, branch),
+      this.todayFigures.forDay(
+        organizationId,
+        branch,
+        undefined,
+        outstandingCache,
+      ),
       this.todayFigures.expiringSoon(organizationId, branch, now),
-      this.finance.getOutstandingBalances(organizationId, branch),
+      this.finance.getOutstandingBalances(
+        organizationId,
+        branch,
+        outstandingCache,
+      ),
       this.memberIntelligence.getAtRiskMembers(organizationId, branch),
       this.inventoryIntelligence.getStockForecast(organizationId, branch),
       this.aiActions.countPending(organizationId),

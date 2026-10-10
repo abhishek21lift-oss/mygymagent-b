@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
+import type { OutstandingScopeCache } from '../analytics/finance.service';
 import { TodayFiguresService } from '../analytics/today-figures.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GymHealthService } from './gym-health.service';
@@ -67,11 +68,24 @@ export class CooBriefingService {
     // UTC date -- before 05:30 IST that was yesterday -- count staff
     // check-ins, and compare today against a range that included today.
     const yesterdayStr = await this.todayFigures.gymDay(organizationId, 1);
+    // Health's month-range revenue and both day-range revenues share one
+    // outstanding snapshot — same org+branch, period-independent.
+    const outstandingCache: OutstandingScopeCache = new Map();
     const [health, today, yesterday, pending, outcomes, usage] =
       await Promise.all([
-        this.health.getHealth(organizationId, branchScope),
-        this.todayFigures.forDay(organizationId, branchScope),
-        this.todayFigures.forDay(organizationId, branchScope, yesterdayStr),
+        this.health.getHealth(organizationId, branchScope, outstandingCache),
+        this.todayFigures.forDay(
+          organizationId,
+          branchScope,
+          undefined,
+          outstandingCache,
+        ),
+        this.todayFigures.forDay(
+          organizationId,
+          branchScope,
+          yesterdayStr,
+          outstandingCache,
+        ),
         this.aiActions.countPending(organizationId),
         this.aiActions.effectiveness(organizationId),
         this.prisma.aiUsageLog.aggregate({

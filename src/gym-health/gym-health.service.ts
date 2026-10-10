@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { FinanceService } from '../analytics/finance.service';
+import {
+  FinanceService,
+  type OutstandingScopeCache,
+} from '../analytics/finance.service';
 import { InventoryIntelligenceService } from '../analytics/inventory-intelligence.service';
 import { MemberIntelligenceService } from '../analytics/member-intelligence.service';
 import { SalesIntelligenceService } from '../analytics/sales-intelligence.service';
@@ -35,10 +38,16 @@ export class GymHealthService {
   async getHealth(
     organizationId: string,
     branchScope: string | null,
+    outstandingCache?: OutstandingScopeCache,
   ): Promise<GymHealth & { revenueAtRisk: RevenueAtRisk }> {
     const [summary, breakdown, funnel, forecast, revenueAtRisk] =
       await Promise.all([
-        this.finance.getRevenueSummary(organizationId, {}, branchScope),
+        this.finance.getRevenueSummary(
+          organizationId,
+          {},
+          branchScope,
+          outstandingCache,
+        ),
         this.members.getStatusBreakdown(organizationId, branchScope),
         this.sales.getFunnel(organizationId, branchScope, {}),
         this.inventory.getStockForecast(organizationId, branchScope),

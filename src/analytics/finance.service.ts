@@ -50,6 +50,24 @@ export interface OutstandingMembership {
   outstanding: string;
 }
 
+/// Request-scoped reuse for the current-state outstanding snapshot.
+/// Created per top-level aggregation call (one Map per briefing/health
+/// request), keyed by organization + branch. Never shared across
+/// requests, so no cross-tenant leakage; no TTL/invalidation because the
+/// Map dies with the request. Stores the in-flight promise so concurrent
+/// callers in one Promise.all coalesce onto a single query.
+export type OutstandingScopeCache = Map<
+  string,
+  Promise<OutstandingMembership[]>
+>;
+
+function outstandingCacheKey(
+  organizationId: string,
+  branchScope: string | null,
+): string {
+  return `${organizationId}::${branchScope ?? 'all'}`;
+}
+
 interface NotComputable {
   key: string;
   reason: string;
@@ -130,6 +148,7 @@ export class FinanceService {
     organizationId: string,
     query: { from?: string; to?: string },
     branchScope: string | null,
+    outstandingCache?: OutstandingScopeCache,
   ): Promise<RevenueSummary> {
     const { from, to } = resolvePeriod(
       query,
@@ -220,6 +239,7 @@ export class FinanceService {
       outstanding: await this.getOutstandingBalances(
         organizationId,
         branchScope,
+        outstandingCache,
       ),
       notComputable: NOT_COMPUTABLE,
     };
@@ -365,10 +385,12 @@ export class FinanceService {
   async getOutstandingBalances(
     organizationId: string,
     branchScope: string | null,
+    outstandingCache?: OutstandingScopeCache,
   ): Promise<OutstandingByCurrency[]> {
     const rows = await this.listOutstandingMemberships(
       organizationId,
       branchScope,
+      outstandingCache,
     );
     const byCurrency = new Map<string, { count: number; total: number }>();
     for (const row of rows) {
@@ -391,6 +413,28 @@ export class FinanceService {
   /// rows behind the "outstanding" totals above, so a list and the
   /// figure it explains can never disagree.
   async listOutstandingMemberships(
+    organizationId: string,
+    branchScope: string | null,
+    outstandingCache?: OutstandingScopeCache,
+  ): Promise<OutstandingMembership[]> {
+    if (!outstandingCache) {
+      return this.queryOutstandingMemberships(organizationId, branchScope);
+    }
+    const key = outstandingCacheKey(organizationId, branchScope);
+    const cached = outstandingCache.get(key);
+    if (cached) return cached;
+    // Set synchronously so concurrent callers in one Promise.all share it.
+    const pending = this.queryOutstandingMemberships(
+      organizationId,
+      branchScope,
+    );
+    outstandingCache.set(key, pending);
+    // Don't poison later callers in this request if the query fails.
+    pending.catch(() => outstandingCache.delete(key));
+    return pending;
+  }
+
+  private async queryOutstandingMemberships(
     organizationId: string,
     branchScope: string | null,
   ): Promise<OutstandingMembership[]> {

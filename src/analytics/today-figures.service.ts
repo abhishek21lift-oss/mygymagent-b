@@ -5,7 +5,7 @@ import {
   zonedDate,
 } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
-import { FinanceService } from './finance.service';
+import { FinanceService, type OutstandingScopeCache } from './finance.service';
 import { currentTermWhere } from './member-intelligence.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -78,6 +78,7 @@ export class TodayFiguresService {
     organizationId: string,
     branchScope: string | null,
     day?: string,
+    outstandingCache?: OutstandingScopeCache,
   ): Promise<DayFigures> {
     const [timezone, org] = await Promise.all([
       organizationTimezone(this.prisma, organizationId),
@@ -109,6 +110,7 @@ export class TodayFiguresService {
           organizationId,
           { from: date, to: date },
           branchScope,
+          outstandingCache,
         ),
         this.prisma.member.count({
           where: {

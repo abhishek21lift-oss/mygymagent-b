@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AiActionsService } from '../ai-actions/ai-actions.service';
 import {
   FinanceService,
+  type OutstandingScopeCache,
   type RevenueSummary,
 } from '../analytics/finance.service';
 import {
@@ -128,6 +129,10 @@ export class DailyBriefingService {
       },
     };
     const monthStart = startOfZonedMonth(now, timezone);
+    // The outstanding snapshot is period-independent (current-state fact),
+    // so the day-range revenue inside forDay and the month-range revenue
+    // below share one membership scan via this request-scoped cache.
+    const outstandingCache: OutstandingScopeCache = new Map();
 
     const [
       today,
@@ -141,7 +146,12 @@ export class DailyBriefingService {
       trainerWorkload,
       pendingAiActions,
     ] = await Promise.all([
-      this.todayFigures.forDay(organizationId, branchScope),
+      this.todayFigures.forDay(
+        organizationId,
+        branchScope,
+        undefined,
+        outstandingCache,
+      ),
       this.prisma.leadFollowUp.count({
         where: { ...openFollowUp, dueAt: { lt: startOfTomorrow } },
       }),
@@ -149,7 +159,12 @@ export class DailyBriefingService {
         where: { ...openFollowUp, dueAt: { lt: startOfToday } },
       }),
       this.todayFigures.expiringSoon(organizationId, branchScope, now),
-      this.finance.getRevenueSummary(organizationId, {}, branchScope),
+      this.finance.getRevenueSummary(
+        organizationId,
+        {},
+        branchScope,
+        outstandingCache,
+      ),
       this.memberIntelligence.getAtRiskMembers(organizationId, branchScope),
       this.salesIntelligence.getFunnel(organizationId, branchScope, {
         from: monthStart.toISOString(),
