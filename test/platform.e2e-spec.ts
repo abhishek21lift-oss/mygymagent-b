@@ -179,4 +179,55 @@ describe('Platform administration (e2e)', () => {
       .send({ email: ownerEmail, password: 'CorrectHorseBattery9' })
       .expect(201);
   });
+
+  it('lists the active plan catalog to platform staff, and to nobody else', async () => {
+    // Unauthenticated first: the guard refuses before the service runs.
+    await request(app.getHttpServer())
+      .get('/platform/organizations/plans')
+      .expect(401);
+
+    // An ordinary org owner -- even of a gym -- gets the platform 403.
+    await request(app.getHttpServer())
+      .get('/platform/organizations/plans')
+      .set('Authorization', `Bearer ${org.accessToken}`)
+      .expect(403);
+
+    const res = await request(app.getHttpServer())
+      .get('/platform/organizations/plans')
+      .set('Authorization', `Bearer ${platformToken}`)
+      .expect(200);
+    const keys = (res.body.data as Array<{ key: string }>).map((p) => p.key);
+    // Migration-seeded catalog; the picker renders whatever this returns,
+    // so a rename here must be a deliberate seed change, not drift.
+    expect(keys).toEqual(['trial', 'starter', 'professional', 'business']);
+  });
+
+  it('lets a platform admin set the gym plan, and audits it against the target org', async () => {
+    await request(app.getHttpServer())
+      .patch(`/platform/organizations/${org.organizationId}/subscription`)
+      .set('Authorization', `Bearer ${platformToken}`)
+      .send({ planKey: 'starter', months: 3 })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.data.after.planKey).toBe('starter');
+      });
+
+    const auditRow = await prisma.auditLog.findFirst({
+      where: {
+        action: 'platform.set_organization_plan',
+        resourceId: org.organizationId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(auditRow).not.toBeNull();
+    expect(auditRow?.organizationId).toBe(org.organizationId);
+  });
+
+  it('refuses an unknown plan key instead of writing a dangling subscription', async () => {
+    await request(app.getHttpServer())
+      .patch(`/platform/organizations/${org.organizationId}/subscription`)
+      .set('Authorization', `Bearer ${platformToken}`)
+      .send({ planKey: 'no-such-plan', months: 1 })
+      .expect(404);
+  });
 });
