@@ -208,8 +208,11 @@ describe('Platform administration (e2e)', () => {
       .set('Authorization', `Bearer ${platformToken}`)
       .send({ planKey: 'starter', months: 3 })
       .expect(200)
+      // The service returns the new subscription row itself (with planKey),
+      // wrapped as `data` by the response interceptor -- there is no
+      // `after` envelope on the wire.
       .expect((res) => {
-        expect(res.body.data.after.planKey).toBe('starter');
+        expect(res.body.data.planKey).toBe('starter');
       });
 
     const auditRow = await prisma.auditLog.findFirst({
