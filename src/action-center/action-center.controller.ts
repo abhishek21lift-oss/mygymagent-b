@@ -118,6 +118,12 @@ export class ActionCenterController {
     return this.generator.run(user.organizationId!);
   }
 
+  @Get('staff')
+  @RequirePermissions('tasks.read')
+  staff(@CurrentUser() user: AuthenticatedUser) {
+    return this.center.staff(user.organizationId!);
+  }
+
   @Get('settings')
   @RequirePermissions('tasks.read')
   getSettings(@CurrentUser() user: AuthenticatedUser) {

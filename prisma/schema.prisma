@@ -223,6 +223,7 @@ model Organization {
   callLogs        CallLog[]
   paymentPromises PaymentPromise[]
   actionProposals ActionProposal[]
+  taskEvents      TaskEvent[]
 
   @@index([parentOrganizationId])
   @@map("organizations")
@@ -4623,17 +4624,18 @@ model Task {
 
 /// Append-only history of a task: who changed what, and comments.
 model TaskEvent {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   taskId         String
-  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task           Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
   actorUserId    String?
   /// CREATED, UPDATED, STATUS_CHANGED, ASSIGNED, RESCHEDULED, ESCALATED,
   /// COMMENT, CALL_LOGGED, AUTO_RESOLVED, SUPERSEDED
   type           String
   body           String?
   data           Json?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime     @default(now())
 
   @@index([taskId, createdAt])
   @@map("task_events")

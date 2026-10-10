@@ -569,6 +569,28 @@ export class ActionCenterService {
     };
   }
 
+  /**
+   * Who a task can be assigned to: active staff of this gym, names only.
+   * Its own endpoint so the front desk can pick a colleague without the
+   * user-management permission that the full /users list needs.
+   */
+  async staff(organizationId: string) {
+    const users = await this.prisma.user.findMany({
+      where: {
+        organizationId,
+        status: 'ACTIVE',
+        member: null,
+        userRoles: {
+          some: { organizationId, role: { key: { not: 'MEMBER' } } },
+        },
+      },
+      select: PERSON_SELECT,
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      take: 200,
+    });
+    return users.map((u) => ({ id: u.id, name: fullName(u) }));
+  }
+
   async getSettings(organizationId: string): Promise<ActionCenterSettings> {
     return (await loadSettings(this.prisma, organizationId)).settings;
   }
