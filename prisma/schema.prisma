@@ -2659,6 +2659,11 @@ model MessageLog {
   @@index([memberId])
   @@index([providerMessageId])
   @@index([broadcastId])
+  // The Command Center's WhatsApp card filters (channel, createdAt) --
+  // the index above. Its MESSAGING card filters createdAt alone (it
+  // splits by channel in JS), so a channel-led index cannot serve it;
+  // this one does.
+  @@index([createdAt])
   // The Command Center's WhatsApp card aggregates the trailing 24h by
   // (channel, createdAt) across every tenant. The org-led index above
   // cannot serve a platform-wide query (organizationId is not in the
@@ -2766,6 +2771,10 @@ model AutomationRun {
   createdAt DateTime @default(now())
 
   @@index([organizationId, key, subjectId, createdAt])
+  // The Command Center's automation card aggregates the trailing 24h
+  // across every tenant on createdAt alone; the org-led index above
+  // cannot serve a platform-wide filter.
+  @@index([createdAt])
   @@map("automation_runs")
 }
 

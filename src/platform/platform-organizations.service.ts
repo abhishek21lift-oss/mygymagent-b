@@ -85,6 +85,18 @@ export class PlatformOrganizationsService {
     return org;
   }
 
+  /**
+   * The active plan catalog for the operator's plan picker. Same rows as
+   * the tenant-facing `platform-billing/plans`, but that route requires a
+   * `platform_billing.read` grant -- which platform staff (null org) can
+   * never hold -- so the operator console needs its own read path.
+   */
+  async plans() {
+    return this.prisma.$queryRawUnsafe<Array<{ key: string; name: string }>>(
+      `SELECT "key", "name" FROM subscription_plans WHERE "isActive"=true ORDER BY "sortOrder" ASC`,
+    );
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateOrganizationStatusDto,

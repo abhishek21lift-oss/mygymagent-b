@@ -29,6 +29,15 @@ export class PlatformOrganizationsController {
     return this.service.list(query);
   }
 
+  /**
+   * Before `:id`: Nest matches routes in registration order, and `plans`
+   * would otherwise be read as an organization id.
+   */
+  @Get('plans')
+  plans() {
+    return this.service.plans();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
