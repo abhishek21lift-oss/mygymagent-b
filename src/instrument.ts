@@ -13,8 +13,16 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.NODE_ENV ?? 'development',
-    // Error tracking only for now -- no performance/tracing overhead until
-    // there's a concrete need to look at request traces, not just errors.
-    tracesSampleRate: 0,
+    // Error tracking only by default -- no performance/tracing overhead
+    // until there's a concrete need to look at request traces, not just
+    // errors. Setting SENTRY_TRACES_SAMPLE_RATE to a 0..1 fraction turns
+    // tracing on without a code change (see the 50k-user scaling audit:
+    // the API had no way to sample traces at all).
+    tracesSampleRate: (() => {
+      const raw = process.env.SENTRY_TRACES_SAMPLE_RATE;
+      if (!raw) return 0;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0;
+    })(),
   });
 }

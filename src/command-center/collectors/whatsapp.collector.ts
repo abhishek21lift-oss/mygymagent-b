@@ -113,6 +113,10 @@ export class WhatsappCollector implements Collector<WhatsappCard> {
       this.prisma.whatsappCredential.count({
         where: { expiresAt: { not: null, lte: soon } },
       }),
+      // Backed by the (channel, createdAt) index added for this query.
+      // If console refresh ever starts timing out at 5s, the upgrade
+      // path is a platform rollup table written by the scheduler, not
+      // more indexes -- see the scaling audit's Command Center section.
       this.prisma.messageLog.groupBy({
         by: ['status'],
         where: { channel: 'WHATSAPP', createdAt: { gte: since } },

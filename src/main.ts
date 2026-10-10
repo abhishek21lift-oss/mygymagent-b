@@ -3,6 +3,7 @@ import './instrument';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { json } from 'express';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -12,13 +13,25 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  // `rawBody: true` exposes the untouched request bytes as
-  // `request.rawBody` for webhook signature verification (Razorpay's
-  // `x-razorpay-signature` is HMAC-SHA256 over the raw body -- parsing
-  // then re-serializing would change the bytes and break verification).
-  const app = await NestFactory.create(AppModule, {
-    rawBody: true,
-  });
+  // `bodyParser: false` + our own `json()` for one reason: the member CSV
+  // import accepts up to 2,000 rows (400KB+ of JSON), which the Express
+  // default 100kb limit rejected with a 413 before ValidationPipe ever
+  // saw a row. 1mb covers a full import with headroom while keeping a
+  // bound on how much any request can buffer.
+  //
+  // The `verify` callback preserves what `rawBody: true` used to expose:
+  // the untouched bytes webhook signature verification needs (Razorpay's
+  // HMAC over the raw body, Stripe's constructEvent) -- parsing and
+  // re-serializing would change those bytes and break verification.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(
+    json({
+      limit: '1mb',
+      verify: (req, _res, buf) => {
+        (req as Request & { rawBody?: Buffer }).rawBody = buf;
+      },
+    }),
+  );
   const config = app.get(ConfigService);
   const isProduction = config.get('NODE_ENV') === 'production';
   const logger = new Logger('Main');

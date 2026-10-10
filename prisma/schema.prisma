@@ -24,12 +24,14 @@
 // ============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  extensions   = [pg_trgm]
 }
 
 // ----------------------------------------------------------------------------
@@ -862,6 +864,16 @@ model Member {
   @@index([organizationId, status])
   @@index([email])
   @@index([phone])
+  // Trigram indexes for the global topbar search, which ILIKEs all four
+  // of these columns with a leading wildcard (`%term%`). Without these
+  // the query seq-scans every member row the org has; with them each
+  // ILIKE is an index probe. GIN because the writes are member
+  // create/update, not a per-keystroke workload, and search latency is
+  // the user-visible one. Requires the pg_trgm extension (datasource).
+  @@index([firstName(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_first_name_trgm_idx")
+  @@index([lastName(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_last_name_trgm_idx")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_phone_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "members_email_trgm_idx")
   @@map("members")
 }
 
@@ -2197,6 +2209,10 @@ model AiUsageLog {
 
   @@index([organizationId, createdAt])
   @@index([userId])
+  // The Command Center's AI card aggregates the trailing 24h across
+  // every tenant (organizationId is a grouping dimension there, not a
+  // filter), so the org-led index never serves it -- this one does.
+  @@index([createdAt])
   @@map("ai_usage_logs")
 }
 
@@ -2643,6 +2659,12 @@ model MessageLog {
   @@index([memberId])
   @@index([providerMessageId])
   @@index([broadcastId])
+  // The Command Center's WhatsApp card aggregates the trailing 24h by
+  // (channel, createdAt) across every tenant. The org-led index above
+  // cannot serve a platform-wide query (organizationId is not in the
+  // filter), so each console refresh used to seq-scan the write-heaviest
+  // comms table -- the page meant to explain load was adding to it.
+  @@index([channel, createdAt])
   @@map("message_logs")
 }
 
@@ -4387,21 +4409,6 @@ model AiCommandLog {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("ai_command_logs")
-}
-
-/// Composite-keyed (scope, key) fixed-window counter backing rate limiting
-/// for the two `@Public()` Business OS endpoints (portal bootstrap, kiosk
-/// check-in). `key` is always a SHA-256 hash of the caller's IP, never the
-/// raw address, per `BusinessOsService.rateLimit()`.
-model PublicEndpointRateLimit {
-  scope           String
-  key             String
-  hits            Int      @default(0)
-  windowStartedAt DateTime @default(now()) @map("window_started_at") @db.Timestamptz(6)
-
-  @@id([scope, key])
-  @@index([windowStartedAt], map: "public_endpoint_rate_limits_window_idx")
-  @@map("public_endpoint_rate_limits")
 }
 
 // ----------------------------------------------------------------------------

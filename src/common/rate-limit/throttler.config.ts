@@ -1,4 +1,4 @@
-import type { ThrottlerModuleOptions } from '@nestjs/throttler';
+import type { ThrottlerOptions } from '@nestjs/throttler';
 
 /** Requests per minute allowed to a route that sets no `@Throttle` of its
  * own. Per-area limits live on the controllers, not here. */
@@ -6,7 +6,7 @@ export const DEFAULT_THROTTLE_LIMIT = 120;
 export const THROTTLE_WINDOW_MS = 60_000;
 
 /**
- * Exactly ONE entry, and that is the whole point.
+ * Exactly ONE throttler entry, and that is the whole point.
  *
  * `@nestjs/throttler` gives every config without an explicit `name` the
  * name `'default'` (see `throttler.guard.js`). A list of unnamed configs
@@ -24,7 +24,12 @@ export const THROTTLE_WINDOW_MS = 60_000;
  * `@Throttle({ default: … })` with the exact numbers that list was
  * reaching for. Keep this at one entry; `throttler.config.spec.ts`
  * enforces it.
+ *
+ * The entry stays unnamed so it is the default every route falls back to.
+ * The storage that counts it is wired in `app.module.ts`
+ * (`RedisThrottlerStorage`), so all replicas share one counter.
  */
-export const throttlerConfig: ThrottlerModuleOptions = [
-  { ttl: THROTTLE_WINDOW_MS, limit: DEFAULT_THROTTLE_LIMIT },
-];
+export const throttlerEntry: ThrottlerOptions = {
+  ttl: THROTTLE_WINDOW_MS,
+  limit: DEFAULT_THROTTLE_LIMIT,
+};
