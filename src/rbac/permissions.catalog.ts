@@ -88,6 +88,14 @@ export const PERMISSIONS_CATALOG: PermissionDefinition[] = [
     read: 'View CRM leads',
     manage: 'Manage leads and follow-ups',
   }),
+  // Daily Action Center. `work` is the front desk's: take and finish tasks
+  // that are theirs or unassigned, log calls, act on AI proposals. `manage`
+  // reassigns anyone's tasks, handles escalations and the generator rules.
+  ...resource('tasks', {
+    read: "View the team's tasks, call log and Action Center",
+    work: 'Work tasks assigned to them or unassigned, and log calls',
+    manage: "Manage and reassign anyone's tasks, escalations and task rules",
+  }),
   ...resource('workouts', {
     read: 'View workout programs and assignments',
     read_assigned: 'View workout assignments for members assigned to you',

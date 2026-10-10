@@ -73,6 +73,9 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Branch Manager',
     description: 'Manages day-to-day operations for one or more branches.',
     permissions: perms(
+      'tasks.read',
+      'tasks.work',
+      'tasks.manage',
       'branches.read',
       'users.read',
       'members.read',
@@ -136,6 +139,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Head Trainer',
     description: 'Oversees the training team and all client programming.',
     permissions: perms(
+      'tasks.read',
+      'tasks.work',
       'members.read',
       'members.assign_trainer',
       'memberships.read',
@@ -205,6 +210,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Receptionist',
     description: 'Front-desk operations: check-ins, basic member updates.',
     permissions: perms(
+      'tasks.read',
+      'tasks.work',
       'members.read',
       'members.create',
       'members.update',
@@ -228,6 +235,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Sales Executive',
     description: 'Manages leads, trials, and membership sales.',
     permissions: perms(
+      'tasks.read',
+      'tasks.work',
       'members.read',
       'members.create',
       'membership_plans.read',
@@ -248,6 +257,8 @@ export const ROLES_CATALOG: RoleDefinition[] = [
     name: 'Accountant',
     description: 'Manages payments, invoices, refunds and financial reporting.',
     permissions: perms(
+      'tasks.read',
+      'tasks.work',
       'members.read',
       'memberships.read',
       'payments.read',

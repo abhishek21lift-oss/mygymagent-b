@@ -219,6 +219,11 @@ model Organization {
   classSessions            ClassSession[]
   classBookings            ClassBooking[]
 
+  tasks           Task[]
+  callLogs        CallLog[]
+  paymentPromises PaymentPromise[]
+  actionProposals ActionProposal[]
+
   @@index([parentOrganizationId])
   @@map("organizations")
 }
@@ -294,6 +299,9 @@ model Branch {
   classPrograms      ClassProgram[]
   classSessions      ClassSession[]
   classBookings      ClassBooking[]
+
+  tasks    Task[]
+  callLogs CallLog[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -421,6 +429,10 @@ model User {
   aiCommandLogs          AiCommandLog[]
   classProgramsLed       ClassProgram[]
   classSessionsLed       ClassSession[]
+
+  assignedTasks Task[]    @relation("TaskAssignedTo")
+  createdTasks  Task[]    @relation("TaskCreatedBy")
+  recordedCalls CallLog[] @relation("CallLogRecordedBy")
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -838,6 +850,10 @@ model Member {
   marketingCampaignMemberships MarketingCampaignMember[]
   notificationDevices          NotificationDevice[]
   classBookings                ClassBooking[]
+
+  tasks           Task[]
+  callLogs        CallLog[]
+  paymentPromises PaymentPromise[]
 
   @@unique([organizationId, memberCode])
   @@index([organizationId, primaryBranchId])
@@ -1867,6 +1883,9 @@ model Lead {
   appointments Appointment[]     @relation("AppointmentLead")
   sourceEvents LeadSourceEvent[]
 
+  tasks    Task[]
+  callLogs CallLog[]
+
   @@index([organizationId, status])
   @@index([organizationId, branchId])
   @@index([assignedToUserId])
@@ -2737,18 +2756,18 @@ model AutomationSetting {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  key AutomationKey
+  key             AutomationKey
   /// Master switch. MemberMessenger.deliver() checks this before any
   /// WhatsApp/email attempt; a disabled key records a SKIPPED
   /// AutomationRun and sends nothing.
-  enabled Boolean @default(true)
+  enabled         Boolean       @default(true)
   /// Channel override, null = AUTO (WhatsApp when the gym's own number is
   /// linked, else email -- the MemberMessenger default). Stored, not
   /// enforced yet: no scanner reads it until the per-channel routing task
   /// lands. Validated in the DTO (AUTO|WHATSAPP|EMAIL).
   channelOverride String?
   /// Cooldown override in days, null = the scanner's coded default.
-  cooldownDays Int?
+  cooldownDays    Int?
   /// Quiet hours as HH:mm 24h, both-or-neither, null = off. Stored, not
   /// enforced yet: enforcement lands with the quiet-hours task.
   quietHoursStart String?
@@ -3217,8 +3236,8 @@ enum WaSessionStatus {
 }
 
 model WaSession {
-  id             String   @id @default(uuid())
-  organizationId String   @unique
+  id             String       @id @default(uuid())
+  organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   sessionId   String          @unique
@@ -3270,14 +3289,14 @@ enum ScheduledMessageStatus {
 }
 
 model ScheduledMessage {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   recipient String
   body      String
   memberId  String?
-  member    Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  member    Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
   sendAt    DateTime
 
   status       ScheduledMessageStatus @default(PENDING)
@@ -3323,8 +3342,8 @@ model InboundMessage {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  from String
-  body String
+  from     String
+  body     String
   /// The sender's push name (`~Firstname`) as WhatsApp reported it:
   /// name fallback when no contact row exists. Never matched on.
   pushName String?
@@ -3382,7 +3401,7 @@ model BotOptOut {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   phone          String
-  createdAt      DateTime @default(now())
+  createdAt      DateTime     @default(now())
 
   @@id([organizationId, phone])
   @@map("bot_opt_outs")
@@ -3415,17 +3434,17 @@ model WebhookSubscription {
 /// One attempted webhook POST. Bodies are never stored here (PII) --
 /// only the outcome, for the deliveries log and retry accounting.
 model WebhookDelivery {
-  id             String       @id @default(uuid())
+  id             String              @id @default(uuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   subscriptionId String
   subscription   WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  event      String
-  status     WebhookDeliveryStatus @default(PENDING)
-  attempts   Int                   @default(0)
-  httpStatus Int?
-  error      String?
+  event       String
+  status      WebhookDeliveryStatus @default(PENDING)
+  attempts    Int                   @default(0)
+  httpStatus  Int?
+  error       String?
   nextRetryAt DateTime?
 
   createdAt DateTime @default(now())
@@ -4489,4 +4508,310 @@ model ClassBooking {
   @@index([organizationId, sessionId, status], map: "class_bookings_org_session_status_idx")
   @@index([organizationId, memberId], map: "class_bookings_org_member_idx")
   @@map("class_bookings")
+}
+
+// ---------------------------------------------------------------------------
+// Daily Action Center: the front desk's worklist, call log and the AI's
+// proposals from call notes. Follow-ups (MemberFollowUp, LeadFollowUp) stay
+// the scheduling records they are; once one falls due the daily generator
+// puts a Task on the worklist that points back at it, and completing the
+// task completes the follow-up.
+// ---------------------------------------------------------------------------
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskCategory {
+  CALL
+  PAYMENT_FOLLOW_UP
+  PAYMENT_PROMISE
+  RENEWAL
+  LEAD_FOLLOW_UP
+  TRIAL
+  INACTIVE_MEMBER
+  PT_CONFIRMATION
+  COMPLAINT
+  FOLLOW_UP
+  GENERAL
+}
+
+/// Who put the task on the list. SYSTEM tasks come from CRM records by the
+/// daily generator; AI_SUGGESTION ones from an approved call-note proposal.
+enum TaskSource {
+  MANUAL
+  SYSTEM
+  AI_SUGGESTION
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+  category    TaskCategory @default(GENERAL)
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(PENDING)
+  source      TaskSource   @default(MANUAL)
+  dueAt       DateTime
+
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  leadId   String?
+  lead     Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  assignedToUserId String?
+  assignedToUser   User?   @relation("TaskAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdByUserId  String?
+  createdByUser    User?   @relation("TaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  /// System and AI tasks only: one task per situation, however often the
+  /// generator runs (unique per organization; manual tasks leave it null).
+  dedupeKey  String?
+  /// Why the generator (or the AI) put it here, in words staff can read.
+  reason     String?
+  /// The CRM record it is about: MEMBERSHIP, PAYMENT_PROMISE,
+  /// MEMBER_FOLLOW_UP, LEAD_FOLLOW_UP, APPOINTMENT, PT_SESSION,
+  /// SUPPORT_TICKET, LEAD, MEMBER or CALL_LOG.
+  sourceType String?
+  sourceId   String?
+
+  /// [{ "text": string, "done": boolean }]
+  checklist Json?
+
+  escalatedAt       DateTime?
+  escalatedByUserId String?
+  escalationReason  String?
+
+  completedAt       DateTime?
+  completedByUserId String?
+  completionNote    String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events    TaskEvent[]
+  callLogs  CallLog[]        @relation("CallLogTask")
+  proposals ActionProposal[]
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, assignedToUserId, status, dueAt])
+  @@index([organizationId, branchId, status, dueAt])
+  @@index([memberId])
+  @@index([leadId])
+  @@index([organizationId, sourceType, sourceId])
+  @@map("tasks")
+}
+
+/// Append-only history of a task: who changed what, and comments.
+model TaskEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actorUserId    String?
+  /// CREATED, UPDATED, STATUS_CHANGED, ASSIGNED, RESCHEDULED, ESCALATED,
+  /// COMMENT, CALL_LOGGED, AUTO_RESOLVED, SUPERSEDED
+  type           String
+  body           String?
+  data           Json?
+  createdAt      DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@map("task_events")
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallOutcome {
+  CONNECTED
+  NO_ANSWER
+  BUSY
+  CALL_BACK_REQUESTED
+  PAYMENT_PROMISED
+  /// Only with a verified payment from the payment system (paymentId).
+  PAYMENT_COMPLETED
+  NOT_INTERESTED
+  RENEWAL_INTERESTED
+  COMPLAINT_RAISED
+  WRONG_NUMBER
+  OTHER
+}
+
+enum CallAnalysisStatus {
+  NOT_REQUESTED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+/// One phone call with a member or lead, in the receptionist's own words.
+model CallLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  leadId   String?
+  lead     Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  phone    String?
+
+  direction           CallDirection @default(OUTBOUND)
+  calledAt            DateTime
+  outcome             CallOutcome
+  reason              String?
+  /// What the member said, as the receptionist wrote it.
+  response            String?
+  internalNotes       String?
+  amountDiscussed     Decimal?      @db.Decimal(12, 2)
+  promisedPaymentDate DateTime?
+  nextFollowUpAt      DateTime?
+  priority            TaskPriority?
+  /// The verified payment behind a PAYMENT_COMPLETED outcome.
+  paymentId           String?
+
+  /// The worklist task this call was made for, if any.
+  taskId String?
+  task   Task?   @relation("CallLogTask", fields: [taskId], references: [id], onDelete: SetNull)
+
+  recordedByUserId String?
+  recordedByUser   User?     @relation("CallLogRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  assignedToUserId String?
+  editedAt         DateTime?
+  editedByUserId   String?
+
+  analysisStatus   CallAnalysisStatus @default(NOT_REQUESTED)
+  /// Schema-validated output of the note analysis (see call-analysis.ts).
+  analysis         Json?
+  analysisError    String?
+  analysisAttempts Int                @default(0)
+  analyzedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proposals       ActionProposal[]
+  paymentPromises PaymentPromise[]
+
+  @@index([organizationId, calledAt])
+  @@index([organizationId, memberId, calledAt])
+  @@index([organizationId, leadId, calledAt])
+  @@index([organizationId, analysisStatus])
+  @@map("call_logs")
+}
+
+enum PaymentPromiseStatus {
+  OPEN
+  KEPT
+  BROKEN
+  CANCELLED
+}
+
+/// "Salary comes on the 12th, I'll pay ₹2,000": a member's commitment, as
+/// staff recorded or approved it. KEPT only once a real payment covers it.
+model PaymentPromise {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membershipId   String?
+  callLogId      String?
+  callLog        CallLog?     @relation(fields: [callLogId], references: [id], onDelete: SetNull)
+
+  amount            Decimal              @db.Decimal(12, 2)
+  /// Start of the promised day in the gym's timezone.
+  promisedFor       DateTime
+  status            PaymentPromiseStatus @default(OPEN)
+  resolvedAt        DateTime?
+  resolvedPaymentId String?
+  note              String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, status, promisedFor])
+  @@index([memberId])
+  @@map("payment_promises")
+}
+
+enum ActionProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActionProposalKind {
+  FOLLOW_UP_CALL
+  PAYMENT_PROMISE
+  RENEWAL_FOLLOW_UP
+  TRIAL_VISIT
+  MANAGER_ESCALATION
+  OTHER
+}
+
+/// Something the AI suggests from a call note. Nothing happens until staff
+/// approve it, and then only as a task (and, for PAYMENT_PROMISE, a
+/// promise) -- never a payment, cancellation or outgoing message.
+model ActionProposal {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  callLogId      String
+  callLog        CallLog      @relation(fields: [callLogId], references: [id], onDelete: Cascade)
+  memberId       String?
+  leadId         String?
+
+  kind                   ActionProposalKind
+  title                  String
+  details                String?
+  /// True when the member said it (a commitment); false when it is the
+  /// AI's own recommendation.
+  explicit               Boolean            @default(false)
+  /// The words in the note it rests on.
+  evidence               String?
+  suggestedDueAt         DateTime?
+  /// The note's date was unclear or failed validation: staff must pick one.
+  dueAtNeedsConfirmation Boolean            @default(false)
+  suggestedPriority      TaskPriority       @default(MEDIUM)
+  amount                 Decimal?           @db.Decimal(12, 2)
+
+  status          ActionProposalStatus @default(PENDING)
+  decidedByUserId String?
+  decidedAt       DateTime?
+  rejectReason    String?
+  taskId          String?
+  task            Task?                @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, status, createdAt])
+  @@index([callLogId])
+  @@map("action_proposals")
 }
