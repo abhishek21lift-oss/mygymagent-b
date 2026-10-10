@@ -186,6 +186,11 @@ export class MembersService {
     dto: CreateMemberDto,
     branchScope: string | null = null,
     createdByUserId: string | null = null,
+    // Joins an outer transaction (e.g. lead conversion): row writes run
+    // on `tx` and the caller owns post-commit side effects, so no
+    // MemberCreated event is emitted here. Omitted by default, which
+    // preserves the standalone behavior exactly.
+    tx?: Prisma.TransactionClient,
   ) {
     if (branchScope && dto.primaryBranchId !== branchScope) {
       throw new BadRequestException(
@@ -208,99 +213,183 @@ export class MembersService {
       medicalNotes,
       ...memberFields
     } = dto;
-    const member = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.member.create({
-        data: {
-          ...memberFields,
+    const member = tx
+      ? await this.createMemberRows(tx, {
           organizationId,
+          memberFields,
           memberCode,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
-        },
-      });
-      await tx.memberStatusHistory.create({
-        data: {
-          organizationId,
-          memberId: created.id,
-          fromStatus: null,
-          toStatus: created.status,
-          changedByUserId: createdByUserId,
-        },
-      });
-      await tx.memberBranchHistory.create({
-        data: {
-          organizationId,
-          memberId: created.id,
-          fromBranchId: null,
-          toBranchId: created.primaryBranchId,
-          changedByUserId: createdByUserId,
-        },
-      });
-      if (created.assignedTrainerId) {
-        await tx.memberTrainerHistory.create({
-          data: {
+          emergencyContactName: dto.emergencyContactName,
+          emergencyContactPhone: dto.emergencyContactPhone,
+          emergencyContactRelationship,
+          waiverConsent,
+          fitnessGoal,
+          injuries,
+          allergies,
+          medicalNotes,
+          createdByUserId,
+        })
+      : await this.prisma.$transaction((inner) =>
+          this.createMemberRows(inner, {
             organizationId,
-            memberId: created.id,
-            fromTrainerId: null,
-            toTrainerId: created.assignedTrainerId,
-            changedByUserId: createdByUserId,
-          },
-        });
-      }
-      // Create emergency contact with relationship if provided
-      if (dto.emergencyContactName || dto.emergencyContactPhone) {
-        await tx.memberEmergencyContact.create({
-          data: {
-            organizationId,
-            memberId: created.id,
-            name: dto.emergencyContactName || '',
-            phone: dto.emergencyContactPhone || '',
-            relationship: emergencyContactRelationship || null,
-            isPrimary: true,
-          },
-        });
-      }
-      // Create waiver consent if provided
-      if (waiverConsent !== undefined) {
-        await tx.memberConsent.create({
-          data: {
-            organizationId,
-            memberId: created.id,
-            type: 'WAIVER',
-            granted: waiverConsent,
-            note:
-              injuries || allergies
-                ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
-                : medicalNotes || undefined,
-            recordedByUserId: createdByUserId,
-          },
-        });
-      }
-      // Create fitness goal if provided
-      if (fitnessGoal) {
-        await tx.memberGoal.create({
-          data: {
-            organizationId,
-            memberId: created.id,
-            title: fitnessGoal,
-            category: 'GENERAL_FITNESS',
-            description: medicalNotes || undefined,
-            startDate: new Date(),
+            memberFields,
+            memberCode,
+            dateOfBirth: dto.dateOfBirth
+              ? new Date(dto.dateOfBirth)
+              : undefined,
+            emergencyContactName: dto.emergencyContactName,
+            emergencyContactPhone: dto.emergencyContactPhone,
+            emergencyContactRelationship,
+            waiverConsent,
+            fitnessGoal,
+            injuries,
+            allergies,
+            medicalNotes,
             createdByUserId,
-          },
-        });
-      }
-      return created;
-    });
-    const payload: MemberCreatedEvent = {
-      organizationId,
-      branchId: member.primaryBranchId,
-      memberId: member.id,
-      email: member.email ?? undefined,
-      phone: member.phone ?? undefined,
-      firstName: member.firstName,
-    };
-    this.events.emit(DomainEvent.MemberCreated, payload);
+          }),
+        );
+    if (!tx) {
+      const payload: MemberCreatedEvent = {
+        organizationId,
+        branchId: member.primaryBranchId,
+        memberId: member.id,
+        email: member.email ?? undefined,
+        phone: member.phone ?? undefined,
+        firstName: member.firstName,
+      };
+      this.events.emit(DomainEvent.MemberCreated, payload);
+    }
     return member;
+  }
+
+  /**
+   * The row writes of `create`, runnable on any transaction client so a
+   * multi-entity operation (lead conversion) can commit atomically with
+   * its own writes. Pure writes + return; no events, no pre-checks.
+   */
+  private async createMemberRows(
+    db: Prisma.TransactionClient,
+    args: {
+      organizationId: string;
+      memberFields: Omit<
+        CreateMemberDto,
+        | 'emergencyContactRelationship'
+        | 'waiverConsent'
+        | 'fitnessGoal'
+        | 'injuries'
+        | 'allergies'
+        | 'medicalNotes'
+        | 'dateOfBirth'
+      >;
+      memberCode: string;
+      dateOfBirth: Date | undefined;
+      emergencyContactName: string | undefined;
+      emergencyContactPhone: string | undefined;
+      emergencyContactRelationship: string | undefined;
+      waiverConsent: boolean | undefined;
+      fitnessGoal: string | undefined;
+      injuries: string | undefined;
+      allergies: string | undefined;
+      medicalNotes: string | undefined;
+      createdByUserId: string | null;
+    },
+  ) {
+    const {
+      organizationId,
+      memberFields,
+      memberCode,
+      dateOfBirth,
+      emergencyContactName,
+      emergencyContactPhone,
+      emergencyContactRelationship,
+      waiverConsent,
+      fitnessGoal,
+      injuries,
+      allergies,
+      medicalNotes,
+      createdByUserId,
+    } = args;
+    const created = await db.member.create({
+      data: {
+        ...memberFields,
+        organizationId,
+        memberCode,
+        dateOfBirth,
+      },
+    });
+    await db.memberStatusHistory.create({
+      data: {
+        organizationId,
+        memberId: created.id,
+        fromStatus: null,
+        toStatus: created.status,
+        changedByUserId: createdByUserId,
+      },
+    });
+    await db.memberBranchHistory.create({
+      data: {
+        organizationId,
+        memberId: created.id,
+        fromBranchId: null,
+        toBranchId: created.primaryBranchId,
+        changedByUserId: createdByUserId,
+      },
+    });
+    if (created.assignedTrainerId) {
+      await db.memberTrainerHistory.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          fromTrainerId: null,
+          toTrainerId: created.assignedTrainerId,
+          changedByUserId: createdByUserId,
+        },
+      });
+    }
+    // Create emergency contact with relationship if provided
+    if (emergencyContactName || emergencyContactPhone) {
+      await db.memberEmergencyContact.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          name: emergencyContactName || '',
+          phone: emergencyContactPhone || '',
+          relationship: emergencyContactRelationship || null,
+          isPrimary: true,
+        },
+      });
+    }
+    // Create waiver consent if provided
+    if (waiverConsent !== undefined) {
+      await db.memberConsent.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          type: 'WAIVER',
+          granted: waiverConsent,
+          note:
+            injuries || allergies
+              ? `Injuries: ${injuries || 'None'}. Allergies: ${allergies || 'None'}`
+              : medicalNotes || undefined,
+          recordedByUserId: createdByUserId,
+        },
+      });
+    }
+    // Create fitness goal if provided
+    if (fitnessGoal) {
+      await db.memberGoal.create({
+        data: {
+          organizationId,
+          memberId: created.id,
+          title: fitnessGoal,
+          category: 'GENERAL_FITNESS',
+          description: medicalNotes || undefined,
+          startDate: new Date(),
+          createdByUserId,
+        },
+      });
+    }
+    return created;
   }
 
   async update(
@@ -546,12 +635,14 @@ export class MembersService {
     organizationId: string,
     memberId: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const where: Prisma.MemberWhereInput = {
       id: memberId,
       organizationId,
       deletedAt: null,
       ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      ...(assignmentScope ? { assignedTrainerId: assignmentScope } : {}),
     };
     const member = await this.prisma.member.findFirst({ where });
     if (!member) throw new NotFoundException('Member not found');

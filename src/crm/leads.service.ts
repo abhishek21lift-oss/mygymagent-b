@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -431,27 +432,52 @@ export class LeadsService {
       );
     }
 
-    const member = await this.membersService.create(
-      organizationId,
-      {
-        primaryBranchId: branchId,
-        firstName: lead.firstName,
-        lastName: lead.lastName,
-        email: lead.email ?? undefined,
-        phone: lead.phone ?? undefined,
-      },
-      branchScope,
-    );
-
-    const converted = await this.prisma.lead.update({
-      where: { id },
-      data: {
-        status: 'WON',
-        convertedMemberId: member.id,
-        convertedAt: new Date(),
-      },
+    // Member rows and the WON transition commit together: a failure
+    // anywhere rolls back everything, so conversion can never leave an
+    // orphan member or an unmarked lead. The guarded updateMany is the
+    // atomic claim -- concurrent converts serialize on the lead row and
+    // all but one see count 0.
+    const { member, converted } = await this.prisma.$transaction(async (tx) => {
+      const member = await this.membersService.create(
+        organizationId,
+        {
+          primaryBranchId: branchId,
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          email: lead.email ?? undefined,
+          phone: lead.phone ?? undefined,
+        },
+        branchScope,
+        null,
+        tx,
+      );
+      const claimed = await tx.lead.updateMany({
+        where: { id, organizationId, status: { not: 'WON' } },
+        data: {
+          status: 'WON',
+          convertedMemberId: member.id,
+          convertedAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'This lead was already converted by another request',
+        );
+      }
+      const converted = await tx.lead.findUniqueOrThrow({ where: { id } });
+      return { member, converted };
     });
 
+    // create() skips its own MemberCreated emit when joining an outer
+    // transaction, so both domain events fire here, after the commit.
+    this.events.emit(DomainEvent.MemberCreated, {
+      organizationId,
+      branchId: member.primaryBranchId,
+      memberId: member.id,
+      email: member.email ?? undefined,
+      phone: member.phone ?? undefined,
+      firstName: member.firstName,
+    });
     const payload: LeadConvertedEvent = {
       organizationId,
       leadId: lead.id,
