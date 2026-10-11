@@ -15,6 +15,9 @@ describe('MembersService contact enhancement', () => {
   let service: MembersService;
   let prisma: any;
   let tx: any;
+  // The stored row returned for member m1; tests mutate its contact
+  // fields to cover effective-pair PATCH validation.
+  let beforeRow: any;
 
   const baseDto = () => ({
     primaryBranchId: 'b1',
@@ -23,7 +26,22 @@ describe('MembersService contact enhancement', () => {
     phone: '9876543210',
   });
 
+  // Referrers known to the mocked tenant, keyed by home branch.
+  const tenantMembers: Record<string, any> = {
+    'ref-1': { id: 'ref-1', primaryBranchId: 'b1' },
+    'ref-b2': { id: 'ref-b2', primaryBranchId: 'b2' },
+  };
+
   beforeEach(async () => {
+    beforeRow = {
+      id: 'm1',
+      organizationId: 'org-1',
+      primaryBranchId: 'b1',
+      assignedTrainerId: null,
+      status: 'ACTIVE',
+      phone: '9876543210',
+      alternatePhone: '9811111111',
+    };
     tx = {
       member: {
         create: jest.fn().mockImplementation(async ({ data }: any) => ({
@@ -62,18 +80,23 @@ describe('MembersService contact enhancement', () => {
       member: {
         count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn().mockImplementation(async (args: any) => {
-          // Referrer lookup vs member-code collision probe.
-          if (args?.where?.id === 'ref-1') return { id: 'ref-1' };
-          if (args?.where?.id === 'other-org-member') return null;
-          if (args?.select?.id && args?.where?.memberCode) return null;
-          if (args?.where?.id === 'm1')
-            return {
-              id: 'm1',
-              organizationId: 'org-1',
-              primaryBranchId: 'b1',
-              assignedTrainerId: null,
-              status: 'ACTIVE',
-            };
+          // Referrer lookup: tenant members are visible only when the
+          // caller's branch scope (if any) matches their home branch.
+          const id = args?.where?.id;
+          if (id === 'other-org-member') return null;
+          if (id && tenantMembers[id]) {
+            const known = tenantMembers[id];
+            if (
+              args?.where?.primaryBranchId &&
+              known.primaryBranchId !== args.where.primaryBranchId
+            )
+              return null;
+            return known;
+          }
+          // Member-code collision probe during creation.
+          if (args?.where?.memberCode) return null;
+          // Stored row for updates (getOne).
+          if (id === 'm1') return beforeRow;
           return null;
         }),
       },
@@ -206,5 +229,86 @@ describe('MembersService contact enhancement', () => {
         email: 'new@example.com',
       }),
     });
+  });
+
+  it('allows a same-branch referrer for a branch-scoped caller', async () => {
+    await service.create(
+      'org-1',
+      { ...baseDto(), referrerMemberId: 'ref-1' } as any,
+      'b1',
+    );
+    expect(tx.referral.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a cross-branch referrer for a branch-scoped caller', async () => {
+    await expect(
+      service.create(
+        'org-1',
+        { ...baseDto(), referrerMemberId: 'ref-b2' } as any,
+        'b1',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.update(
+        'org-1',
+        'm1',
+        { referrerMemberId: 'ref-b2' } as any,
+        'b1',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.referral.create).not.toHaveBeenCalled();
+  });
+
+  it('allows cross-branch referral for organization-wide callers', async () => {
+    await service.create(
+      'org-1',
+      { ...baseDto(), referrerMemberId: 'ref-b2' } as any,
+      null,
+    );
+    expect(tx.referral.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a PATCHed alternate matching the stored primary', async () => {
+    await expect(
+      service.update('org-1', 'm1', {
+        alternatePhone: '98765 43210',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.member.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a PATCHed primary matching the stored alternate', async () => {
+    await expect(
+      service.update('org-1', 'm1', { phone: '98111 11111' } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.member.update).not.toHaveBeenCalled();
+  });
+
+  it('leaves legacy matching stored pairs alone on unrelated PATCHes', async () => {
+    beforeRow.phone = '9999999999';
+    beforeRow.alternatePhone = '9999999999';
+    await service.update('org-1', 'm1', { city: 'Pune' } as any);
+    expect(tx.member.update).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+      data: expect.objectContaining({ city: 'Pune' }),
+    });
+  });
+
+  it('allows clearing a duplicated legacy alternate', async () => {
+    beforeRow.phone = '9999999999';
+    beforeRow.alternatePhone = '9999999999';
+    await service.update('org-1', 'm1', { alternatePhone: null } as any);
+    expect(tx.member.update).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+      data: expect.objectContaining({ alternatePhone: null }),
+    });
+  });
+
+  it('does not attribute twice when a referral already exists', async () => {
+    tx.referral.findFirst.mockResolvedValue({ id: 'r1' });
+    await service.update('org-1', 'm1', {
+      referrerMemberId: 'ref-1',
+    } as any);
+    expect(tx.referral.create).not.toHaveBeenCalled();
   });
 });

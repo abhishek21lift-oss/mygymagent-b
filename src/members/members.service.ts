@@ -206,7 +206,11 @@ export class MembersService {
     );
     this.validateContactFields(dto);
     if (dto.referrerMemberId) {
-      await this.validateReferrer(organizationId, dto.referrerMemberId);
+      await this.validateReferrer(
+        organizationId,
+        dto.referrerMemberId,
+        branchScope,
+      );
     }
     const memberCode = await this.generateMemberCode(organizationId);
     const {
@@ -384,6 +388,15 @@ export class MembersService {
       });
     }
     // Attribute a referring member through the existing Referral model.
+    // Same-transaction ordering (member row is written above before
+    // this check) is what makes the update-path attribution safe
+    // under concurrency: rival updates to the same member serialize
+    // on its row lock, so the second transaction observes the first
+    // one's referral in the findFirst below and skips. No database
+    // uniqueness constraint was added: business-os conversions can
+    // already attribute one member from several referrals, so a
+    // one-attribution rule is not a proven invariant, and an index
+    // could refuse the migration on existing data.
     if (referrerMemberId && referrerMemberId !== created.id) {
       await db.referral.create({
         data: {
@@ -458,12 +471,16 @@ export class MembersService {
       dto.primaryBranchId ?? before.primaryBranchId,
       dto.assignedTrainerId,
     );
-    this.validateContactFields(dto);
+    this.validateContactFields(dto, before);
     if (dto.referrerMemberId) {
       if (dto.referrerMemberId === id) {
         throw new BadRequestException('A member cannot refer themselves');
       }
-      await this.validateReferrer(organizationId, dto.referrerMemberId);
+      await this.validateReferrer(
+        organizationId,
+        dto.referrerMemberId,
+        branchScope,
+      );
     }
     const {
       emergencyContactRelationship,
@@ -617,6 +634,13 @@ export class MembersService {
         }
       }
 
+      // One attribution per member: guarded by the pre-existence check,
+      // which is reliable here because this transaction updated the
+      // member row above and therefore holds its row lock against
+      // concurrent updates to the same member (see the note at the
+      // create-path insert). A cross-path race with a business-os
+      // conversion landing mid-transaction remains theoretically
+      // possible and needs a product decision before any constraint.
       if (referrerMemberId) {
         const existing = await tx.referral.findFirst({
           where: { organizationId, referredMemberId: id },
@@ -773,14 +797,27 @@ export class MembersService {
    * plausible. Phone digits are counted after stripping formatting so
    * "+91 98765 43210" and "98765-43210" both pass; PIN defaults to the
    * Indian 6-digit shape only when no other country is given.
+   *
+   * `before` is the stored row on updates: the primary/alternate
+   * equality check runs on the effective post-update pair, so a PATCH
+   * touching only one side still cannot duplicate the stored other
+   * side -- while a PATCH touching neither side never fails on legacy
+   * rows whose stored pair already matches. An explicit `null` clears
+   * the field (it is absent from the effective pair, never equal).
    */
-  private validateContactFields(dto: {
-    phone?: string;
-    alternatePhone?: string;
-    emergencyContactPhone?: string;
-    postalCode?: string;
-    country?: string;
-  }) {
+  private validateContactFields(
+    dto: {
+      phone?: string | null;
+      alternatePhone?: string | null;
+      emergencyContactPhone?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+    },
+    before?: {
+      phone?: string | null;
+      alternatePhone?: string | null;
+    },
+  ) {
     const digits = (v: string) => v.replace(/\D/g, '');
     for (const key of [
       'phone',
@@ -788,21 +825,31 @@ export class MembersService {
       'emergencyContactPhone',
     ] as const) {
       const value = dto[key];
-      if (value !== undefined && value.trim() !== '') {
+      if (value !== undefined && value !== null && value.trim() !== '') {
         const d = digits(value);
         if (d.length < 10 || d.length > 15) {
           throw new BadRequestException(`${key} must contain 10 to 15 digits`);
         }
       }
     }
-    if (
-      dto.alternatePhone?.trim() &&
-      dto.phone?.trim() &&
-      digits(dto.alternatePhone) === digits(dto.phone)
-    ) {
-      throw new BadRequestException(
-        'Alternate mobile must differ from the primary mobile number',
-      );
+    const pairTouched =
+      before === undefined ||
+      dto.phone !== undefined ||
+      dto.alternatePhone !== undefined;
+    if (pairTouched) {
+      const phone =
+        dto.phone === null
+          ? undefined
+          : (dto.phone ?? before?.phone ?? undefined);
+      const alt =
+        dto.alternatePhone === null
+          ? undefined
+          : (dto.alternatePhone ?? before?.alternatePhone ?? undefined);
+      if (phone?.trim() && alt?.trim() && digits(phone) === digits(alt)) {
+        throw new BadRequestException(
+          'Alternate mobile must differ from the primary mobile number',
+        );
+      }
     }
     const pin = dto.postalCode?.trim() ?? '';
     if (pin !== '') {
@@ -817,15 +864,33 @@ export class MembersService {
     }
   }
 
-  /** Referral IDs are server-validated: same tenant, live member. */
-  private async validateReferrer(organizationId: string, referrerId: string) {
+  /**
+   * Referral IDs are server-validated: same tenant, live member, and --
+   * for branch-scoped callers -- inside the caller's branch, matching
+   * the rule business-os conversions already apply to referrer
+   * lookups. Organization-wide callers (null scope) keep cross-branch
+   * attribution. Never trusts client-supplied tenant or branch IDs:
+   * both come from the authenticated server-side context.
+   */
+  private async validateReferrer(
+    organizationId: string,
+    referrerId: string,
+    branchScope: string | null = null,
+  ) {
     const referrer = await this.prisma.member.findFirst({
-      where: { id: referrerId, organizationId, deletedAt: null },
+      where: {
+        id: referrerId,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
       select: { id: true },
     });
     if (!referrer) {
       throw new BadRequestException(
-        'Referring member does not belong to this organization',
+        branchScope
+          ? 'Referring member is not available in your branch'
+          : 'Referring member does not belong to this organization',
       );
     }
   }

@@ -26,6 +26,8 @@ const RESOLVABLE_FIELDS = [
   'country',
   'emergencyContactName',
   'emergencyContactPhone',
+  'emergencyContactEmail',
+  'alternatePhone',
   'memberType',
   'leadSource',
   'profilePhotoUrl',
