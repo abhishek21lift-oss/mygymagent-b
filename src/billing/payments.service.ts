@@ -15,7 +15,6 @@ import {
 import {
   DomainEvent,
   type PaymentRecordedEvent,
-  type PaymentRefundedEvent,
 } from '../events/domain-events';
 import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { PrismaService } from '../prisma/prisma.service';
