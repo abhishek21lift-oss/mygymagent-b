@@ -212,6 +212,17 @@ export class FreellmClient {
         err.retriable = true;
         throw err;
       }
+      if (res.status === 401) {
+        // No session token on the way out means this was the dashboard
+        // login itself: the gateway rejected the configured credentials.
+        // Deliberately distinct from the generic failure below, so the
+        // Command Center diagnosis can tell "wrong credentials" apart
+        // from "unreachable" -- same HTTP 502 family, actionable text.
+        // The address is never included: it is config, not diagnostics.
+        throw new BadGatewayException(
+          'FreeLLMAPI rejected the dashboard credentials',
+        );
+      }
       if (!res.ok) {
         if (res.status === 429) {
           throw new BadGatewayException('FreeLLMAPI is rate limiting requests');
