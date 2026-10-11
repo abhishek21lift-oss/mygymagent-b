@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
@@ -203,14 +204,24 @@ export class MembersService {
       dto.primaryBranchId,
       dto.assignedTrainerId,
     );
+    this.validateContactFields(dto);
+    if (dto.referrerMemberId) {
+      await this.validateReferrer(
+        organizationId,
+        dto.referrerMemberId,
+        branchScope,
+      );
+    }
     const memberCode = await this.generateMemberCode(organizationId);
     const {
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       ...memberFields
     } = dto;
     const member = tx
@@ -222,11 +233,13 @@ export class MembersService {
           emergencyContactName: dto.emergencyContactName,
           emergencyContactPhone: dto.emergencyContactPhone,
           emergencyContactRelationship,
+          emergencyContactEmail,
           waiverConsent,
           fitnessGoal,
           injuries,
           allergies,
           medicalNotes,
+          referrerMemberId,
           createdByUserId,
         })
       : await this.prisma.$transaction((inner) =>
@@ -240,11 +253,13 @@ export class MembersService {
             emergencyContactName: dto.emergencyContactName,
             emergencyContactPhone: dto.emergencyContactPhone,
             emergencyContactRelationship,
+            emergencyContactEmail,
             waiverConsent,
             fitnessGoal,
             injuries,
             allergies,
             medicalNotes,
+            referrerMemberId,
             createdByUserId,
           }),
         );
@@ -274,11 +289,13 @@ export class MembersService {
       memberFields: Omit<
         CreateMemberDto,
         | 'emergencyContactRelationship'
+        | 'emergencyContactEmail'
         | 'waiverConsent'
         | 'fitnessGoal'
         | 'injuries'
         | 'allergies'
         | 'medicalNotes'
+        | 'referrerMemberId'
         | 'dateOfBirth'
       >;
       memberCode: string;
@@ -286,11 +303,13 @@ export class MembersService {
       emergencyContactName: string | undefined;
       emergencyContactPhone: string | undefined;
       emergencyContactRelationship: string | undefined;
+      emergencyContactEmail: string | undefined;
       waiverConsent: boolean | undefined;
       fitnessGoal: string | undefined;
       injuries: string | undefined;
       allergies: string | undefined;
       medicalNotes: string | undefined;
+      referrerMemberId: string | undefined;
       createdByUserId: string | null;
     },
   ) {
@@ -302,11 +321,13 @@ export class MembersService {
       emergencyContactName,
       emergencyContactPhone,
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       createdByUserId,
     } = args;
     const created = await db.member.create({
@@ -315,6 +336,8 @@ export class MembersService {
         organizationId,
         memberCode,
         dateOfBirth,
+        // Flat snapshot mirrors the primary emergency contact.
+        emergencyContactEmail: emergencyContactEmail ?? undefined,
       },
     });
     await db.memberStatusHistory.create({
@@ -347,7 +370,11 @@ export class MembersService {
       });
     }
     // Create emergency contact with relationship if provided
-    if (emergencyContactName || emergencyContactPhone) {
+    if (
+      emergencyContactName ||
+      emergencyContactPhone ||
+      emergencyContactEmail
+    ) {
       await db.memberEmergencyContact.create({
         data: {
           organizationId,
@@ -355,7 +382,34 @@ export class MembersService {
           name: emergencyContactName || '',
           phone: emergencyContactPhone || '',
           relationship: emergencyContactRelationship || null,
+          email: emergencyContactEmail || null,
           isPrimary: true,
+        },
+      });
+    }
+    // Attribute a referring member through the existing Referral model.
+    // Same-transaction ordering (member row is written above before
+    // this check) is what makes the update-path attribution safe
+    // under concurrency: rival updates to the same member serialize
+    // on its row lock, so the second transaction observes the first
+    // one's referral in the findFirst below and skips. No database
+    // uniqueness constraint was added: business-os conversions can
+    // already attribute one member from several referrals, so a
+    // one-attribution rule is not a proven invariant, and an index
+    // could refuse the migration on existing data.
+    if (referrerMemberId && referrerMemberId !== created.id) {
+      await db.referral.create({
+        data: {
+          organizationId,
+          referrerMemberId,
+          referredMemberId: created.id,
+          code:
+            'REF-' +
+            randomBytes(5).toString('hex').toUpperCase() +
+            '-' +
+            created.memberCode,
+          status: 'CONVERTED',
+          convertedAt: new Date(),
         },
       });
     }
@@ -417,13 +471,26 @@ export class MembersService {
       dto.primaryBranchId ?? before.primaryBranchId,
       dto.assignedTrainerId,
     );
+    this.validateContactFields(dto, before);
+    if (dto.referrerMemberId) {
+      if (dto.referrerMemberId === id) {
+        throw new BadRequestException('A member cannot refer themselves');
+      }
+      await this.validateReferrer(
+        organizationId,
+        dto.referrerMemberId,
+        branchScope,
+      );
+    }
     const {
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       ...memberFields
     } = dto;
     return this.prisma.$transaction(async (tx) => {
@@ -432,6 +499,10 @@ export class MembersService {
         data: {
           ...memberFields,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+          // Explicit email snapshot; omitted optional fields stay untouched.
+          ...(emergencyContactEmail !== undefined
+            ? { emergencyContactEmail }
+            : {}),
         },
       });
       if (dto.status !== undefined && dto.status !== before.status) {
@@ -477,7 +548,8 @@ export class MembersService {
       if (
         dto.emergencyContactName !== undefined ||
         dto.emergencyContactPhone !== undefined ||
-        emergencyContactRelationship !== undefined
+        emergencyContactRelationship !== undefined ||
+        emergencyContactEmail !== undefined
       ) {
         const primaryEmergency = await tx.memberEmergencyContact.findFirst({
           where: { organizationId, memberId: id, isPrimary: true },
@@ -490,13 +562,18 @@ export class MembersService {
             emergencyContactRelationship ??
             primaryEmergency?.relationship ??
             null,
+          email: emergencyContactEmail ?? primaryEmergency?.email ?? null,
         };
         if (primaryEmergency) {
           await tx.memberEmergencyContact.update({
             where: { id: primaryEmergency.id },
             data: emergencyData,
           });
-        } else if (emergencyData.name || emergencyData.phone) {
+        } else if (
+          emergencyData.name ||
+          emergencyData.phone ||
+          emergencyData.email
+        ) {
           await tx.memberEmergencyContact.create({
             data: {
               organizationId,
@@ -552,6 +629,36 @@ export class MembersService {
               description: medicalNotes || undefined,
               startDate: new Date(),
               createdByUserId: changedByUserId,
+            },
+          });
+        }
+      }
+
+      // One attribution per member: guarded by the pre-existence check,
+      // which is reliable here because this transaction updated the
+      // member row above and therefore holds its row lock against
+      // concurrent updates to the same member (see the note at the
+      // create-path insert). A cross-path race with a business-os
+      // conversion landing mid-transaction remains theoretically
+      // possible and needs a product decision before any constraint.
+      if (referrerMemberId) {
+        const existing = await tx.referral.findFirst({
+          where: { organizationId, referredMemberId: id },
+          select: { id: true },
+        });
+        if (!existing) {
+          await tx.referral.create({
+            data: {
+              organizationId,
+              referrerMemberId,
+              referredMemberId: id,
+              code:
+                'REF-' +
+                randomBytes(5).toString('hex').toUpperCase() +
+                '-' +
+                updated.memberCode,
+              status: 'CONVERTED',
+              convertedAt: new Date(),
             },
           });
         }
@@ -683,6 +790,109 @@ export class MembersService {
       totalRefunded: total.refunded,
       outstandingBalance: total.outstanding,
     };
+  }
+
+  /**
+   * Optional contact fields stay optional, but when supplied they must be
+   * plausible. Phone digits are counted after stripping formatting so
+   * "+91 98765 43210" and "98765-43210" both pass; PIN defaults to the
+   * Indian 6-digit shape only when no other country is given.
+   *
+   * `before` is the stored row on updates: the primary/alternate
+   * equality check runs on the effective post-update pair, so a PATCH
+   * touching only one side still cannot duplicate the stored other
+   * side -- while a PATCH touching neither side never fails on legacy
+   * rows whose stored pair already matches. An explicit `null` clears
+   * the field (it is absent from the effective pair, never equal).
+   */
+  private validateContactFields(
+    dto: {
+      phone?: string | null;
+      alternatePhone?: string | null;
+      emergencyContactPhone?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+    },
+    before?: {
+      phone?: string | null;
+      alternatePhone?: string | null;
+    },
+  ) {
+    const digits = (v: string) => v.replace(/\D/g, '');
+    for (const key of [
+      'phone',
+      'alternatePhone',
+      'emergencyContactPhone',
+    ] as const) {
+      const value = dto[key];
+      if (value !== undefined && value !== null && value.trim() !== '') {
+        const d = digits(value);
+        if (d.length < 10 || d.length > 15) {
+          throw new BadRequestException(`${key} must contain 10 to 15 digits`);
+        }
+      }
+    }
+    const pairTouched =
+      before === undefined ||
+      dto.phone !== undefined ||
+      dto.alternatePhone !== undefined;
+    if (pairTouched) {
+      const phone =
+        dto.phone === null
+          ? undefined
+          : (dto.phone ?? before?.phone ?? undefined);
+      const alt =
+        dto.alternatePhone === null
+          ? undefined
+          : (dto.alternatePhone ?? before?.alternatePhone ?? undefined);
+      if (phone?.trim() && alt?.trim() && digits(phone) === digits(alt)) {
+        throw new BadRequestException(
+          'Alternate mobile must differ from the primary mobile number',
+        );
+      }
+    }
+    const pin = dto.postalCode?.trim() ?? '';
+    if (pin !== '') {
+      const country = (dto.country ?? '').trim().toUpperCase();
+      if (country === '' || country === 'INDIA') {
+        if (!/^\d{6}$/.test(pin.replace(/\s/g, ''))) {
+          throw new BadRequestException('PIN code must be a 6-digit number');
+        }
+      } else if (pin.length < 3 || pin.length > 12) {
+        throw new BadRequestException('Postal code looks invalid');
+      }
+    }
+  }
+
+  /**
+   * Referral IDs are server-validated: same tenant, live member, and --
+   * for branch-scoped callers -- inside the caller's branch, matching
+   * the rule business-os conversions already apply to referrer
+   * lookups. Organization-wide callers (null scope) keep cross-branch
+   * attribution. Never trusts client-supplied tenant or branch IDs:
+   * both come from the authenticated server-side context.
+   */
+  private async validateReferrer(
+    organizationId: string,
+    referrerId: string,
+    branchScope: string | null = null,
+  ) {
+    const referrer = await this.prisma.member.findFirst({
+      where: {
+        id: referrerId,
+        organizationId,
+        deletedAt: null,
+        ...(branchScope ? { primaryBranchId: branchScope } : {}),
+      },
+      select: { id: true },
+    });
+    if (!referrer) {
+      throw new BadRequestException(
+        branchScope
+          ? 'Referring member is not available in your branch'
+          : 'Referring member does not belong to this organization',
+      );
+    }
   }
 
   /**

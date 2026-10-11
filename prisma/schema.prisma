@@ -765,6 +765,7 @@ model Member {
   lastName  String
   email     String?
   phone     String?
+  alternatePhone String?
 
   dateOfBirth DateTime?
   gender      Gender?
@@ -778,6 +779,7 @@ model Member {
 
   emergencyContactName  String?
   emergencyContactPhone String?
+  emergencyContactEmail String?
 
   memberType MemberType?
   leadSource String?
@@ -933,6 +935,7 @@ model MemberEmergencyContact {
   name         String
   phone        String
   relationship String?
+  email        String?
   isPrimary    Boolean @default(false)
 
   createdAt DateTime @default(now())

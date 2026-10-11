@@ -1,5 +1,11 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreateMemberEmergencyContactDto {
   @IsString()
@@ -13,6 +19,10 @@ export class CreateMemberEmergencyContactDto {
   @IsOptional()
   @IsString()
   relationship?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsBoolean()
