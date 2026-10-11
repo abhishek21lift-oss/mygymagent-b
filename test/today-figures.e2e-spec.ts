@@ -40,7 +40,8 @@ describe("Today's figures agree everywhere (e2e)", () => {
       .data.items[0].id;
 
     // A day at the gym: two new members, one paying in part, both
-    // checking in; one turned away; a staff check-in; a refund; a lead.
+    // checking in; one turned away; a staff check-in; a refused refund
+    // (no-refund policy: the payment stays counted); a lead.
     const member = async (firstName: string) =>
       (
         await as(
@@ -87,7 +88,7 @@ describe("Today's figures agree everywhere (e2e)", () => {
       request(server())
         .post(`/payments/${refunded.body.data.id}/refund`)
         .send({}),
-    ).expect(201);
+    ).expect(410);
     await as(
       request(server())
         .post('/leads')
@@ -128,7 +129,7 @@ describe("Today's figures agree everywhere (e2e)", () => {
     );
     expect(Number(row.grossRevenue)).toBe(today.collected);
     expect(Number(row.netRevenue)).toBe(today.net);
-    expect(today.net).toBe(today.collected - 10);
+    expect(today.net).toBe(today.collected);
 
     const coo = (
       await as(request(server()).get('/analytics/coo-briefing')).expect(200)

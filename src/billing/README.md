@@ -17,12 +17,10 @@ not-yet-built model family. See `docs/saas/billing-separation.md`.
   product, walk-in fee).
 - `GET /payments`, `GET /payments/:id` — list/view (`payments.read`),
   filterable by `memberId`/`membershipId`.
-- `POST /payments/:id/refund` — issue a full or partial refund
-  (`payments.refund`). Never mutates the original `Payment.amount` — see
-  `docs/database/data-retention.md`'s financial-records section. A payment
-  can be refunded multiple times (partial refunds) up to its original
-  amount; `Payment.status` tracks `COMPLETED` → `PARTIALLY_REFUNDED` →
-  `REFUNDED`.
+- `POST /payments/:id/refund` — disabled: strict no-refund policy.
+  The route answers 410 Gone; historical `Refund` rows remain readable
+  and existing analytics keep counting them, but no new refund can be
+  created. `Payment.status` values are unchanged for history.
 
 Every query/mutation is scoped by `organizationId` taken from
 `@CurrentUser()`, same as every other implemented module — see

@@ -295,7 +295,7 @@ describe('Owner dashboard KPIs (e2e)', () => {
   });
 
   describe('Owner OS', () => {
-    it('nets a same-day refund once, so revenue never goes negative', async () => {
+    it('keeps a same-day payment counted: refunds are disabled', async () => {
       const org = await registerOrg('KPI Refund Gym');
       const member = await addMember(org, 'Refunded');
       const before = (await ownerOs(org)).metrics.todayRevenue;
@@ -309,9 +309,9 @@ describe('Owner dashboard KPIs (e2e)', () => {
         request(app.getHttpServer())
           .post(`/payments/${payment.body.data.id}/refund`)
           .send({}),
-      ).expect(201);
+      ).expect(410);
 
-      expect((await ownerOs(org)).metrics.todayRevenue).toBe(before);
+      expect((await ownerOs(org)).metrics.todayRevenue).toBe(before + 1000);
     });
 
     it('counts a renewed member once, and not as expiring', async () => {

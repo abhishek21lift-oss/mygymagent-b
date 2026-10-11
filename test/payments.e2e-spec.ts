@@ -120,7 +120,7 @@ describe('Payments (e2e)', () => {
     ).expect(400);
   });
 
-  it('supports partial refunds up to the original amount, then rejects going over', async () => {
+  it('refuses all refunds under the strict no-refund policy', async () => {
     const payment = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/payments').send({
         memberId,
@@ -129,51 +129,31 @@ describe('Payments (e2e)', () => {
     ).expect(201);
     const paymentId = payment.body.data.id;
 
-    const firstRefund = await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .post(`/payments/${paymentId}/refund`)
-        .send({ amount: 50, reason: 'Partial dissatisfaction' }),
-    ).expect(201);
-    expect(firstRefund.body.data.amount).toBe('50');
+    // Partial, full and repeated attempts all answer 410 Gone: payments
+    // are final and non-refundable. The payment itself is untouched.
+    for (const body of [
+      { amount: 50, reason: 'Partial dissatisfaction' },
+      {},
+    ]) {
+      const refused = await authed(org.accessToken)(
+        request(app.getHttpServer())
+          .post(`/payments/${paymentId}/refund`)
+          .send(body),
+      ).expect(410);
+      expect(refused.body.error.message).toMatch(/non-refundable/i);
+    }
 
-    const afterFirst = await authed(org.accessToken)(
+    const after = await authed(org.accessToken)(
       request(app.getHttpServer()).get(`/payments/${paymentId}`),
     ).expect(200);
-    expect(afterFirst.body.data.status).toBe('PARTIALLY_REFUNDED');
-
-    // Attempting to refund more than the remaining 150 is rejected.
-    await authed(org.accessToken)(
-      request(app.getHttpServer())
-        .post(`/payments/${paymentId}/refund`)
-        .send({ amount: 151 }),
-    ).expect(400);
-
-    // Refunding exactly the remaining balance (omit amount = full
-    // remaining) succeeds and flips status to fully REFUNDED.
-    await authed(org.accessToken)(
-      request(app.getHttpServer()).post(`/payments/${paymentId}/refund`),
-    ).expect(201);
-
-    const afterFull = await authed(org.accessToken)(
-      request(app.getHttpServer()).get(`/payments/${paymentId}`),
-    ).expect(200);
-    expect(afterFull.body.data.status).toBe('REFUNDED');
-
-    // A payment that's already fully refunded cannot be refunded again.
-    await authed(org.accessToken)(
-      request(app.getHttpServer()).post(`/payments/${paymentId}/refund`),
-    ).expect(400);
+    expect(after.body.data.status).toBe('COMPLETED');
+    expect(after.body.data.refunds).toEqual([]);
   });
 
-  it('never over-refunds under concurrent full-refund requests against the same payment (regression for the read-then-write race)', async () => {
-    // Before the fix, refund() read the existing Refund rows and computed
-    // the remaining balance *outside* any transaction -- two concurrent
-    // refund requests against the same payment could both read "nothing
-    // refunded yet", both pass the remaining-balance check, and both
-    // commit, refunding more than the original payment. The fix locks the
-    // payment row (`SELECT ... FOR UPDATE`) for the duration of the
-    // transaction so the second request's read can't happen until the
-    // first has committed its refund.
+  it('refuses concurrent refund requests the same way: no refund is ever created', async () => {
+    // The old read-then-write race this test used to cover cannot happen
+    // anymore -- refund() answers 410 before touching any row, so every
+    // concurrent attempt is refused and nothing is ever written.
     const payment = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/payments').send({
         memberId,
@@ -189,25 +169,13 @@ describe('Payments (e2e)', () => {
         .send({});
 
     const [first, second] = await Promise.all([attempt(), attempt()]);
-    const statuses = [first.status, second.status].sort();
-    expect(statuses).toEqual([201, 400]);
-
-    const refunds = await authed(org.accessToken)(
-      request(app.getHttpServer()).get('/payments').query({ memberId }),
-    ).expect(200);
-    const refunded = refunds.body.data.items.find(
-      (p: { id: string }) => p.id === paymentId,
-    );
-    expect(refunded.status).toBe('REFUNDED');
+    expect([first.status, second.status]).toEqual([410, 410]);
 
     const finalPayment = await authed(org.accessToken)(
       request(app.getHttpServer()).get(`/payments/${paymentId}`),
     ).expect(200);
-    const totalRefunded = finalPayment.body.data.refunds.reduce(
-      (sum: number, r: { amount: string }) => sum + Number(r.amount),
-      0,
-    );
-    expect(totalRefunded).toBe(100);
+    expect(finalPayment.body.data.status).toBe('COMPLETED');
+    expect(finalPayment.body.data.refunds).toEqual([]);
   });
 
   it('rejects recording a payment for a member that does not exist', async () => {

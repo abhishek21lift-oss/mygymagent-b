@@ -138,7 +138,7 @@ describe('Automation audit (e2e)', () => {
   });
 
   describe('reminders about money', () => {
-    it('chases an invoice a refund reopened', async () => {
+    it('never chases a paid invoice: refused refunds keep it settled', async () => {
       const memberId = await newMember(
         'Refunded',
         `refunded-${Date.now()}@example.com`,
@@ -155,16 +155,11 @@ describe('Automation audit (e2e)', () => {
       const payment = await prisma.payment.findFirstOrThrow({
         where: { membershipId: sale.body.data.id },
       });
+      // The refund that used to reopen this invoice is refused now.
       await owner()
         .post(`/payments/${payment.id}/refund`)
         .send({ reason: 'Moved away' })
-        .expect(201);
-      await until(() =>
-        prisma.invoice.findFirst({
-          where: { id: invoice.id, status: 'ISSUED' },
-        }),
-      );
-      // Due a minute ago: today's window, whatever the clock does next.
+        .expect(410);
       await prisma.invoice.update({
         where: { id: invoice.id },
         data: { dueAt: new Date(Date.now() - 60_000) },
@@ -179,7 +174,7 @@ describe('Automation audit (e2e)', () => {
           subjectId: `${invoice.id}:w0`,
         },
       });
-      expect(run).not.toBeNull();
+      expect(run).toBeNull();
     });
 
     it('chases one debt once: invoiced memberships are left to invoice reminders', async () => {

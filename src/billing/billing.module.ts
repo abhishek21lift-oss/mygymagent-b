@@ -13,8 +13,9 @@ import { StripeWebhookController } from '../payments/stripe-webhook.controller';
  *
  * Invoices, discounts, taxes, and trainer payouts/commissions described in
  * docs/ARCHITECTURE.md are still not implemented -- this module covers
- * recording a payment and issuing a refund against it, the two actions the
- * existing ACCOUNTANT/SALES_EXECUTIVE/BRANCH_MANAGER role grants
+ * recording a payment; issuing a refund against it is disabled under the
+ * strict no-refund policy (`POST /payments/:id/refund` answers 410).
+ * The existing ACCOUNTANT/SALES_EXECUTIVE/BRANCH_MANAGER role grants
  * (`payments.read`/`payments.create`/`payments.refund`) were already
  * written against.
  */
