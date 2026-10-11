@@ -276,7 +276,8 @@ export class WhatsappAutoReplyListener {
 
   private async plans(gym: Gym): Promise<string> {
     const plans = await this.prisma.membershipPlan.findMany({
-      where: { organizationId: gym.id, isActive: true },
+      // Staff-hidden plans stay out of member-facing replies.
+      where: { organizationId: gym.id, isActive: true, isPublic: true },
       orderBy: [{ durationDays: 'asc' }, { price: 'asc' }],
       take: LIST_LIMIT,
       select: { name: true, price: true, currency: true, durationDays: true },

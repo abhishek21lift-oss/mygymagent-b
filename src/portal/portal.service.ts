@@ -836,6 +836,7 @@ export class PortalService {
       where: {
         organizationId,
         isActive: true,
+        isPublic: true,
         // A null branchId on a plan means "every branch".
         OR: [{ branchId: null }, { branchId: primaryBranchId }],
       },

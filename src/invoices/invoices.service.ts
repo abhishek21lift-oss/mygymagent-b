@@ -15,6 +15,7 @@ import {
 } from '../common/dto/pagination-query.dto';
 import { CommunicationsService } from '../communications/communications.service';
 import type { MembershipStartedEvent } from '../events/domain-events';
+import { quotePlanPrice } from '../membership-plans/plan-pricing';
 import { RazorpayService } from '../payments/razorpay.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -572,6 +573,39 @@ export class InvoicesService {
         );
         return;
       }
+      // Trials are free: no invoice, nothing to settle.
+      if (membership.isTrial) return;
+      // Sale-time terms come from the frozen snapshot, never the live
+      // plan: repricing after the sale must not move this invoice. The
+      // single pricing formula keeps the invoice total identical to
+      // the sale quote.
+      const snap = (membership.planSnapshot ?? {}) as {
+        joiningFee?: string | number | null;
+        taxMode?: string | null;
+        taxRate?: string | number | null;
+      };
+      const fee = Number(snap.joiningFee ?? 0);
+      const quote = quotePlanPrice({
+        price: Number(
+          membership.price.plus(membership.discount ?? 0).toFixed(2),
+        ),
+        joiningFee: fee,
+        taxMode: (snap.taxMode ?? 'none') as 'none' | 'inclusive' | 'exclusive',
+        taxRate: Number(snap.taxRate ?? 0),
+      });
+      // Inclusive tax is embedded in the total by definition, so it
+      // must not also appear as a breakup line (that would add it
+      // twice). Exclusive tax is itemised.
+      const taxLines =
+        quote.taxMode === 'exclusive' && quote.tax.gt(0)
+          ? [
+              {
+                label: `GST ${quote.taxRate.toFixed(2)}%`,
+                rate: Number(quote.taxRate.toFixed(2)),
+                amount: Number(quote.tax.toFixed(2)),
+              },
+            ]
+          : undefined;
       await this.create(event.organizationId, {
         memberId: membership.memberId,
         membershipId: membership.id,
@@ -587,8 +621,12 @@ export class InvoicesService {
             ),
             qty: 1,
           },
+          ...(fee > 0
+            ? [{ label: 'Joining fee', amount: fee, qty: 1 as const }]
+            : []),
         ],
         discount: membership.discount ? Number(membership.discount) : 0,
+        ...(taxLines ? { taxBreakup: taxLines } : {}),
         dueAt: membership.startDate.toISOString(),
       });
       this.logger.log(

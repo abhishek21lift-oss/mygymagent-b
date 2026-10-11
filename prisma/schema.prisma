@@ -1098,6 +1098,29 @@ model MembershipPlan {
   isFeatured    Boolean  @default(false)
   /// False hides the plan from member-facing surfaces; sales flow unaffected.
   isPublic      Boolean  @default(true)
+  /// Ordering key for staff and member-facing lists. Lower first.
+  displayOrder  Int      @default(0)
+  /// Null = no free trial offered. Days of free access granted at sale.
+  trialDays     Int?
+  /// Was-price display; null = no offer. Must exceed price when set.
+  compareAtPrice Decimal? @db.Decimal(10, 2)
+  /// One-time fee added to the first invoice only.
+  joiningFee    Decimal  @db.Decimal(10, 2) @default(0)
+  /// none | inclusive | exclusive. Rate required unless none.
+  taxMode       String   @default("none")
+  taxRate       Decimal? @db.Decimal(5, 2)
+  /// Null = unlimited classes. Zero is rejected at validation.
+  weeklyClassLimit Int?
+  /// Included PT sessions, granted as PtPackage rows at sale. 0 = none.
+  ptSessionCredits Int @default(0)
+  /// Display labels for bookable session kinds. Unenforced in v1.
+  appointmentTypes String[] @default([])
+  /// Contract text shown at sale; the sale snapshot freezes the copy.
+  termsAndConditions String?
+  /// Capped [{q, a}] customer content.
+  faqs          Json     @default("[]")
+  /// HTTPS URL to a tenant-scoped stored image.
+  imageUrl      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1144,6 +1167,12 @@ model Membership {
   discount  Decimal? @db.Decimal(10, 2)
   currency  String   @default("USD")
   autoRenew Boolean  @default(false)
+  /// True for free-trial memberships. One trial per member per org.
+  isTrial   Boolean  @default(false)
+  /// Frozen copy of the plan's commercial terms at sale (price,
+  /// duration, limits, tax, trial, terms text). Plan edits never
+  /// rewrite it.
+  planSnapshot Json?
 
   cancelledAt        DateTime?
   cancellationReason String?

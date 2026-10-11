@@ -136,6 +136,27 @@ export class MembershipsService {
         'Cannot create a membership for a member outside your assigned branch',
       );
     }
+    // Free trials ride the same membership rows with a zero price and a
+    // short term. Lifetime rule: one trial per member per organization,
+    // checked here so a second trial can never start.
+    const isTrial = dto.isTrial ?? false;
+    if (isTrial) {
+      if (!plan.trialDays || plan.trialDays < 1) {
+        throw new BadRequestException('This plan offers no free trial');
+      }
+      if (dto.initialPayment && dto.initialPayment > 0) {
+        throw new BadRequestException('Trials are free: no payment allowed');
+      }
+      const priorTrial = await this.prisma.membership.findFirst({
+        where: { organizationId, memberId: member.id, isTrial: true },
+        select: { id: true },
+      });
+      if (priorTrial) {
+        throw new BadRequestException(
+          'This member has already used their free trial',
+        );
+      }
+    }
     // A bare date is that day in the gym's timezone; read as UTC it began
     // at 05:30 in India, and the term ended 05:30 into its last day.
     const startDate = dto.startDate
@@ -145,14 +166,34 @@ export class MembershipsService {
           'from',
         )
       : new Date();
-    const endDate = new Date(
-      startDate.getTime() + plan.durationDays * MS_PER_DAY,
-    );
-    const discount = discountOff(plan.price, dto.discount);
-    const finalPrice = discount ? plan.price.sub(discount) : plan.price;
+    const endDate = isTrial
+      ? new Date(startDate.getTime() + plan.trialDays! * MS_PER_DAY)
+      : new Date(startDate.getTime() + plan.durationDays * MS_PER_DAY);
+    const discount = isTrial ? null : discountOff(plan.price, dto.discount);
+    const finalPrice = isTrial
+      ? new Prisma.Decimal(0)
+      : discount
+        ? plan.price.sub(discount)
+        : plan.price;
     const initialPayment = dto.initialPayment
       ? new Prisma.Decimal(dto.initialPayment)
       : null;
+    // Frozen copy of the commercial terms: plan edits never rewrite it.
+    const planSnapshot = {
+      planId: plan.id,
+      name: plan.name,
+      durationDays: plan.durationDays,
+      price: plan.price.toFixed(2),
+      compareAtPrice: plan.compareAtPrice?.toFixed(2) ?? null,
+      joiningFee: plan.joiningFee.toFixed(2),
+      currency: plan.currency,
+      taxMode: plan.taxMode,
+      taxRate: plan.taxRate?.toFixed(2) ?? null,
+      weeklyClassLimit: plan.weeklyClassLimit,
+      ptSessionCredits: plan.ptSessionCredits,
+      trialDays: plan.trialDays,
+      termsAndConditions: plan.termsAndConditions,
+    };
 
     let payment: { id: string; amount: Prisma.Decimal } | null = null;
     const membership = await this.prisma.$transaction(async (tx) => {
@@ -168,9 +209,32 @@ export class MembershipsService {
           price: finalPrice,
           discount,
           currency: plan.currency,
-          autoRenew: dto.autoRenew ?? false,
+          autoRenew: isTrial ? false : (dto.autoRenew ?? false),
+          isTrial,
+          planSnapshot,
         },
       });
+
+      // Included PT sessions arrive as ordinary PtPackage rows, so the
+      // existing consumption flow applies with no parallel system.
+      // Trials carry no credits.
+      if (!isTrial && plan.ptSessionCredits > 0) {
+        await tx.ptPackage.create({
+          data: {
+            organizationId,
+            branchId,
+            memberId: member.id,
+            templateId: null,
+            name: `${plan.name} — included PT sessions`,
+            totalSessions: plan.ptSessionCredits,
+            startDate,
+            endDate,
+            price: new Prisma.Decimal(0),
+            currency: plan.currency,
+            status: 'ACTIVE',
+          },
+        });
+      }
 
       if (initialPayment && initialPayment.gt(0)) {
         payment = await this.recordInitialPayment(tx, newMembership, {

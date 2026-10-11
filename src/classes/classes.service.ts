@@ -307,6 +307,7 @@ export class ClassesService {
           id: true,
           branchId: true,
           capacity: true,
+          startTime: true,
           endTime: true,
           classProgram: { select: { capacity: true } },
         },
@@ -329,6 +330,18 @@ export class ClassesService {
       ) {
         throw new BadRequestException('Member is already booked or waitlisted');
       }
+
+      // Plan weekly limits are enforced here, not in the UI: only
+      // confirmed (BOOKED) places in the session's ISO week count.
+      // Members with no covering active membership keep today's
+      // behavior (booking stays open). Waitlist promotion on cancel
+      // re-checks through the same helper and skips over-cap heads.
+      await this.enforceWeeklyClassLimit(
+        tx,
+        organizationId,
+        memberId,
+        session.startTime,
+      );
 
       const booked = await tx.classBooking.count({
         where: { sessionId, status: 'BOOKED' },
@@ -488,20 +501,41 @@ export class ClassesService {
       // Only a booked place frees a place. Cancelling from the waitlist
       // promotes nobody.
       if (booking.status === 'BOOKED') {
-        const next = await tx.classBooking.findFirst({
-          where: {
-            organizationId,
-            sessionId: booking.sessionId,
-            status: 'WAITLISTED',
-          },
-          orderBy: [{ waitlistPosition: 'asc' }, { createdAt: 'asc' }],
-          select: { id: true },
+        // Promote the first waitlisted member whose weekly cap still
+        // has room. An over-cap head keeps their queue position for a
+        // later cancellation; they are skipped, not removed. Bounded
+        // scan: a pathological queue must not turn one cancellation
+        // into an unbounded serial check.
+        const sessionRow = await tx.classSession.findFirst({
+          where: { id: booking.sessionId, organizationId },
+          select: { startTime: true },
         });
-        if (next) {
-          await tx.classBooking.update({
-            where: { id: next.id },
-            data: { status: 'BOOKED', waitlistPosition: null },
+        if (sessionRow) {
+          const waitlist = await tx.classBooking.findMany({
+            where: {
+              organizationId,
+              sessionId: booking.sessionId,
+              status: 'WAITLISTED',
+            },
+            orderBy: [{ waitlistPosition: 'asc' }, { createdAt: 'asc' }],
+            take: 25,
+            select: { id: true, memberId: true },
           });
+          for (const candidate of waitlist) {
+            const cap = await this.weeklyCapUsage(
+              tx,
+              organizationId,
+              candidate.memberId,
+              sessionRow.startTime,
+            );
+            if (!cap || cap.used < cap.limit) {
+              await tx.classBooking.update({
+                where: { id: candidate.id },
+                data: { status: 'BOOKED', waitlistPosition: null },
+              });
+              break;
+            }
+          }
         }
       }
       return { ok: true };
@@ -604,6 +638,98 @@ export class ClassesService {
    */
   private lockSession(tx: PrismaTx, sessionId: string) {
     return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`;
+  }
+
+  /**
+   * Monday 00:00 UTC of the week containing `d`. Weeks are UTC days,
+   * matching how session times are stored and compared elsewhere here.
+   */
+  private startOfIsoWeek(d: Date): Date {
+    const mondayOffset = (d.getUTCDay() + 6) % 7;
+    return new Date(
+      Date.UTC(
+        d.getUTCFullYear(),
+        d.getUTCMonth(),
+        d.getUTCDate() - mondayOffset,
+      ),
+    );
+  }
+
+  /**
+   * Rejects the booking when the member's covering active membership
+   * caps weekly classes and the cap is reached.
+   */
+  private async enforceWeeklyClassLimit(
+    tx: PrismaTx,
+    organizationId: string,
+    memberId: string,
+    sessionStart: Date,
+  ) {
+    const cap = await this.weeklyCapUsage(
+      tx,
+      organizationId,
+      memberId,
+      sessionStart,
+    );
+    if (cap && cap.used >= cap.limit) {
+      throw new BadRequestException(
+        `Weekly class limit reached (${cap.limit} per week on this membership)`,
+      );
+    }
+  }
+
+  /**
+   * The member's BOOKED usage against their weekly cap for the ISO
+   * week containing `sessionStart`, or null when no cap applies. The
+   * cap comes from the sale-time snapshot (plan edits never move
+   * it); rows sold before snapshots existed fall back to the live
+   * plan value; members with no covering active membership keep
+   * today's open behavior. Serialised per member-week so concurrent
+   * bookings for different sessions cannot both slip under the cap.
+   */
+  private async weeklyCapUsage(
+    tx: PrismaTx,
+    organizationId: string,
+    memberId: string,
+    sessionStart: Date,
+  ): Promise<{ limit: number; used: number } | null> {
+    const covering = await tx.membership.findFirst({
+      where: {
+        organizationId,
+        memberId,
+        status: 'ACTIVE',
+        startDate: { lte: sessionStart },
+        endDate: { gte: sessionStart },
+      },
+      orderBy: { startDate: 'desc' },
+      select: {
+        planSnapshot: true,
+        membershipPlan: { select: { weeklyClassLimit: true } },
+      },
+    });
+    if (!covering) return null;
+    const snapshot = (covering.planSnapshot ?? {}) as {
+      weeklyClassLimit?: number | null;
+    };
+    const limit =
+      snapshot.weeklyClassLimit ?? covering.membershipPlan.weeklyClassLimit;
+    if (limit === null || limit === undefined) return null;
+    const weekStart = this.startOfIsoWeek(sessionStart);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'class-week:' + memberId + ':' + weekStart.toISOString()}))`;
+    const used = await tx.classBooking.count({
+      where: {
+        organizationId,
+        memberId,
+        status: 'BOOKED',
+        session: {
+          startTime: {
+            gte: weekStart,
+            lt: new Date(weekStart.getTime() + 7 * DAY_MS),
+          },
+        },
+      },
+    });
+    return { limit, used };
   }
 
   private async nextWaitlistPosition(tx: PrismaTx, sessionId: string) {
