@@ -92,7 +92,8 @@ describe('Analytics / revenue (e2e)', () => {
       }),
     ).expect(201);
 
-    // Other (one-off, no membershipId) revenue: 30, then a 10 refund.
+    // Other (one-off, no membershipId) revenue: 30, and the refund
+    // attempt is refused under the no-refund policy.
     const oneOff = await authed(org.accessToken)(
       request(app.getHttpServer()).post('/payments').send({
         memberId: member.body.data.id,
@@ -103,7 +104,7 @@ describe('Analytics / revenue (e2e)', () => {
       request(app.getHttpServer())
         .post(`/payments/${oneOff.body.data.id}/refund`)
         .send({ amount: 10 }),
-    ).expect(201);
+    ).expect(410);
 
     const res = await authed(org.accessToken)(
       request(app.getHttpServer()).get('/analytics/revenue'),
@@ -116,8 +117,8 @@ describe('Analytics / revenue (e2e)', () => {
     expect(usd!.grossRevenue).toBe('130.00');
     expect(usd!.membershipRevenue).toBe('100.00');
     expect(usd!.otherRevenue).toBe('30.00');
-    expect(usd!.refunded).toBe('10.00');
-    expect(usd!.netRevenue).toBe('120.00');
+    expect(usd!.refunded).toBe('0.00');
+    expect(usd!.netRevenue).toBe('130.00');
   });
 
   it('keeps payments in different currencies in separate buckets, never summed together', async () => {

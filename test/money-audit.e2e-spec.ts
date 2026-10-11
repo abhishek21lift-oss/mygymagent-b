@@ -155,14 +155,15 @@ describe('Money audit (e2e)', () => {
         .expect(201);
       await invoiceOf(membershipId, (i) => i.status === 'PAID');
 
-      // Money given back is owed again.
+      // Refunds are disabled: the money stays collected and the
+      // invoice stays paid.
       await owner()
         .post(`/payments/${rest.body.data.id}/refund`)
         .send({ amount: 600, reason: 'Changed mind' })
-        .expect(201);
+        .expect(410);
       const reopened = await invoiceOf(membershipId);
-      expect(reopened.status).toBe('PART_PAID');
-      expect(reopened.paidAt).toBeNull();
+      expect(reopened.status).toBe('PAID');
+      expect(reopened.paidAt).not.toBeNull();
     });
 
     it('refuses to refund a failed payment', async () => {
@@ -178,7 +179,7 @@ describe('Money audit (e2e)', () => {
       await owner()
         .post(`/payments/${failed.body.data.id}/refund`)
         .send({})
-        .expect(400);
+        .expect(410);
     });
   });
 
