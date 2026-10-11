@@ -39,4 +39,12 @@ export class CreateMembershipDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  /**
+   * Start the plan's free trial instead of a paid term. Requires the
+   * plan to offer trialDays; at most one trial per member per org.
+   */
+  @IsOptional()
+  @IsBoolean()
+  isTrial?: boolean;
 }

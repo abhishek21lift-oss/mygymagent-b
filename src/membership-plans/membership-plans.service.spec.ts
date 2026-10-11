@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { MembershipPlansService } from './membership-plans.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,8 @@ describe('MembershipPlansService', () => {
     branch: { findFirst: jest.Mock };
     membershipPlan: {
       findFirst: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
@@ -21,6 +23,8 @@ describe('MembershipPlansService', () => {
       branch: { findFirst: jest.fn() },
       membershipPlan: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -93,5 +97,89 @@ describe('MembershipPlansService', () => {
     await expect(
       service.update('org-1', 'plan-1', { branchId: 'foreign' }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('hides other-branch plans from branch-scoped reads', async () => {
+    prisma.membershipPlan.findFirst.mockResolvedValue({
+      id: 'plan-1',
+      branchId: 'br-other',
+    });
+    await expect(
+      service.getOne('org-1', 'plan-1', 'br-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    prisma.membershipPlan.findMany.mockResolvedValue([]);
+    prisma.membershipPlan.count.mockResolvedValue(0);
+    await service.list('org-1', { page: 1, pageSize: 20 } as never, 'br-1');
+    expect(prisma.membershipPlan.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'org-1',
+          OR: [{ branchId: null }, { branchId: 'br-1' }],
+        }),
+      }),
+    );
+  });
+
+  it('lets branch-scoped callers read global and own-branch plans', async () => {
+    prisma.membershipPlan.findFirst.mockResolvedValue({
+      id: 'plan-1',
+      branchId: null,
+    });
+    await expect(
+      service.getOne('org-1', 'plan-1', 'br-1'),
+    ).resolves.toMatchObject({ id: 'plan-1' });
+    prisma.membershipPlan.findFirst.mockResolvedValue({
+      id: 'plan-2',
+      branchId: 'br-1',
+    });
+    await service.update('org-1', 'plan-2', { name: 'New' }, 'br-1');
+    expect(prisma.membershipPlan.update).toHaveBeenCalledWith({
+      where: { id: 'plan-2' },
+      data: expect.objectContaining({ name: 'New' }),
+    });
+  });
+
+  it('refuses branch-scoped edits of global plans', async () => {
+    prisma.membershipPlan.findFirst.mockResolvedValue({
+      id: 'plan-1',
+      branchId: null,
+    });
+    await expect(
+      service.update('org-1', 'plan-1', { name: 'New' }, 'br-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.remove('org-1', 'plan-1', 'br-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.membershipPlan.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported currency and a non-offer compareAtPrice', async () => {
+    prisma.organization.findUniqueOrThrow.mockResolvedValue({
+      currency: 'INR',
+    });
+    await expect(
+      service.create('org-1', { ...base, currency: 'XX1' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.create('org-1', { ...base, compareAtPrice: 20000 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.create('org-1', { ...base, compareAtPrice: 15000 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.membershipPlan.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a zero weekly class limit while allowing null', async () => {
+    // Zero is a DTO-level rejection (null = unlimited); the service
+    // never sees it. This pins the create path accepting a limit.
+    prisma.organization.findUniqueOrThrow.mockResolvedValue({
+      currency: 'INR',
+    });
+    prisma.membershipPlan.create.mockImplementation(async ({ data }) => data);
+    const created = await service.create('org-1', {
+      ...base,
+      weeklyClassLimit: 3,
+    });
+    expect(created).toMatchObject({ weeklyClassLimit: 3 });
   });
 });
