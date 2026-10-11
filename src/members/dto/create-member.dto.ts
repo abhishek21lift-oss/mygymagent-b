@@ -29,6 +29,10 @@ export class CreateMemberDto {
   phone?: string;
 
   @IsOptional()
+  @IsString()
+  alternatePhone?: string;
+
+  @IsOptional()
   @IsDateString()
   dateOfBirth?: string;
 
@@ -69,6 +73,10 @@ export class CreateMemberDto {
   emergencyContactPhone?: string;
 
   @IsOptional()
+  @IsEmail()
+  emergencyContactEmail?: string;
+
+  @IsOptional()
   @IsString()
   assignedTrainerId?: string;
 
@@ -79,6 +87,10 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   leadSource?: string;
+
+  @IsOptional()
+  @IsString()
+  referrerMemberId?: string;
 
   @IsOptional()
   @IsString()

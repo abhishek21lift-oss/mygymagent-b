@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { paginate, skipTake } from '../common/dto/pagination-query.dto';
 import { organizationTimezone, zonedBound } from '../common/time/zoned';
 import { DomainEvent, type MemberCreatedEvent } from '../events/domain-events';
@@ -203,14 +204,20 @@ export class MembersService {
       dto.primaryBranchId,
       dto.assignedTrainerId,
     );
+    this.validateContactFields(dto);
+    if (dto.referrerMemberId) {
+      await this.validateReferrer(organizationId, dto.referrerMemberId);
+    }
     const memberCode = await this.generateMemberCode(organizationId);
     const {
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       ...memberFields
     } = dto;
     const member = tx
@@ -222,11 +229,13 @@ export class MembersService {
           emergencyContactName: dto.emergencyContactName,
           emergencyContactPhone: dto.emergencyContactPhone,
           emergencyContactRelationship,
+          emergencyContactEmail,
           waiverConsent,
           fitnessGoal,
           injuries,
           allergies,
           medicalNotes,
+          referrerMemberId,
           createdByUserId,
         })
       : await this.prisma.$transaction((inner) =>
@@ -240,11 +249,13 @@ export class MembersService {
             emergencyContactName: dto.emergencyContactName,
             emergencyContactPhone: dto.emergencyContactPhone,
             emergencyContactRelationship,
+            emergencyContactEmail,
             waiverConsent,
             fitnessGoal,
             injuries,
             allergies,
             medicalNotes,
+            referrerMemberId,
             createdByUserId,
           }),
         );
@@ -274,11 +285,13 @@ export class MembersService {
       memberFields: Omit<
         CreateMemberDto,
         | 'emergencyContactRelationship'
+        | 'emergencyContactEmail'
         | 'waiverConsent'
         | 'fitnessGoal'
         | 'injuries'
         | 'allergies'
         | 'medicalNotes'
+        | 'referrerMemberId'
         | 'dateOfBirth'
       >;
       memberCode: string;
@@ -286,11 +299,13 @@ export class MembersService {
       emergencyContactName: string | undefined;
       emergencyContactPhone: string | undefined;
       emergencyContactRelationship: string | undefined;
+      emergencyContactEmail: string | undefined;
       waiverConsent: boolean | undefined;
       fitnessGoal: string | undefined;
       injuries: string | undefined;
       allergies: string | undefined;
       medicalNotes: string | undefined;
+      referrerMemberId: string | undefined;
       createdByUserId: string | null;
     },
   ) {
@@ -302,11 +317,13 @@ export class MembersService {
       emergencyContactName,
       emergencyContactPhone,
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       createdByUserId,
     } = args;
     const created = await db.member.create({
@@ -315,6 +332,8 @@ export class MembersService {
         organizationId,
         memberCode,
         dateOfBirth,
+        // Flat snapshot mirrors the primary emergency contact.
+        emergencyContactEmail: emergencyContactEmail ?? undefined,
       },
     });
     await db.memberStatusHistory.create({
@@ -347,7 +366,11 @@ export class MembersService {
       });
     }
     // Create emergency contact with relationship if provided
-    if (emergencyContactName || emergencyContactPhone) {
+    if (
+      emergencyContactName ||
+      emergencyContactPhone ||
+      emergencyContactEmail
+    ) {
       await db.memberEmergencyContact.create({
         data: {
           organizationId,
@@ -355,7 +378,25 @@ export class MembersService {
           name: emergencyContactName || '',
           phone: emergencyContactPhone || '',
           relationship: emergencyContactRelationship || null,
+          email: emergencyContactEmail || null,
           isPrimary: true,
+        },
+      });
+    }
+    // Attribute a referring member through the existing Referral model.
+    if (referrerMemberId && referrerMemberId !== created.id) {
+      await db.referral.create({
+        data: {
+          organizationId,
+          referrerMemberId,
+          referredMemberId: created.id,
+          code:
+            'REF-' +
+            randomBytes(5).toString('hex').toUpperCase() +
+            '-' +
+            created.memberCode,
+          status: 'CONVERTED',
+          convertedAt: new Date(),
         },
       });
     }
@@ -417,13 +458,22 @@ export class MembersService {
       dto.primaryBranchId ?? before.primaryBranchId,
       dto.assignedTrainerId,
     );
+    this.validateContactFields(dto);
+    if (dto.referrerMemberId) {
+      if (dto.referrerMemberId === id) {
+        throw new BadRequestException('A member cannot refer themselves');
+      }
+      await this.validateReferrer(organizationId, dto.referrerMemberId);
+    }
     const {
       emergencyContactRelationship,
+      emergencyContactEmail,
       waiverConsent,
       fitnessGoal,
       injuries,
       allergies,
       medicalNotes,
+      referrerMemberId,
       ...memberFields
     } = dto;
     return this.prisma.$transaction(async (tx) => {
@@ -432,6 +482,10 @@ export class MembersService {
         data: {
           ...memberFields,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+          // Explicit email snapshot; omitted optional fields stay untouched.
+          ...(emergencyContactEmail !== undefined
+            ? { emergencyContactEmail }
+            : {}),
         },
       });
       if (dto.status !== undefined && dto.status !== before.status) {
@@ -477,7 +531,8 @@ export class MembersService {
       if (
         dto.emergencyContactName !== undefined ||
         dto.emergencyContactPhone !== undefined ||
-        emergencyContactRelationship !== undefined
+        emergencyContactRelationship !== undefined ||
+        emergencyContactEmail !== undefined
       ) {
         const primaryEmergency = await tx.memberEmergencyContact.findFirst({
           where: { organizationId, memberId: id, isPrimary: true },
@@ -490,13 +545,18 @@ export class MembersService {
             emergencyContactRelationship ??
             primaryEmergency?.relationship ??
             null,
+          email: emergencyContactEmail ?? primaryEmergency?.email ?? null,
         };
         if (primaryEmergency) {
           await tx.memberEmergencyContact.update({
             where: { id: primaryEmergency.id },
             data: emergencyData,
           });
-        } else if (emergencyData.name || emergencyData.phone) {
+        } else if (
+          emergencyData.name ||
+          emergencyData.phone ||
+          emergencyData.email
+        ) {
           await tx.memberEmergencyContact.create({
             data: {
               organizationId,
@@ -552,6 +612,29 @@ export class MembersService {
               description: medicalNotes || undefined,
               startDate: new Date(),
               createdByUserId: changedByUserId,
+            },
+          });
+        }
+      }
+
+      if (referrerMemberId) {
+        const existing = await tx.referral.findFirst({
+          where: { organizationId, referredMemberId: id },
+          select: { id: true },
+        });
+        if (!existing) {
+          await tx.referral.create({
+            data: {
+              organizationId,
+              referrerMemberId,
+              referredMemberId: id,
+              code:
+                'REF-' +
+                randomBytes(5).toString('hex').toUpperCase() +
+                '-' +
+                updated.memberCode,
+              status: 'CONVERTED',
+              convertedAt: new Date(),
             },
           });
         }
@@ -683,6 +766,68 @@ export class MembersService {
       totalRefunded: total.refunded,
       outstandingBalance: total.outstanding,
     };
+  }
+
+  /**
+   * Optional contact fields stay optional, but when supplied they must be
+   * plausible. Phone digits are counted after stripping formatting so
+   * "+91 98765 43210" and "98765-43210" both pass; PIN defaults to the
+   * Indian 6-digit shape only when no other country is given.
+   */
+  private validateContactFields(dto: {
+    phone?: string;
+    alternatePhone?: string;
+    emergencyContactPhone?: string;
+    postalCode?: string;
+    country?: string;
+  }) {
+    const digits = (v: string) => v.replace(/\D/g, '');
+    for (const key of [
+      'phone',
+      'alternatePhone',
+      'emergencyContactPhone',
+    ] as const) {
+      const value = dto[key];
+      if (value !== undefined && value.trim() !== '') {
+        const d = digits(value);
+        if (d.length < 10 || d.length > 15) {
+          throw new BadRequestException(`${key} must contain 10 to 15 digits`);
+        }
+      }
+    }
+    if (
+      dto.alternatePhone?.trim() &&
+      dto.phone?.trim() &&
+      digits(dto.alternatePhone) === digits(dto.phone)
+    ) {
+      throw new BadRequestException(
+        'Alternate mobile must differ from the primary mobile number',
+      );
+    }
+    const pin = dto.postalCode?.trim() ?? '';
+    if (pin !== '') {
+      const country = (dto.country ?? '').trim().toUpperCase();
+      if (country === '' || country === 'INDIA') {
+        if (!/^\d{6}$/.test(pin.replace(/\s/g, ''))) {
+          throw new BadRequestException('PIN code must be a 6-digit number');
+        }
+      } else if (pin.length < 3 || pin.length > 12) {
+        throw new BadRequestException('Postal code looks invalid');
+      }
+    }
+  }
+
+  /** Referral IDs are server-validated: same tenant, live member. */
+  private async validateReferrer(organizationId: string, referrerId: string) {
+    const referrer = await this.prisma.member.findFirst({
+      where: { id: referrerId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!referrer) {
+      throw new BadRequestException(
+        'Referring member does not belong to this organization',
+      );
+    }
   }
 
   /**
