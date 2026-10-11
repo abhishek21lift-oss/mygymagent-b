@@ -12,6 +12,8 @@ import { WebhooksController } from './webhooks.controller';
 import { ScheduledMessageProcessor } from './scheduled-message.processor';
 import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappController } from './whatsapp.controller';
+import { GatewayWebhookController } from './gateway-webhook.controller';
+import { GatewayWebhookService } from './gateway-webhook.service';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
 
@@ -29,9 +31,10 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_SCHEDULED }),
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_WEBHOOKS }),
   ],
-  controllers: [WhatsappController, AutoRepliesController, WebhooksController],
+  controllers: [WhatsappController, AutoRepliesController, WebhooksController, GatewayWebhookController],
   providers: [
     WhatsappService,
+    GatewayWebhookService,
     WhatsappInboundFiler,
     ScheduledMessageService,
     ScheduledMessageProcessor,
