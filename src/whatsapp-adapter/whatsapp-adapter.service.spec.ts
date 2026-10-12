@@ -48,7 +48,9 @@ describe('WhatsAppAdapterService', () => {
   describe('getStatus', () => {
     it('should return NOT_CONNECTED when no session exists', async () => {
       const organizationId = 'org-123';
-      (waSessionManager.getStatus as jest.Mock).mockResolvedValue('DISCONNECTED');
+      (waSessionManager.getStatus as jest.Mock).mockResolvedValue(
+        'DISCONNECTED',
+      );
       (prismaService.waSession.findUnique as jest.Mock).mockResolvedValue(null);
 
       const result = await service.getStatus(organizationId);

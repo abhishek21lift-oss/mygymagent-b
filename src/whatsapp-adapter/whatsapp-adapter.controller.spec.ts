@@ -8,9 +8,11 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user';
 describe('WhatsAppAdapterController', () => {
   let controller: WhatsAppAdapterController;
   let service: WhatsAppAdapterService;
-  let configService: ConfigService;
 
-  const mockUser = { organizationId: 'org-123', id: 'user-1' } as AuthenticatedUser;
+  const mockUser = {
+    organizationId: 'org-123',
+    id: 'user-1',
+  } as AuthenticatedUser;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -44,9 +46,10 @@ describe('WhatsAppAdapterController', () => {
       ],
     }).compile();
 
-    controller = module.get<WhatsAppAdapterController>(WhatsAppAdapterController);
+    controller = module.get<WhatsAppAdapterController>(
+      WhatsAppAdapterController,
+    );
     service = module.get<WhatsAppAdapterService>(WhatsAppAdapterService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   it('should be defined', () => {

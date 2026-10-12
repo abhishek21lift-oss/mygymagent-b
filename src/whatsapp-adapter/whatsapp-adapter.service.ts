@@ -1,17 +1,8 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaSessionManager } from '../whatsapp-web/wa-session.manager';
-import {
-  IsBoolean,
-  IsNumber,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 @Injectable()
 export class WhatsAppAdapterService {
@@ -59,7 +50,8 @@ export class WhatsAppAdapterService {
       organizationId,
       status: this.mapStatus(liveStatus),
       phoneNumber: session.phoneNumber,
-      displayPhoneNumber: liveStatus === 'CONNECTED' ? session.phoneNumber : null,
+      displayPhoneNumber:
+        liveStatus === 'CONNECTED' ? session.phoneNumber : null,
       qrDataUrl,
       pairingCode,
       connectedAt: session.connectedAt?.toISOString() ?? null,
@@ -69,7 +61,9 @@ export class WhatsAppAdapterService {
     };
   }
 
-  private mapStatus(status: 'CONNECTED' | 'PAIRING' | 'DISCONNECTED' | 'LOGGED_OUT'): 'CONNECTED' | 'PAIRING' | 'DISCONNECTED' | 'LOGGED_OUT' | 'NOT_CONNECTED' {
+  private mapStatus(
+    status: 'CONNECTED' | 'PAIRING' | 'DISCONNECTED' | 'LOGGED_OUT',
+  ): 'CONNECTED' | 'PAIRING' | 'DISCONNECTED' | 'LOGGED_OUT' | 'NOT_CONNECTED' {
     switch (status) {
       case 'CONNECTED':
         return 'CONNECTED';
@@ -85,7 +79,11 @@ export class WhatsAppAdapterService {
   }
 
   // AutoReply CRUD
-  async listAutoReplies(organizationId: string, limit?: number, search?: string) {
+  async listAutoReplies(
+    organizationId: string,
+    limit?: number,
+    search?: string,
+  ) {
     const take = Math.min(Math.max(limit ?? 100, 1), 200);
     let where: Prisma.AutoReplyRuleWhereInput = { organizationId };
     if (search) {
@@ -108,7 +106,11 @@ export class WhatsAppAdapterService {
     });
   }
 
-  async createAutoReply(organizationId: string, dto: CreateAutoReplyDto, createdByUserId: string | null = null) {
+  async createAutoReply(
+    organizationId: string,
+    dto: CreateAutoReplyDto,
+    createdByUserId: string | null = null,
+  ) {
     return this.prisma.autoReplyRule.create({
       data: {
         organizationId,
@@ -123,7 +125,11 @@ export class WhatsAppAdapterService {
     });
   }
 
-  async updateAutoReply(organizationId: string, id: string, dto: UpdateAutoReplyDto) {
+  async updateAutoReply(
+    organizationId: string,
+    id: string,
+    dto: UpdateAutoReplyDto,
+  ) {
     const data: Prisma.AutoReplyRuleUpdateManyMutationInput = {};
     if (dto.keyword !== undefined) data.keyword = dto.keyword.trim();
     if (dto.matchType !== undefined) data.matchType = dto.matchType;

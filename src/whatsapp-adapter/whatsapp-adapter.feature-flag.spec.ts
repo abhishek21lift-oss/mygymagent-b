@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WhatsAppAdapterFeatureGuard } from './whatsapp-adapter.guard';
 import { ConfigService } from '@nestjs/config';
-import { ForbiddenException } from '@nestjs/common';
 
 describe('WhatsAppAdapterFeatureGuard', () => {
   let guard: WhatsAppAdapterFeatureGuard;
@@ -23,7 +22,9 @@ describe('WhatsAppAdapterFeatureGuard', () => {
       ],
     }).compile();
 
-    guard = module.get<WhatsAppAdapterFeatureGuard>(WhatsAppAdapterFeatureGuard);
+    guard = module.get<WhatsAppAdapterFeatureGuard>(
+      WhatsAppAdapterFeatureGuard,
+    );
     configService = module.get<ConfigService>(ConfigService);
   });
 

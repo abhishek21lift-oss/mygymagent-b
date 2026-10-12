@@ -41,11 +41,7 @@ export class WhatsAppAdapterController {
     @Query('search') search?: string,
   ) {
     const limitNum = limit ? Number(limit) : undefined;
-    return this.service.listAutoReplies(
-      user.organizationId!,
-      limitNum,
-      search,
-    );
+    return this.service.listAutoReplies(user.organizationId!, limitNum, search);
   }
 
   @Post('auto-replies')

@@ -22,7 +22,9 @@ describe('WhatsAppAdapterFeatureGuard', () => {
       ],
     }).compile();
 
-    guard = module.get<WhatsAppAdapterFeatureGuard>(WhatsAppAdapterFeatureGuard);
+    guard = module.get<WhatsAppAdapterFeatureGuard>(
+      WhatsAppAdapterFeatureGuard,
+    );
     configService = module.get<ConfigService>(ConfigService);
   });
 

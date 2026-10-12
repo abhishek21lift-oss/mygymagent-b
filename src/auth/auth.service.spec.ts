@@ -8,7 +8,7 @@ import { PermissionsService } from '../rbac/permissions.service';
 import { MfaPolicyService } from './mfa/mfa-policy.service';
 import { MfaService } from './mfa/mfa.service';
 import { MemberOtpService } from './member-otp.service';
-import { ConfigService } from "@nestjs/config";
+import { ConfigService } from '@nestjs/config';
 
 describe('AuthService (basic)', () => {
   let service: AuthService;
@@ -25,7 +25,10 @@ describe('AuthService (basic)', () => {
         { provide: MfaService, useValue: {} },
         { provide: MfaPolicyService, useValue: {} },
         { provide: MemberOtpService, useValue: {} },
-        { provide: ConfigService, useValue: { get: jest.fn((key, defaultValue) => defaultValue) } },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key, defaultValue) => defaultValue) },
+        },
       ],
     }).compile();
 

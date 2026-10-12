@@ -3,18 +3,15 @@ import { WhatsAppAdapterController } from './whatsapp-adapter.controller';
 import { WhatsAppAdapterService } from './whatsapp-adapter.service';
 import { WhatsAppAdapterFeatureGuard } from './whatsapp-adapter.guard';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 
 describe('WhatsAppAdapterController (Negative Tests)', () => {
   let controller: WhatsAppAdapterController;
   let service: WhatsAppAdapterService;
-  let configService: ConfigService;
 
   const orgA = 'org-a';
   const orgB = 'org-b';
   const userA = { organizationId: orgA, id: 'user-a' } as AuthenticatedUser;
-  const userB = { organizationId: orgB, id: 'user-b' } as AuthenticatedUser;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -46,9 +43,10 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
       ],
     }).compile();
 
-    controller = module.get<WhatsAppAdapterController>(WhatsAppAdapterController);
+    controller = module.get<WhatsAppAdapterController>(
+      WhatsAppAdapterController,
+    );
     service = module.get<WhatsAppAdapterService>(WhatsAppAdapterService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   describe('getStatus', () => {
@@ -84,15 +82,31 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
         return [];
       });
 
-      const result = await controller.listAutoReplies(userA, undefined, undefined);
-      expect(service.listAutoReplies).toHaveBeenCalledWith(orgA, undefined, undefined);
+      const result = await controller.listAutoReplies(
+        userA,
+        undefined,
+        undefined,
+      );
+      expect(service.listAutoReplies).toHaveBeenCalledWith(
+        orgA,
+        undefined,
+        undefined,
+      );
       expect(result).toEqual([]);
     });
 
     it('should not allow user from org A to list auto-replies of org B', async () => {
       await controller.listAutoReplies(userA, undefined, undefined);
-      expect(service.listAutoReplies).toHaveBeenCalledWith(orgA, undefined, undefined);
-      expect(service.listAutoReplies).not.toHaveBeenCalledWith(orgB, undefined, undefined);
+      expect(service.listAutoReplies).toHaveBeenCalledWith(
+        orgA,
+        undefined,
+        undefined,
+      );
+      expect(service.listAutoReplies).not.toHaveBeenCalledWith(
+        orgB,
+        undefined,
+        undefined,
+      );
     });
   });
 
@@ -116,7 +130,11 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
     it('should not allow user from org A to create auto-reply for org B', async () => {
       await controller.createAutoReply(userA, dto);
       expect(service.createAutoReply).toHaveBeenCalledWith(orgA, dto, userA.id);
-      expect(service.createAutoReply).not.toHaveBeenCalledWith(orgB, dto, userA.id);
+      expect(service.createAutoReply).not.toHaveBeenCalledWith(
+        orgB,
+        dto,
+        userA.id,
+      );
     });
   });
 
