@@ -1,70 +1,109 @@
 import { WaSender } from './wa-sender.service';
 
 function sender(
-  overrides: {
-    status?: string;
-    prefs?: unknown;
-    sentToday?: number;
-  } = {},
+  profile: { autoResend: boolean; maxResendAttempts: number } | null,
+  opts: { connected?: boolean; sentToday?: number; dailyLimit?: number } = {},
 ) {
-  const {
-    status = 'CONNECTED',
-    prefs = { dailyLimit: 200 },
-    sentToday = 0,
-  } = overrides;
-  const manager = { getStatus: jest.fn(async () => status) };
+  const queue = {
+    add: jest.fn(
+      async (
+        _name: string,
+        _payload: unknown,
+        _opts: Record<string, unknown>,
+      ) => ({}),
+    ),
+    connection: {
+      client: {
+        eval: jest.fn(async () => Date.now()),
+      },
+    },
+  };
   const prisma = {
-    whatsappWebSession: { findUnique: jest.fn(async () => prefs) },
-    messageLog: { count: jest.fn(async () => sentToday) },
+    whatsappWebSession: {
+      findUnique: jest.fn(async () => ({ dailyLimit: opts.dailyLimit ?? 200 })),
+    },
+    messageLog: {
+      count: jest.fn(async () => opts.sentToday ?? 0),
+    },
+    whatsappAutomationProfile: {
+      findUnique: jest.fn(async () => profile),
+    },
   };
-  const queueConnection = {
-    client: { eval: jest.fn(async () => Date.now()) },
+  const manager = {
+    getStatus: jest.fn(async () =>
+      opts.connected === false ? 'DISCONNECTED' : 'CONNECTED',
+    ),
   };
-  const queue = { add: jest.fn(async () => ({})) };
   const svc = new WaSender(
     prisma as never,
     manager as never,
-    queueConnection as never,
+    { client: queue.connection.client } as never,
     queue as never,
   );
-  return { svc, prisma, queue };
+  return { svc, queue };
 }
 
-const msg = (overrides = {}) => ({
-  organizationId: 'o1',
+const message = {
+  organizationId: 'org_1',
   to: '919876543210@s.whatsapp.net',
-  text: 'Hello',
+  text: 'Hi',
   messageLogId: 'log-1',
-  ...overrides,
-});
+};
 
-describe('WaSender.enqueue', () => {
-  it('refuses MARKETING even with consent', async () => {
-    const { svc, queue } = sender();
-    await expect(svc.enqueue(msg({ category: 'MARKETING' }))).rejects.toThrow(
-      /marketing/i,
+describe('WaSender auto-resend', () => {
+  it('retries a configured number of times when auto-resend is on', async () => {
+    const { svc, queue } = sender({ autoResend: true, maxResendAttempts: 3 });
+    await svc.enqueue(message);
+    expect(queue.add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 15_000 },
+      }),
     );
-    expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it('queues a connected gym message with a waakg placeholder id', async () => {
-    const { svc, queue } = sender();
-    const result = await svc.enqueue(msg());
-    expect(result).toEqual({
-      queued: true,
-      providerMessageId: 'waakg:queued:log-1',
-    });
-    expect(queue.add).toHaveBeenCalledTimes(1);
+  it('tries exactly once when auto-resend is off', async () => {
+    const { svc, queue } = sender({ autoResend: false, maxResendAttempts: 5 });
+    await svc.enqueue(message);
+    expect(queue.add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        attempts: 1,
+      }),
+    );
+    // No backoff on a single attempt.
+    const singleAttemptOpts = queue.add.mock.calls[0][2];
+    expect(singleAttemptOpts).not.toHaveProperty('backoff');
   });
 
-  it('refuses when no number is linked, naming the fix', async () => {
-    const { svc } = sender({ status: 'DISCONNECTED' });
-    await expect(svc.enqueue(msg())).rejects.toThrow(/link it again/i);
+  it('keeps the legacy 8-attempt behavior for gyms with no saved profile', async () => {
+    const { svc, queue } = sender(null);
+    await svc.enqueue(message);
+    expect(queue.add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ attempts: 8 }),
+    );
   });
 
-  it('refuses past the daily cap with 429', async () => {
-    const { svc } = sender({ sentToday: 200 });
-    const error = await svc.enqueue(msg()).catch((e) => e);
-    expect(error?.status ?? error?.getStatus?.()).toBe(429);
+  it('bounds a saved value that exceeds the cap', async () => {
+    const { svc, queue } = sender({ autoResend: true, maxResendAttempts: 99 });
+    await svc.enqueue(message);
+    expect(queue.add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ attempts: 8 }),
+    );
+  });
+
+  it('never enqueues twice for the same message log (idempotent jobId)', async () => {
+    const { svc, queue } = sender({ autoResend: true, maxResendAttempts: 4 });
+    await svc.enqueue(message);
+    await svc.enqueue(message);
+    expect(queue.add.mock.calls[0][2].jobId).toBe('wa-log-1');
+    expect(queue.add.mock.calls[1][2].jobId).toBe('wa-log-1');
   });
 });

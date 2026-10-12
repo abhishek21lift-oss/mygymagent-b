@@ -100,6 +100,7 @@ export class WaSender {
     }
 
     const delay = await this.nextSlot(organizationId);
+    const attempts = await this.resendAttempts(organizationId);
     const job: WaSendJob = {
       organizationId,
       messageLogId: message.messageLogId,
@@ -116,13 +117,35 @@ export class WaSender {
       jobId: `wa-${message.messageLogId}`,
       // Retries cover this gym's socket being on another server or briefly
       // reconnecting; the processor gives up for good on anything else.
-      attempts: 8,
-      backoff: { type: 'exponential', delay: 15_000 },
+      // Bounded by the gym's auto-resend policy (off = try once):
+      // retries must never become an unbounded duplicate stream.
+      attempts,
+      ...(attempts > 1
+        ? { backoff: { type: 'exponential', delay: 15_000 } }
+        : {}),
     });
     return {
       queued: true,
       providerMessageId: `waakg:queued:${message.messageLogId}`,
     };
+  }
+
+  /** Effective BullMQ attempts for one send. No preference row means
+   * the legacy behavior (8 attempts with backoff) so deploying this
+   * never changes what any existing gym's sends do. A saved row says
+   * exactly what it means: off = try once, on = its bounded attempts. */
+  private async resendAttempts(organizationId: string): Promise<number> {
+    try {
+      const profile = await this.prisma.whatsappAutomationProfile.findUnique({
+        where: { organizationId },
+        select: { autoResend: true, maxResendAttempts: true },
+      });
+      if (!profile) return 8;
+      if (!profile.autoResend) return 1;
+      return Math.min(8, Math.max(1, profile.maxResendAttempts));
+    } catch {
+      return 8;
+    }
   }
 
   /** Milliseconds from now until this gym's next free sending slot, and
