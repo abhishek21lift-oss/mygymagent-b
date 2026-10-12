@@ -14,6 +14,7 @@ import { ScheduledMessageService } from './scheduled-message.service';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
+import { WhatsAppAdapterModule } from '../whatsapp-adapter/whatsapp-adapter.module';
 
 /**
  * WhatsApp messaging surfaces: sends, logs, templates, the inbound
@@ -28,6 +29,7 @@ import { WhatsappInboundFiler } from './whatsapp-inbound.filer';
     MemberIntelligenceModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_SCHEDULED }),
     BullModule.registerQueue({ name: QUEUE_NAMES.WA_WEBHOOKS }),
+    WhatsAppAdapterModule,
   ],
   controllers: [WhatsappController, AutoRepliesController, WebhooksController],
   providers: [

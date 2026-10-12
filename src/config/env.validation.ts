@@ -155,6 +155,15 @@ export const envSchema = z
     // linking endpoints return a clear 503. Generate: `openssl rand -hex 32`.
     WA_AUTH_KEY: z.string().optional(),
 
+    // WhatsApp adapter surface (`/whatsapp-adapter/*`, the Baileys session
+    // card in settings). Not z.coerce.boolean() -- same trap as SMTP_SECURE:
+    // Boolean("false") is true, so the literal string match is the only way
+    // "false" stays false. Defaults off; a deployment opts in explicitly.
+    WHATSAPP_ADAPTER_ENABLED: z
+      .string()
+      .default('false')
+      .transform((v) => v === 'true'),
+
     // MFA_TOTP_KEY is the 32-byte-hex AES-256-GCM key wrapping each user's
     // TOTP secret (src/auth/mfa/mfa-secret.vault.ts). Optional at boot so a
     // deployment that hasn't turned on 2FA still starts; the enrolment
