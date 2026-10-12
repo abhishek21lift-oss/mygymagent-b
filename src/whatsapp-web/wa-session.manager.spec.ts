@@ -431,7 +431,10 @@ describe('WaSessionManager groups', () => {
       '111@g.us': {
         id: '111@g.us',
         subject: 'Morning Batch',
-        participants: [{ id: '9198@s.whatsapp.net' }, { id: '9199@s.whatsapp.net' }],
+        participants: [
+          { id: '9198@s.whatsapp.net' },
+          { id: '9199@s.whatsapp.net' },
+        ],
       },
       '222@g.us': { id: '222@g.us', participants: [] },
     });
