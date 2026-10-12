@@ -8,6 +8,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
+import { ConfigService } from "@nestjs/config";
 import { slugifyWithSuffix } from '../common/utils/slugify';
 import { PermissionsService } from '../rbac/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -105,6 +106,7 @@ export class AuthService {
     private readonly mfa: MfaService,
     private readonly mfaPolicy: MfaPolicyService,
     private readonly memberOtp: MemberOtpService,
+    private readonly config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto, meta: RequestMeta) {
@@ -431,7 +433,18 @@ export class AuthService {
     // cookie -- a deadline the user only ever sees once is no warning.
     const mfaEnrolment = await this.mfaPolicy.evaluateForUser(user.id);
     return {
-      user: publicUser(user),
+      // Feature flags ride on the user object (matching AuthUser.features on
+      // the frontend), not as a sibling of `user` -- the client reads
+      // user.features.whatsappAdapter to pick adapter vs legacy endpoints.
+      user: {
+        ...publicUser(user),
+        features: {
+          whatsappAdapter: this.config.get<boolean>(
+            'WHATSAPP_ADAPTER_ENABLED',
+            false,
+          ),
+        },
+      },
       permissions,
       mfaEnrolment: {
         state: mfaEnrolment.state,
