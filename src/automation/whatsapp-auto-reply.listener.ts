@@ -48,6 +48,11 @@ interface Gym {
   currency: string;
 }
 
+/** BotConfig-driven replies (`#ping`, `#uptime`, welcome). Returned for
+ * logging only; the shared hourly/same-answer caps in `reply()` treat
+ * these like any other automatic answer via the `auto_reply.bot_*` keys. */
+export type BotIntent = 'BOT_PING' | 'BOT_UPTIME' | 'BOT_WELCOME';
+
 /**
  * Answers a member's WhatsApp message on its own, from the gym's own data:
  * membership plans and prices, this week's classes, the member's own
@@ -92,7 +97,9 @@ export class WhatsappAutoReplyListener {
   }
 
   /** Sends the answer, and returns what was answered (null: nothing sent). */
-  async reply(event: WhatsappReceivedEvent): Promise<AutoReplyIntent | null> {
+  async reply(
+    event: WhatsappReceivedEvent,
+  ): Promise<AutoReplyIntent | BotIntent | null> {
     // Groups belong to staff rules; gym intents stay 1:1.
     if (event.isGroup) return null;
     const { organizationId, from } = event;
@@ -150,6 +157,20 @@ export class WhatsappAutoReplyListener {
     );
     if (sameAnswerJustSent) return null;
 
+    // BotConfig automations (ping/uptime/welcome) run here: after staff
+    // commands, opt-outs and staff keyword rules have all deferred, and
+    // before gym intents. When no BotConfig row exists this is a no-op.
+    const bot = await this.botReply({
+      organizationId,
+      from,
+      body: message.body,
+      memberId: event.matchedMemberId ?? undefined,
+      gym,
+      recent,
+      now,
+    });
+    if (bot) return bot;
+
     if (intent === 'UNKNOWN') {
       if (recent.some((log) => log.templateKey === templateKey)) return null;
       if (await this.staffChatting(organizationId, from, event.matchedMemberId))
@@ -177,6 +198,114 @@ export class WhatsappAutoReplyListener {
       fromOwnNumber: true,
     });
     return intent;
+  }
+
+  /**
+   * BotConfig automations for one inbound message. Precedence is fixed:
+   * staff `#` commands, opt-outs and staff keyword rules have already
+   * deferred above; here prefix commands (`ping`/`uptime`) run before the
+   * first-contact welcome, which runs before gym intents. Every send goes
+   * through `sendAdHoc` with an `auto_reply.bot_*` key, so the shared
+   * hourly cap and same-answer gaps above apply to bot replies too --
+   * a retry or a loop with another bot cannot cause a duplicate or a
+   * flood. Outbound bot replies never re-enter this pipeline (only real
+   * inbound messages emit the event), so recursion is impossible.
+   */
+  private async botReply(args: {
+    organizationId: string;
+    from: string;
+    body: string | null;
+    memberId?: string;
+    gym: Gym;
+    recent: Array<{ templateKey: string | null; createdAt: Date }>;
+    now: number;
+  }): Promise<BotIntent | null> {
+    const { organizationId, from, memberId, gym, recent, now } = args;
+    const config = await this.prisma.botConfig.findUnique({
+      where: { organizationId },
+    });
+    if (!config) return null;
+    const text = (args.body ?? '').trim();
+    const prefix = config.prefix.toLowerCase();
+
+    const sendBotReply = async (
+      intent: BotIntent,
+      body: string,
+    ): Promise<BotIntent> => {
+      await this.communications.sendAdHoc({
+        organizationId,
+        channel: 'WHATSAPP',
+        category: 'TRANSACTIONAL',
+        recipient: from,
+        memberId,
+        body,
+        templateKey: `auto_reply.${intent.toLowerCase()}`,
+        fromOwnNumber: true,
+      });
+      return intent;
+    };
+    const recentlyAnswered = (templateKey: string, gapMs: number) =>
+      recent.some(
+        (log) =>
+          log.templateKey === templateKey &&
+          log.createdAt.getTime() >= now - gapMs,
+      );
+
+    // Prefix commands, e.g. "#ping" when the prefix is "#".
+    if (prefix !== '' && text.toLowerCase().startsWith(prefix)) {
+      const word =
+        text.slice(prefix.length).trim().split(/\s+/, 1)[0]?.toLowerCase() ??
+        '';
+      if (word === 'ping' && config.enablePing) {
+        const templateKey = 'auto_reply.bot_ping';
+        if (!recentlyAnswered(templateKey, SAME_ANSWER_GAP_MS)) {
+          return sendBotReply(
+            'BOT_PING',
+            `Pong! ${gym.name} assistant is online.`,
+          );
+        }
+        return null;
+      }
+      if (word === 'uptime' && config.enableUptime) {
+        const templateKey = 'auto_reply.bot_uptime';
+        if (!recentlyAnswered(templateKey, SAME_ANSWER_GAP_MS)) {
+          const session = await this.prisma.waSession.findUnique({
+            where: { organizationId },
+            select: { status: true, connectedAt: true },
+          });
+          if (session?.status !== 'CONNECTED' || !session.connectedAt) {
+            return null;
+          }
+          return sendBotReply(
+            'BOT_UPTIME',
+            `WhatsApp connected since ${readableDate(session.connectedAt, gym.timezone)}.`,
+          );
+        }
+        return null;
+      }
+    }
+
+    // First-contact welcome: at most once per sender, ever. The messageLog
+    // lookup doubles as the duplicate guard for retried events.
+    if (config.welcomeMessage?.trim()) {
+      const templateKey = 'auto_reply.bot_welcome';
+      const already = await this.prisma.messageLog.findFirst({
+        where: { organizationId, recipient: from, templateKey },
+        select: { id: true },
+      });
+      if (!already && !recentlyAnswered(templateKey, SAME_ANSWER_GAP_MS)) {
+        const body = await this.communications.renderForOrganization(
+          organizationId,
+          config.welcomeMessage,
+          {},
+        );
+        if (body.trim() !== '') {
+          return sendBotReply('BOT_WELCOME', body);
+        }
+      }
+    }
+
+    return null;
   }
 
   private async enabled(organizationId: string): Promise<boolean> {

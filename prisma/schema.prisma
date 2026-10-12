@@ -199,6 +199,7 @@ model Organization {
   segments                 MemberSegment[]
   autoReplyRules           AutoReplyRule[]
   botOptOuts               BotOptOut[]
+  botConfig                BotConfig?
   webhookSubscriptions     WebhookSubscription[]
   webhookDeliveries        WebhookDelivery[]
   recommendedActions       RecommendedAction[]
@@ -3469,6 +3470,30 @@ model BotOptOut {
 
   @@id([organizationId, phone])
   @@map("bot_opt_outs")
+}
+
+/// Per-organization WhatsApp bot automation settings (WA-AKG BotConfig
+/// semantics, gym-safe subset). No row, or all toggles off, means every
+/// behavior is disabled: nothing automated is ever sent unless the gym
+/// explicitly turns it on. Only text replies through the existing sender;
+/// presence/sticker/anti-spam surfaces are deliberately absent.
+model BotConfig {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Command trigger, e.g. "#" for "#ping". 1-3 characters.
+  prefix        String  @default("#")
+  enablePing    Boolean @default(false)
+  enableUptime  Boolean @default(false)
+  /// First-contact greeting (template variables allowed). Null or blank
+  /// disables it. Sent at most once per sender, ever.
+  welcomeMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bot_configs")
 }
 
 /// Outgoing webhook subscription (P5): the gym's URL gets a signed JSON

@@ -22,6 +22,11 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
           useValue: {
             getStatus: jest.fn(),
             listAutoReplies: jest.fn(),
+            listContacts: jest.fn(),
+            listGroups: jest.fn(),
+            getBotConfig: jest.fn(),
+            updateBotConfig: jest.fn(),
+            automationActivity: jest.fn(),
             createAutoReply: jest.fn(),
             updateAutoReply: jest.fn(),
             deleteAutoReply: jest.fn(),
@@ -93,6 +98,135 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
         undefined,
       );
       expect(result).toEqual([]);
+    });
+
+    describe('listContacts', () => {
+      it('should list contacts for the caller organization with search', async () => {
+        (service.listContacts as jest.Mock).mockImplementation(() => {
+          return [];
+        });
+
+        const result = await controller.listContacts(userA, undefined, 'ravi');
+
+        expect(service.listContacts).toHaveBeenCalledWith(
+          orgA,
+          undefined,
+          'ravi',
+        );
+        expect(service.listContacts).not.toHaveBeenCalledWith(
+          orgB,
+          expect.anything(),
+          expect.anything(),
+        );
+        expect(result).toEqual([]);
+      });
+
+      it('should pass through a valid numeric limit', async () => {
+        (service.listContacts as jest.Mock).mockImplementation(() => {
+          return [];
+        });
+
+        await controller.listContacts(userA, '50', undefined);
+
+        expect(service.listContacts).toHaveBeenCalledWith(orgA, 50, undefined);
+      });
+
+      it('should fall back to the service default for a non-numeric limit', async () => {
+        (service.listContacts as jest.Mock).mockImplementation(() => {
+          return [];
+        });
+
+        await controller.listContacts(userA, 'abc', undefined);
+
+        expect(service.listContacts).toHaveBeenCalledWith(
+          orgA,
+          undefined,
+          undefined,
+        );
+      });
+
+      it('should pass boundary values through for the service to clamp', async () => {
+        (service.listContacts as jest.Mock).mockImplementation(() => {
+          return [];
+        });
+
+        await controller.listContacts(userA, '-5', undefined);
+        await controller.listContacts(userA, '500', undefined);
+
+        expect(service.listContacts).toHaveBeenCalledWith(orgA, -5, undefined);
+        expect(service.listContacts).toHaveBeenCalledWith(orgA, 500, undefined);
+      });
+    });
+
+    describe('listGroups', () => {
+      it('should list groups for the caller organization', async () => {
+        (service.listGroups as jest.Mock).mockImplementation(() => {
+          return { available: true, groups: [] };
+        });
+
+        const result = await controller.listGroups(userA, undefined);
+
+        expect(service.listGroups).toHaveBeenCalledWith(orgA, undefined);
+        expect(service.listGroups).not.toHaveBeenCalledWith(
+          orgB,
+          expect.anything(),
+        );
+        expect(result).toEqual({ available: true, groups: [] });
+      });
+
+      it('should fall back to the service default for a non-numeric limit', async () => {
+        (service.listGroups as jest.Mock).mockImplementation(() => {
+          return { available: false, groups: [] };
+        });
+
+        await controller.listGroups(userA, 'NaN');
+
+        expect(service.listGroups).toHaveBeenCalledWith(orgA, undefined);
+      });
+    });
+
+    describe('botConfig', () => {
+      it('should read config for the caller organization', async () => {
+        (service.getBotConfig as jest.Mock).mockImplementation(() => null);
+
+        const result = await controller.getBotConfig(userA);
+
+        expect(service.getBotConfig).toHaveBeenCalledWith(orgA);
+        expect(service.getBotConfig).not.toHaveBeenCalledWith(orgB);
+        expect(result).toBeNull();
+      });
+
+      it('should forward updates with the caller organization', async () => {
+        (service.updateBotConfig as jest.Mock).mockImplementation(() => ({}));
+
+        await controller.updateBotConfig(userA, { enablePing: true });
+
+        expect(service.updateBotConfig).toHaveBeenCalledWith(orgA, {
+          enablePing: true,
+        });
+        expect(service.updateBotConfig).not.toHaveBeenCalledWith(
+          orgB,
+          expect.anything(),
+        );
+      });
+    });
+
+    describe('automationActivity', () => {
+      it('should list activity for the caller organization', async () => {
+        (service.automationActivity as jest.Mock).mockImplementation(() => []);
+
+        const result = await controller.automationActivity(userA, undefined);
+
+        expect(service.automationActivity).toHaveBeenCalledWith(
+          orgA,
+          undefined,
+        );
+        expect(service.automationActivity).not.toHaveBeenCalledWith(
+          orgB,
+          expect.anything(),
+        );
+        expect(result).toEqual([]);
+      });
     });
 
     it('should not allow user from org A to list auto-replies of org B', async () => {

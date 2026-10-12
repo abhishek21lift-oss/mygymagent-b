@@ -99,8 +99,28 @@ export interface WaSocket {
   requestPairingCode(phoneNumber: string): Promise<string>;
   /** Profile picture URL, or null when the contact has none. */
   profilePictureUrl(jid: string): Promise<string | null>;
+  /**
+   * Groups the linked number participates in, keyed by group JID. Read-only
+   * metadata query against the open socket; present on the real Baileys
+   * socket (see `groupFetchAllParticipating` in the installed `baileys`
+   * package) and mocked in tests.
+   */
+  groupFetchAllParticipating(): Promise<
+    Record<string, { id: string; subject?: string; participants?: unknown[] }>
+  >;
   logout(): Promise<void>;
   end(error?: Error): void;
+}
+
+/** A WhatsApp group row safe for API responses: jid, subject and member
+ * count only. Participant JIDs are never exposed. */
+export interface WaGroupRow {
+  /** Group JID; the stable identifier. */
+  jid: string;
+  /** Group subject, falling back to the JID when missing. */
+  subject: string;
+  /** Member count. Participant JIDs are never exposed. */
+  participantCount: number;
 }
 
 export interface WaSocketFactory {

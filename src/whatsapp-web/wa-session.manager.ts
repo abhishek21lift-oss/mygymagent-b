@@ -29,6 +29,7 @@ import {
   WA_SOCKET_FACTORY,
   type WaConnectionUpdate,
   type WaContactEvent,
+  type WaGroupRow,
   type WaMessage,
   type WaMessageUpdate,
   type WaSendContent,
@@ -59,6 +60,10 @@ const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_PAIRING_FAILURES = 3;
 /** How long to wait for WhatsApp's first answer (a QR) when linking. */
 const PAIRING_TIMEOUT_MS = 45_000;
+/** Upper bound for a live group-metadata fetch; slower than this means the
+ * socket is not actually usable, so callers get an unavailable signal
+ * instead of hanging the request. Exported for tests. */
+export const GROUP_FETCH_TIMEOUT_MS = 10_000;
 
 /**
  * Owns the live WhatsApp connections: one socket per gym that has
@@ -557,6 +562,41 @@ export class WaSessionManager
       return (await entry.socket.profilePictureUrl(jid)) ?? null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Groups the gym's linked number participates in, or null when the
+   * session is not open, the fetch times out, or WhatsApp errors. Read-only:
+   * one metadata query against this org's own open socket, returning only
+   * jid/subject/member-count. Concurrent calls are independent reads that
+   * Baileys multiplexes; no lock is needed because nothing mutates.
+   */
+  async listGroups(organizationId: string): Promise<WaGroupRow[] | null> {
+    const entry = this.entries.get(organizationId);
+    if (!entry?.open) return null;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const groups = await Promise.race([
+        entry.socket.groupFetchAllParticipating(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('group fetch timed out')),
+            GROUP_FETCH_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      return Object.values(groups ?? {}).map((group) => ({
+        jid: group.id,
+        subject: group.subject?.trim() || group.id,
+        participantCount: Array.isArray(group.participants)
+          ? group.participants.length
+          : 0,
+      }));
+    } catch {
+      return null;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 

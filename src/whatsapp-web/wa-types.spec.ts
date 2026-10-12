@@ -20,6 +20,7 @@ describe('wa-types P1 rich-send', () => {
       logout: async () => undefined,
       end: () => undefined,
       profilePictureUrl: async () => null,
+      groupFetchAllParticipating: async () => ({}),
     };
     const content: WaSendContent = {
       image: Buffer.from('fake-bytes'),

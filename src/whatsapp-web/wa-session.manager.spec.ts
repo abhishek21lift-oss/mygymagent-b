@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { WaSessionManager } from './wa-session.manager';
+import { GROUP_FETCH_TIMEOUT_MS, WaSessionManager } from './wa-session.manager';
 import type { WaSocket } from './wa-types';
 
 // Multi-hop async socket handling under parallel workers can exceed the
@@ -53,6 +53,7 @@ function fakeSocket() {
     ),
     requestPairingCode: jest.fn(async () => 'PAIR-1'),
     profilePictureUrl: jest.fn(async () => null),
+    groupFetchAllParticipating: jest.fn(async () => ({})),
     logout: jest.fn(async () => undefined),
     end: jest.fn(() => undefined),
   };
@@ -393,5 +394,94 @@ describe('WaSessionManager contacts', () => {
     await expect(
       manager.contactPicture('o1', '9198@s.whatsapp.net'),
     ).resolves.toBeNull();
+  });
+});
+
+describe('WaSessionManager groups', () => {
+  function openEntry() {
+    const ctx = setup();
+    const socket = fakeSocket();
+    (ctx.manager as any).entries.set('o1', {
+      socket,
+      open: true,
+      waSessionId: 'ws-1',
+      stopping: false,
+      pairingRequested: false,
+      responded: true,
+    });
+    return { ...ctx, socket };
+  }
+
+  it('returns null with no session entry', async () => {
+    const { manager } = setup();
+    await expect(manager.listGroups('unknown')).resolves.toBeNull();
+  });
+
+  it('returns null when the entry is not open', async () => {
+    const { manager, socket } = openEntry();
+    (manager as any).entries.get('o1').open = false;
+    await expect(manager.listGroups('o1')).resolves.toBeNull();
+    expect(socket.groupFetchAllParticipating).not.toHaveBeenCalled();
+    await manager.onApplicationShutdown();
+  });
+
+  it('maps groups without participant PII, falling back to jid', async () => {
+    const { manager, socket } = openEntry();
+    (socket.groupFetchAllParticipating as jest.Mock).mockResolvedValue({
+      '111@g.us': {
+        id: '111@g.us',
+        subject: 'Morning Batch',
+        participants: [{ id: '9198@s.whatsapp.net' }, { id: '9199@s.whatsapp.net' }],
+      },
+      '222@g.us': { id: '222@g.us', participants: [] },
+    });
+
+    const result = await manager.listGroups('o1');
+
+    expect(result).toEqual([
+      { jid: '111@g.us', subject: 'Morning Batch', participantCount: 2 },
+      { jid: '222@g.us', subject: '222@g.us', participantCount: 0 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('9198@s.whatsapp.net');
+    await manager.onApplicationShutdown();
+  });
+
+  it('returns null when the socket errors', async () => {
+    const { manager, socket } = openEntry();
+    (socket.groupFetchAllParticipating as jest.Mock).mockRejectedValueOnce(
+      new Error('boom'),
+    );
+    await expect(manager.listGroups('o1')).resolves.toBeNull();
+    await manager.onApplicationShutdown();
+  });
+
+  it('returns null when the fetch exceeds the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const { manager, socket } = openEntry();
+      (socket.groupFetchAllParticipating as jest.Mock).mockImplementation(
+        () => new Promise(() => {}),
+      );
+      const pending = manager.listGroups('o1');
+      await jest.advanceTimersByTimeAsync(GROUP_FETCH_TIMEOUT_MS + 1000);
+      await expect(pending).resolves.toBeNull();
+      await manager.onApplicationShutdown();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('resolves concurrent calls independently', async () => {
+    const { manager, socket } = openEntry();
+    (socket.groupFetchAllParticipating as jest.Mock).mockResolvedValue({
+      '111@g.us': { id: '111@g.us', subject: 'A', participants: [] },
+    });
+    const [first, second] = await Promise.all([
+      manager.listGroups('o1'),
+      manager.listGroups('o1'),
+    ]);
+    expect(first).toEqual(second);
+    expect(socket.groupFetchAllParticipating).toHaveBeenCalledTimes(2);
+    await manager.onApplicationShutdown();
   });
 });
