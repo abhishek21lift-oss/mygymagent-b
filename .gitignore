@@ -28,6 +28,11 @@ test/.runtime
 *.log
 npm-debug.log*
 
+# Editor / manual backups (never commit these)
+*.bak
+*.bak[0-9]*
+*.orig
+
 # OS/editor
 .DS_Store
 .idea/
