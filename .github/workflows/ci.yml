@@ -20,6 +20,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Fail fast instead of hanging silently: the full green pipeline takes
+    # ~12 min, so 30 min means something is genuinely stuck (and a stuck
+    # run blocks the production deploy behind it).
+    timeout-minutes: 30
 
     services:
       postgres:
