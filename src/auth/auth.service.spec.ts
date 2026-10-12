@@ -70,6 +70,7 @@ describe('AuthService session endings', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     return { service, prisma, tx, tokens };
   }

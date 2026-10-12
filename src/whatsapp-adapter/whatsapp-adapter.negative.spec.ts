@@ -99,8 +99,8 @@ describe('WhatsAppAdapterController (Negative Tests)', () => {
   describe('createAutoReply', () => {
     const dto = {
       keyword: 'test',
-      matchType: 'EXACT',
-      scope: 'ALL',
+      matchType: 'EXACT' as const,
+      scope: 'ALL' as const,
       answer: 'test answer',
     };
 
