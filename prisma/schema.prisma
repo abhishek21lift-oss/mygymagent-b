@@ -200,6 +200,7 @@ model Organization {
   autoReplyRules           AutoReplyRule[]
   botOptOuts               BotOptOut[]
   botConfig                BotConfig?
+  whatsappAutomationProfile WhatsappAutomationProfile?
   webhookSubscriptions     WebhookSubscription[]
   webhookDeliveries        WebhookDelivery[]
   recommendedActions       RecommendedAction[]
@@ -2773,6 +2774,13 @@ enum AutomationKey {
   /// t7/t3/t0 under MEMBERSHIP_RENEWAL_REMINDER only cover the window
   /// before endDate; this key covers the days after it.
   MEMBERSHIP_POST_EXPIRY
+  /// Same-day expiry notice: MEMBERSHIP_RENEWAL_REMINDER covers t7/t3
+  /// before endDate, this key owns the t0 same-day send so the
+  /// "On Expiry" control-center row has an independent switch and time.
+  MEMBERSHIP_EXPIRY_ON_DAY
+  /// WhatsApp receipt for a completed payment (paid balance). Split from
+  /// PAYMENT_OVERDUE_REMINDER so the event row has its own toggle.
+  PAYMENT_RECEIPT
 }
 
 enum AutomationRunStatus {
@@ -2837,6 +2845,10 @@ model AutomationSetting {
   /// enforced yet: enforcement lands with the quiet-hours task.
   quietHoursStart String?
   quietHoursEnd   String?
+  /// Daily execution time as HH:mm 24h in the gym's timezone, null = the
+  /// control-center default for this key. Read by the hourly automation
+  /// tick (see automation-schedule.helper); never a second scheduler.
+  runAt           String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3494,6 +3506,46 @@ model BotConfig {
   updatedAt DateTime @updatedAt
 
   @@map("bot_configs")
+}
+
+/// One row per organization holding the WhatsApp Automation Control
+/// Center preferences: greeting, retry policy, phone normalization,
+/// bill-message override and irregular-member thresholds. No row means
+/// the code defaults (Hello, legacy 8-attempt retries, India-aware
+/// normalization, system bill templates, 7-day threshold, Asia/Kolkata)
+/// -- rows are only written when a gym changes something, so existing
+/// gyms keep exactly the behavior they have today.
+model WhatsappAutomationProfile {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Single-select greeting applied to WHATSAPP sends (see salutation.ts).
+  salutation String @default("Hello")
+  /// Bounded automatic retries for transient delivery failures. Default
+  /// on: the sender has always retried transient failures, and the
+  /// default attempts below match that legacy behavior exactly.
+  autoResend Boolean @default(true)
+  /// Effective attempts when autoResend is on (1..8). Off means 1.
+  maxResendAttempts Int @default(8)
+  /// E.164 country digits used for local numbers, e.g. "91". Validated
+  /// as 1-4 digits; the India-aware default covers INR/Asia-Kolkata gyms.
+  defaultCountryCode String @default("91")
+  /// Org override for subscription-bill WhatsApp messages. Null = the
+  /// system invoice templates. Validated on save (length, variables).
+  customBillMessage String? @db.Text
+  /// Inactivity days after which a member counts as irregular (3/7/15/30
+  /// preset or custom). Custom value lives in irregularCustomDays.
+  irregularThresholdDays Int  @default(7)
+  irregularCustomDays    Int?
+  /// IANA timezone these times are interpreted in. Null/unset falls back
+  /// to the organization's own timezone, then Asia/Kolkata.
+  timezone String @default("Asia/Kolkata")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_automation_profiles")
 }
 
 /// Outgoing webhook subscription (P5): the gym's URL gets a signed JSON

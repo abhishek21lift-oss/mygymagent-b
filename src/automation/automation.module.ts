@@ -6,6 +6,8 @@ import { MemberIntelligenceModule } from '../member-intelligence/member-intellig
 import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AutomationSettingsService } from './automation-settings.service';
+import { IrregularMembersService } from './irregular-members.service';
+import { WhatsappProfileService } from './whatsapp-profile.service';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
 import { MemberMessenger } from './member-messenger.service';
@@ -13,8 +15,13 @@ import { AutomationSchedulerService } from './automation-scheduler.service';
 import { AutomationScanProcessor } from './automation-scan.processor';
 import { InventoryLowListener } from './inventory-low.listener';
 import { PaymentReceiptListener } from './payment-receipt.listener';
+import { WhatsappEnquiryListener } from './whatsapp-enquiry.listener';
+import { WhatsappBillListener } from './whatsapp-bill.listener';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
+import { BirthdayScanner } from './scanners/birthday.scanner';
+import { MembershipExpiryOnDayScanner } from './scanners/membership-expiry-on-day.scanner';
+import { MembershipPostExpiryScanner } from './scanners/membership-post-expiry.scanner';
 import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
 import { MembershipRenewalScanner } from './scanners/membership-renewal.scanner';
@@ -42,18 +49,25 @@ import { NotificationsModule } from '../notifications/notifications.module';
   providers: [
     AutomationOverviewService,
     AutomationSettingsService,
+    WhatsappProfileService,
+    IrregularMembersService,
     AutomationRunService,
     MemberMessenger,
     AutomationSchedulerService,
     AutomationScanProcessor,
     InventoryLowListener,
     PaymentReceiptListener,
+    WhatsappEnquiryListener,
+    WhatsappBillListener,
     MembershipRenewalScanner,
     MembershipStatusScanner,
     PaymentOverdueScanner,
     MemberInactiveScanner,
     LeadFollowupScanner,
     LeadFirstTouchScanner,
+    BirthdayScanner,
+    MembershipExpiryOnDayScanner,
+    MembershipPostExpiryScanner,
     QrRotationScanner,
     DataRetentionScanner,
     InvoiceDunningScanner,

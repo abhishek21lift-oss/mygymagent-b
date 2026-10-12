@@ -9,6 +9,11 @@ import type { CommunicationChannel, MessageCategory } from '@prisma/client';
 import type { EmailProvider } from './interfaces/email-provider.interface';
 import type { MessageProvider } from './interfaces/message-provider.interface';
 import { MessageTemplateService } from './message-template.service';
+import { applySalutation } from './salutation';
+import {
+  findUnknownVariables,
+  hasUnresolvedVariables,
+} from './template-variables';
 import { PrismaService } from '../prisma/prisma.service';
 import { noteBroadcastSettled } from '../whatsapp/broadcast-counters';
 import { WaSessionManager } from '../whatsapp-web/wa-session.manager';
@@ -90,8 +95,10 @@ export class CommunicationsService {
           select: { name: true, emailFromName: true, emailReplyTo: true },
         })
       : null;
+    const salutation = await this.profileSalutation(input.organizationId);
     const variables = {
       organizationName: organization?.name ?? '',
+      ...(salutation ? { salutation } : {}),
       ...input.variables,
     };
 
@@ -136,7 +143,30 @@ export class CommunicationsService {
     const subject = template.subject
       ? this.templates.render(template.subject, variables)
       : undefined;
-    const body = this.templates.render(template.body, variables);
+    let body = this.templates.render(template.body, variables);
+    if (input.channel === 'WHATSAPP' && salutation) {
+      body = applySalutation(body, salutation);
+    }
+    // A placeholder nobody resolved is a bug, not a message: refuse to
+    // send "Hi {{firstName}}" to a customer. Recorded as FAILED below.
+    if (hasUnresolvedVariables(body)) {
+      await this.prisma.messageLog.create({
+        data: {
+          organizationId: input.organizationId,
+          channel: input.channel,
+          category: input.category,
+          templateKey: input.templateKey,
+          recipient: input.recipient,
+          memberId: input.memberId,
+          body,
+          status: 'FAILED',
+          errorMessage: `Unresolved template variables: ${findUnknownVariables(body).join(', ')}`,
+        },
+      });
+      throw new BadRequestException(
+        `Message template "${input.templateKey}" has unresolved variables`,
+      );
+    }
 
     const log = await this.prisma.messageLog.create({
       data: {
@@ -251,6 +281,25 @@ export class CommunicationsService {
     return this.ownWhatsappNumberReady(organizationId);
   }
 
+  /** This gym's control-center greeting, or null when it never saved one
+   * (system templates keep their own "Hi"). Reads never create the row.
+   * A lookup failure degrades to no salutation -- greetings must never
+   * stop a reminder. */
+  private async profileSalutation(
+    organizationId: string | null,
+  ): Promise<string | null> {
+    if (!organizationId) return null;
+    try {
+      const profile = await this.prisma.whatsappAutomationProfile.findUnique({
+        where: { organizationId },
+        select: { salutation: true },
+      });
+      return profile?.salutation ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Whether the gym's session is connected. */
   async ownWhatsappNumberLinked(organizationId: string): Promise<boolean> {
     return (await this.sessions.getStatus(organizationId)) === 'CONNECTED';
@@ -306,8 +355,10 @@ export class CommunicationsService {
       where: { id: input.organizationId },
       select: { name: true, emailFromName: true, emailReplyTo: true },
     });
+    const salutation = await this.profileSalutation(input.organizationId);
     const variables = {
       organizationName: organization?.name ?? '',
+      ...(salutation ? { salutation } : {}),
       ...input.variables,
     };
 
@@ -344,7 +395,28 @@ export class CommunicationsService {
     const subject = input.subject
       ? this.templates.render(input.subject, variables)
       : undefined;
-    const body = this.templates.render(input.body, variables);
+    let body = this.templates.render(input.body, variables);
+    if (input.channel === 'WHATSAPP' && salutation) {
+      body = applySalutation(body, salutation);
+    }
+    if (hasUnresolvedVariables(body)) {
+      await this.prisma.messageLog.create({
+        data: {
+          organizationId: input.organizationId,
+          channel: input.channel,
+          category: input.category,
+          templateKey,
+          recipient: input.recipient,
+          memberId: input.memberId,
+          broadcastId: input.broadcastId,
+          status: 'FAILED',
+          errorMessage: `Unresolved template variables: ${findUnknownVariables(body).join(', ')}`,
+        },
+      });
+      throw new BadRequestException(
+        'Message text has unresolved variables -- refusing to send',
+      );
+    }
 
     const log = await this.prisma.messageLog.create({
       data: {

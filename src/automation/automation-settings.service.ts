@@ -16,6 +16,7 @@ import {
 export const AUTOMATION_SETTING_KEYS: AutomationKey[] = [
   'PAYMENT_OVERDUE_REMINDER',
   'MEMBERSHIP_RENEWAL_REMINDER',
+  'MEMBERSHIP_EXPIRY_ON_DAY',
   'INVOICE_DUE_REMINDER',
   'PT_EXPIRY_REMINDER',
   'MEMBER_INACTIVE_RECOVERY',
@@ -24,6 +25,7 @@ export const AUTOMATION_SETTING_KEYS: AutomationKey[] = [
   'LOW_STOCK_ALERT',
   'BIRTHDAY_WISH',
   'MEMBERSHIP_POST_EXPIRY',
+  'PAYMENT_RECEIPT',
 ];
 
 const QUIET_HOURS_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -48,6 +50,7 @@ export class AutomationSettingsService {
         cooldownDays: row?.cooldownDays ?? null,
         quietHoursStart: row?.quietHoursStart ?? null,
         quietHoursEnd: row?.quietHoursEnd ?? null,
+        runAt: row?.runAt ?? null,
         updatedAt: row?.updatedAt ?? null,
       };
     });
@@ -70,6 +73,7 @@ export class AutomationSettingsService {
       cooldownDays?: number | null;
       quietHoursStart?: string | null;
       quietHoursEnd?: string | null;
+      runAt?: string | null;
     } = {};
     if (dto.enabled !== undefined) data.enabled = dto.enabled;
     if (dto.channelOverride !== undefined)
@@ -78,6 +82,7 @@ export class AutomationSettingsService {
     if (dto.quietHoursStart !== undefined)
       data.quietHoursStart = dto.quietHoursStart;
     if (dto.quietHoursEnd !== undefined) data.quietHoursEnd = dto.quietHoursEnd;
+    if (dto.runAt !== undefined) data.runAt = dto.runAt;
     // A body with no fields changes nothing -- answer the current state
     // without writing a row for it.
     if (Object.keys(data).length === 0) {
@@ -90,6 +95,7 @@ export class AutomationSettingsService {
           cooldownDays: null,
           quietHoursStart: null,
           quietHoursEnd: null,
+          runAt: null,
         }
       );
     }
@@ -157,5 +163,12 @@ function validateUpdate(
     throw new BadRequestException(
       'quietHoursStart and quietHoursEnd must be set together',
     );
+  }
+  if (
+    dto.runAt !== undefined &&
+    dto.runAt !== null &&
+    !QUIET_HOURS_RE.test(dto.runAt)
+  ) {
+    throw new BadRequestException('runAt must be HH:mm (24h)');
   }
 }

@@ -7,6 +7,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
 import { LeadFirstTouchScanner } from './scanners/lead-first-touch.scanner';
+import { BirthdayScanner } from './scanners/birthday.scanner';
+import { MembershipExpiryOnDayScanner } from './scanners/membership-expiry-on-day.scanner';
+import { MembershipPostExpiryScanner } from './scanners/membership-post-expiry.scanner';
 import { LeadFollowupScanner } from './scanners/lead-followup.scanner';
 import { QrRotationScanner } from './scanners/qr-rotation.scanner';
 import { MemberInactiveScanner } from './scanners/member-inactive.scanner';
@@ -42,6 +45,9 @@ export class AutomationScanProcessor extends WorkerHost {
     private readonly memberInactiveScanner: MemberInactiveScanner,
     private readonly leadFollowupScanner: LeadFollowupScanner,
     private readonly leadFirstTouchScanner: LeadFirstTouchScanner,
+    private readonly birthdayScanner: BirthdayScanner,
+    private readonly expiryOnDayScanner: MembershipExpiryOnDayScanner,
+    private readonly postExpiryScanner: MembershipPostExpiryScanner,
     private readonly qrRotationScanner: QrRotationScanner,
     private readonly invoiceDunningScanner: InvoiceDunningScanner,
     private readonly ptExpiryScanner: PtExpiryScanner,
@@ -59,6 +65,12 @@ export class AutomationScanProcessor extends WorkerHost {
     switch (job.name) {
       case JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS:
         return this.membershipRenewalScanner.scan();
+      case JOB_NAMES.SCAN_MEMBERSHIP_EXPIRY_ON_DAY:
+        return this.expiryOnDayScanner.scan();
+      case JOB_NAMES.SCAN_MEMBERSHIP_POST_EXPIRY:
+        return this.postExpiryScanner.scan();
+      case JOB_NAMES.SCAN_BIRTHDAYS:
+        return this.birthdayScanner.scan();
       case JOB_NAMES.SCAN_PAYMENT_OVERDUE:
         return this.paymentOverdueScanner.scan();
       case JOB_NAMES.SCAN_MEMBER_INACTIVE:

@@ -2,10 +2,12 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import type { ManageMessageTemplateDto } from './dto/manage-message-template.dto';
 import type { CommunicationChannel } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { findUnknownVariables } from './template-variables';
 
 @Injectable()
 export class MessageTemplateService {
@@ -53,6 +55,7 @@ export class MessageTemplateService {
     organizationId: string,
     dto: ManageMessageTemplateDto,
   ) {
+    assertKnownVariables(dto.subject, dto.body);
     const existing = await this.prisma.messageTemplate.findUnique({
       where: {
         organizationId_key_channel: {
@@ -87,6 +90,7 @@ export class MessageTemplateService {
       where: { id, organizationId },
     });
     if (!existing) throw new NotFoundException('Message template not found');
+    assertKnownVariables(dto.subject, dto.body);
 
     const duplicate = await this.prisma.messageTemplate.findFirst({
       where: {
@@ -133,6 +137,21 @@ export class MessageTemplateService {
       Object.prototype.hasOwnProperty.call(variables, name)
         ? variables[name]
         : match,
+    );
+  }
+}
+
+/** Rejects template text using placeholders no sender resolves. Saves
+ * must fail loudly; sends are blocked separately in
+ * CommunicationsService (a bad template must never reach a customer). */
+function assertKnownVariables(subject: string | undefined, body: string): void {
+  const unknown = [
+    ...findUnknownVariables(subject ?? ''),
+    ...findUnknownVariables(body),
+  ];
+  if (unknown.length > 0) {
+    throw new BadRequestException(
+      `Unknown template variables: ${[...new Set(unknown)].join(', ')}`,
     );
   }
 }

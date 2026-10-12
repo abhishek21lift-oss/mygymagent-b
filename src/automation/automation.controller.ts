@@ -1,10 +1,16 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequirePermissions,
+  RequireAnyPermission,
+} from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AutomationSettingsService } from './automation-settings.service';
+import { UpdateWhatsappAutomationProfileDto } from './dto/whatsapp-profile.dto';
+import { IrregularMembersService } from './irregular-members.service';
+import { WhatsappProfileService } from './whatsapp-profile.service';
 import { UpdateAutomationSettingDto } from './dto/automation-settings.dto';
 
 /**
@@ -22,6 +28,8 @@ export class AutomationController {
   constructor(
     private readonly overview: AutomationOverviewService,
     private readonly settings: AutomationSettingsService,
+    private readonly profile: WhatsappProfileService,
+    private readonly irregular: IrregularMembersService,
   ) {}
 
   @Get()
@@ -45,5 +53,31 @@ export class AutomationController {
     @Body() dto: UpdateAutomationSettingDto,
   ) {
     return this.settings.update(user.organizationId!, key, dto, user.id);
+  }
+
+  @Get('whatsapp-profile')
+  @RequirePermissions('reports.view')
+  getProfile(@CurrentUser() user: AuthenticatedUser) {
+    return this.profile.get(user.organizationId!);
+  }
+
+  @Patch('whatsapp-profile')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_automation_profile', action: 'update' })
+  updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateWhatsappAutomationProfileDto,
+  ) {
+    return this.profile.update(user.organizationId!, dto);
+  }
+
+  /** The Irregular Members preview. Read-only: opening it sends nothing. */
+  @Get('irregular-members')
+  @RequireAnyPermission('members.read', 'members.read_assigned')
+  listIrregularMembers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('rangeDays') rangeDays?: string,
+  ) {
+    return this.irregular.list(user.organizationId!, rangeDays);
   }
 }
