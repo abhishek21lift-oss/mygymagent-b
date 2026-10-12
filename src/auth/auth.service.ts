@@ -8,7 +8,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
-import { ConfigService } from "@nestjs/config";
+import { ConfigService } from '@nestjs/config';
 import { slugifyWithSuffix } from '../common/utils/slugify';
 import { PermissionsService } from '../rbac/permissions.service';
 import { PrismaService } from '../prisma/prisma.service';
