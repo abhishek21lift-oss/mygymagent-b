@@ -66,6 +66,7 @@ export class MembershipRenewalScanner {
 
     let sent = 0;
     let checked = 0;
+    const windows = new Map<string, boolean>();
     for (const membership of memberships) {
       const renewed = membership.member.memberships.some(
         (other) =>
@@ -76,6 +77,20 @@ export class MembershipRenewalScanner {
       const daysUntilExpiry = Math.ceil(
         (membership.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
+      // Same-day expiry belongs to MEMBERSHIP_EXPIRY_ON_DAY (the "On
+      // Expiry" row): sending t0 here as well would message the member
+      // twice about the same day.
+      if (daysUntilExpiry <= 1) continue;
+      let due = windows.get(membership.organizationId);
+      if (due === undefined) {
+        due = await this.messenger.sendWindowOpen(
+          membership.organizationId,
+          'MEMBERSHIP_RENEWAL_REMINDER',
+          membership.organization.timezone,
+        );
+        windows.set(membership.organizationId, due);
+      }
+      if (!due) continue;
       // Before the email check: a member who signs in by SMS has no
       // email on file and, until push, was never reminded at all.
       if (PUSH_ON_DAYS.has(daysUntilExpiry)) {
@@ -99,10 +114,11 @@ export class MembershipRenewalScanner {
         membership.endDate,
         membership.organization.timezone,
       );
-      // WhatsApp goes three times -- a week out, three days out, the last
-      // day -- each once; email keeps its 3-day cooldown.
-      const stage =
-        daysUntilExpiry > 3 ? 't7' : daysUntilExpiry > 1 ? 't3' : 't0';
+      // WhatsApp goes twice before expiry -- a week out, three days out.
+      // The same-day t0 send belongs to the on-day scanner, so the two
+      // stages (and their cooldowns) never collide; email keeps its
+      // 3-day cooldown.
+      const stage = daysUntilExpiry > 3 ? 't7' : 't3';
       const { outcome } = await this.messenger.deliver({
         organizationId: membership.organizationId,
         key: 'MEMBERSHIP_RENEWAL_REMINDER',

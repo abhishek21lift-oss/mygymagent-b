@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommunicationsService } from '../../communications/communications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AutomationRunService } from '../automation-run.service';
+import { MemberMessenger } from '../member-messenger.service';
 import { runningOrganization } from '../automation-scope';
 
 const FIRST_TOUCH_WINDOW_MIN = 30;
@@ -28,6 +29,7 @@ export class LeadFirstTouchScanner {
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
     private readonly runs: AutomationRunService,
+    private readonly messenger: MemberMessenger,
   ) {}
 
   async scan(): Promise<{ checked: number; sent: number }> {
@@ -59,9 +61,19 @@ export class LeadFirstTouchScanner {
     });
 
     let sent = 0;
+    const enabled = new Map<string, boolean>();
     for (const lead of candidates) {
       if (lead.followUps.length > 0) continue;
       if (!lead.phone) continue;
+      let on = enabled.get(lead.organizationId);
+      if (on === undefined) {
+        on = await this.messenger.automationEnabled(
+          lead.organizationId,
+          'LEAD_FIRST_TOUCH',
+        );
+        enabled.set(lead.organizationId, on);
+      }
+      if (!on) continue;
       const priorOutbound = await this.prisma.messageLog.findFirst({
         where: {
           organizationId: lead.organizationId,

@@ -9,6 +9,9 @@ function provider(env: Record<string, string | undefined> = {}) {
   };
   const prisma = {
     organization: { findUnique: jest.fn().mockResolvedValue(india) },
+    whatsappAutomationProfile: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
   };
   const sender = {
     enqueue: jest.fn(async () => ({
@@ -54,6 +57,26 @@ describe('toJid', () => {
 
   it('refuses numbers that are too short', () => {
     expect(() => toJid('12345', india)).toThrow();
+  });
+
+  it('uses the gym-configured default country code for its local numbers', () => {
+    expect(toJid('4155550100', elsewhere, '1')).toBe(
+      '14155550100@s.whatsapp.net',
+    );
+    // The 10-digit local form is the one that needs the prefix.
+    expect(toJid('9876543210', india, '91')).toBe(
+      '919876543210@s.whatsapp.net',
+    );
+  });
+
+  it('never double-prefixes a number already in that country', () => {
+    expect(toJid('919876543210', india, '91')).toBe(
+      '919876543210@s.whatsapp.net',
+    );
+  });
+
+  it('still refuses a local number when no country code is configured', () => {
+    expect(() => toJid('4155550100', elsewhere, null)).toThrow(/country code/);
   });
 });
 

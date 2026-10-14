@@ -67,7 +67,19 @@ export class PtExpiryScanner {
     );
 
     let sent = 0;
+    const windows = new Map<string, boolean>();
     for (const pkg of expiring) {
+      let due = windows.get(pkg.organizationId);
+      if (due === undefined) {
+        due = await this.messenger.sendWindowOpen(
+          pkg.organizationId,
+          'PT_EXPIRY_REMINDER',
+          pkg.organization.timezone,
+          now,
+        );
+        windows.set(pkg.organizationId, due);
+      }
+      if (!due) continue;
       const daysUntilExpiry = Math.ceil(
         (pkg.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );

@@ -35,4 +35,8 @@ export class UpdateAutomationSettingDto {
   @IsOptional()
   @Matches(HH_MM_24H, { message: 'quietHoursEnd must be HH:mm (24h)' })
   quietHoursEnd?: string | null;
+
+  @IsOptional()
+  @Matches(HH_MM_24H, { message: 'runAt must be HH:mm (24h)' })
+  runAt?: string | null;
 }

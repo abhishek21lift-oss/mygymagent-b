@@ -7,11 +7,13 @@ import {
   QUEUE_NAMES,
 } from '../queue/queue.constants';
 
-/** Fixed UTC hour every daily scan runs at. Same time for all five scans
- * today (they're independent and cheap enough to not need staggering at
- * current scale) -- a per-org schedule isn't something this data model
- * or the master prompt's P1 scope asks for. */
+/** Fixed UTC hour the remaining daily scans run at. The WhatsApp rows
+ * tick hourly instead: each gym's saved execution time is matched
+ * against its own timezone at scan time (see automation-schedule.helper
+ * and MemberMessenger.sendWindowOpen), which one global daily cron
+ * cannot express. */
 const DAILY_SCAN_HOUR_UTC = 8;
+const HOURLY = 60 * 60 * 1000;
 
 /**
  * The churn scores are rebuilt overnight rather than with the daytime
@@ -46,17 +48,32 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
     await Promise.all([
       this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_RENEWALS,
-        { pattern },
+        { every: HOURLY },
         { name: JOB_NAMES.SCAN_MEMBERSHIP_RENEWALS },
       ),
       this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_EXPIRY_ON_DAY,
+        { every: HOURLY },
+        { name: JOB_NAMES.SCAN_MEMBERSHIP_EXPIRY_ON_DAY },
+      ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_MEMBERSHIP_POST_EXPIRY,
+        { every: HOURLY },
+        { name: JOB_NAMES.SCAN_MEMBERSHIP_POST_EXPIRY },
+      ),
+      this.queue.upsertJobScheduler(
+        JOB_SCHEDULER_IDS.SCAN_BIRTHDAYS,
+        { every: HOURLY },
+        { name: JOB_NAMES.SCAN_BIRTHDAYS },
+      ),
+      this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_PAYMENT_OVERDUE,
-        { pattern },
+        { every: HOURLY },
         { name: JOB_NAMES.SCAN_PAYMENT_OVERDUE },
       ),
       this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_MEMBER_INACTIVE,
-        { pattern },
+        { every: HOURLY },
         { name: JOB_NAMES.SCAN_MEMBER_INACTIVE },
       ),
       this.queue.upsertJobScheduler(
@@ -71,12 +88,12 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
       ),
       this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_INVOICE_DUNNING,
-        { pattern },
+        { every: HOURLY },
         { name: JOB_NAMES.SCAN_INVOICE_DUNNING },
       ),
       this.queue.upsertJobScheduler(
         JOB_SCHEDULER_IDS.SCAN_PT_EXPIRY,
-        { pattern },
+        { every: HOURLY },
         { name: JOB_NAMES.SCAN_PT_EXPIRY },
       ),
       // WS-3: first sub-hourly scan -- BullMQ's `every` (ms interval),
@@ -119,7 +136,7 @@ export class AutomationSchedulerService implements OnApplicationBootstrap {
     ]);
 
     this.logger.log(
-      `Registered 7 daily automation scan schedulers (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + membership status hourly + QR rotation every 7d + Action Center tasks hourly and reminders every 15m`,
+      `Registered hourly WhatsApp automation scans (renewals, on-day expiry, post-expiry, birthdays, overdue, inactive, dunning, PT expiry) + daily lead-followups/data-retention (${pattern} UTC) + nightly risk scoring (${RISK_SCAN_PATTERN} UTC) + lead first-touch every 5m + membership status hourly + QR rotation every 7d + Action Center tasks hourly and reminders every 15m`,
     );
   }
 }

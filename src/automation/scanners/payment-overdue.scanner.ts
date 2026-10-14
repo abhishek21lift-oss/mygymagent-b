@@ -57,6 +57,7 @@ export class PaymentOverdueScanner {
 
     let sent = 0;
     let checked = 0;
+    const windows = new Map<string, boolean>();
     for (const membership of memberships) {
       const grossPaid = membership.payments.reduce(
         (sum, p) => sum + Number(p.amount),
@@ -67,6 +68,15 @@ export class PaymentOverdueScanner {
         .reduce((sum, r) => sum + Number(r.amount), 0);
       const outstanding = Number(membership.price) - (grossPaid - refunded);
       if (outstanding <= 0) continue;
+      let due = windows.get(membership.organizationId);
+      if (due === undefined) {
+        due = await this.messenger.sendWindowOpen(
+          membership.organizationId,
+          'PAYMENT_OVERDUE_REMINDER',
+        );
+        windows.set(membership.organizationId, due);
+      }
+      if (!due) continue;
       checked++;
 
       const { outcome } = await this.messenger.deliver({

@@ -76,6 +76,7 @@ export class InvoiceDunningScanner {
     });
 
     let sent = 0;
+    const windows = new Map<string, boolean>();
     for (const invoice of invoices) {
       const dueAt = invoice.dueAt as Date;
       const daysPast = Math.floor(
@@ -84,6 +85,17 @@ export class InvoiceDunningScanner {
       const window = dunningWindowFor(daysPast);
 
       if (window !== null) {
+        let due = windows.get(invoice.organizationId);
+        if (due === undefined) {
+          due = await this.messenger.sendWindowOpen(
+            invoice.organizationId,
+            'INVOICE_DUE_REMINDER',
+            invoice.organization.timezone,
+            now,
+          );
+          windows.set(invoice.organizationId, due);
+        }
+        if (!due) continue;
         const outstanding = new Prisma.Decimal(invoice.grandTotal).minus(
           invoicePaidTotal(invoice),
         );

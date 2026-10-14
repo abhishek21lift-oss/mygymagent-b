@@ -22,11 +22,14 @@ const INDIA_TIMEZONES = new Set(['Asia/Kolkata', 'Asia/Calcutta']);
 /**
  * A phone number as a WhatsApp JID. An Indian gym's local numbers get
  * +91; any other short number is refused rather than guessed at, because
- * a wrong country code messages a stranger.
+ * a wrong country code messages a stranger -- unless the gym saved an
+ * explicit default country code (Control Center → Internationalization),
+ * which is then used for its local numbers.
  */
 export function toJid(
   raw: string,
   organization: { currency: string; timezone: string } | null,
+  defaultCountryCode?: string | null,
 ): string {
   const international =
     raw.trim().startsWith('+') || raw.trim().startsWith('00');
@@ -40,6 +43,13 @@ export function toJid(
     if (digits.length === 10) digits = `91${digits}`;
     else if (digits.length === 11 && digits.startsWith('0'))
       digits = `91${digits.slice(1)}`;
+  } else if (!international && defaultCountryCode) {
+    const cc = defaultCountryCode.replace(/\D/g, '');
+    if (cc && !digits.startsWith(cc)) {
+      if (digits.length === 10) digits = `${cc}${digits}`;
+      else if (digits.length === 11 && digits.startsWith('0'))
+        digits = `${cc}${digits.slice(1)}`;
+    }
   }
   if (digits.length < 11 || digits.length > 15) {
     throw new BadRequestException(
@@ -88,13 +98,23 @@ export class WaAkgProvider implements MessageProvider {
       where: { id: organizationId },
       select: { currency: true, timezone: true },
     });
+    let defaultCountryCode: string | null = null;
+    try {
+      const profile = await this.prisma.whatsappAutomationProfile.findUnique({
+        where: { organizationId },
+        select: { defaultCountryCode: true },
+      });
+      defaultCountryCode = profile?.defaultCountryCode ?? null;
+    } catch {
+      // Phone normalization must never stop a send.
+    }
     // A missing org row degrades to non-Indian: full international numbers
     // still send, local ones fail with the country-code error below.
     // A raw JID (group chats end `@g.us`) passes through untouched --
     // phone numbers never contain `@`.
     const jid = message.to.includes('@')
       ? message.to
-      : toJid(message.to, organization);
+      : toJid(message.to, organization, defaultCountryCode);
     return this.sender.enqueue({
       organizationId,
       to: jid,

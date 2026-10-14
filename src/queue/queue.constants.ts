@@ -26,6 +26,9 @@ export const JOB_NAMES = {
   SEND_BROADCAST_ITEM: 'send-broadcast-item',
   DELIVER_WEBHOOK: 'deliver-webhook',
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals',
+  SCAN_MEMBERSHIP_EXPIRY_ON_DAY: 'scan-membership-expiry-on-day',
+  SCAN_MEMBERSHIP_POST_EXPIRY: 'scan-membership-post-expiry',
+  SCAN_BIRTHDAYS: 'scan-birthdays',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due',
@@ -52,6 +55,9 @@ export const JOB_NAMES = {
  * today, but kept separate since that won't always be true. */
 export const JOB_SCHEDULER_IDS = {
   SCAN_MEMBERSHIP_RENEWALS: 'scan-membership-renewals-daily',
+  SCAN_MEMBERSHIP_EXPIRY_ON_DAY: 'scan-membership-expiry-on-day-hourly',
+  SCAN_MEMBERSHIP_POST_EXPIRY: 'scan-membership-post-expiry-hourly',
+  SCAN_BIRTHDAYS: 'scan-birthdays-hourly',
   SCAN_PAYMENT_OVERDUE: 'scan-payment-overdue-daily',
   SCAN_MEMBER_INACTIVE: 'scan-member-inactive-daily',
   SCAN_LEAD_FOLLOWUPS_DUE: 'scan-lead-followups-due-daily',

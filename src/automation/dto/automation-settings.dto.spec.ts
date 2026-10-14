@@ -46,7 +46,14 @@ describe('UpdateAutomationSettingDto', () => {
         cooldownDays: 30,
         quietHoursStart: '22:00',
         quietHoursEnd: '06:00',
+        runAt: '04:00',
       }),
     ).resolves.toEqual([]);
+  });
+
+  it('rejects bad runAt values and accepts null', async () => {
+    await expect(errorsFor({ runAt: null })).resolves.toEqual([]);
+    await expect(errorsFor({ runAt: '4am' })).resolves.not.toEqual([]);
+    await expect(errorsFor({ runAt: '24:00' })).resolves.not.toEqual([]);
   });
 });

@@ -141,6 +141,11 @@ export const DEFAULT_TEMPLATES_CATALOG: DefaultTemplateDef[] = [
     body: 'Hi {{1}}, your {{2}} membership ends on {{3}}. Renew now to continue without interruption.',
   },
   {
+    key: 'post_expiry.nudge',
+    channel: 'WHATSAPP',
+    body: 'Hi {{1}}, your {{2}} membership ended on {{3}}. Renew today to get training again without a break.',
+  },
+  {
     key: 'pt_expiry_reminder',
     channel: 'EMAIL',
     subject:

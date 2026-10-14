@@ -3,6 +3,11 @@ import type { AutomationKey, MessageCategory, Prisma } from '@prisma/client';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AutomationRunService } from './automation-run.service';
+import {
+  DEFAULT_RUN_AT,
+  isDueAt,
+  resolveAutomationTimezone,
+} from './automation-schedule.helper';
 
 type Outcome = 'SENT' | 'SKIPPED' | 'FAILED' | 'COOLDOWN' | 'NO_CHANNEL';
 
@@ -58,7 +63,12 @@ export class MemberMessenger {
   /** Control Center toggles, per gym+key. No row means enabled. */
   private readonly toggles = new Map<
     string,
-    { enabled: boolean; at: number }
+    { enabled: boolean; runAt: string | null; at: number }
+  >();
+  /** Resolved timezones, per gym. Profile wins over the org row. */
+  private readonly timezones = new Map<
+    string,
+    { timezone: string; at: number }
   >();
 
   constructor(
@@ -84,16 +94,81 @@ export class MemberMessenger {
     organizationId: string,
     key: AutomationKey,
   ): Promise<boolean> {
+    return (await this.settingFor(organizationId, key)).enabled;
+  }
+
+  private async settingFor(
+    organizationId: string,
+    key: AutomationKey,
+  ): Promise<{ enabled: boolean; runAt: string | null }> {
     const cacheKey = `${organizationId}:${key}`;
     const cached = this.toggles.get(cacheKey);
-    if (cached && Date.now() - cached.at < 60_000) return cached.enabled;
+    if (cached && Date.now() - cached.at < 60_000)
+      return { enabled: cached.enabled, runAt: cached.runAt };
     const row = await this.prisma.automationSetting.findUnique({
       where: { organizationId_key: { organizationId, key } },
-      select: { enabled: true },
+      select: { enabled: true, runAt: true },
     });
-    const enabled = row?.enabled ?? true;
-    this.toggles.set(cacheKey, { enabled, at: Date.now() });
-    return enabled;
+    const setting = {
+      enabled: row?.enabled ?? true,
+      runAt: row?.runAt ?? null,
+    };
+    this.toggles.set(cacheKey, { ...setting, at: Date.now() });
+    return setting;
+  }
+
+  private async timezoneFor(
+    organizationId: string,
+    organizationTimezone?: string | null,
+  ): Promise<string> {
+    const cached = this.timezones.get(organizationId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.timezone;
+    let profileTimezone: string | null = null;
+    let orgTimezone: string | null = organizationTimezone ?? null;
+    try {
+      const [profile, organization] = await Promise.all([
+        this.prisma.whatsappAutomationProfile.findUnique({
+          where: { organizationId },
+          select: { timezone: true },
+        }),
+        orgTimezone
+          ? null
+          : this.prisma.organization.findUnique({
+              where: { id: organizationId },
+              select: { timezone: true },
+            }),
+      ]);
+      profileTimezone = profile?.timezone ?? null;
+      orgTimezone = orgTimezone ?? organization?.timezone ?? null;
+    } catch {
+      // A preferences lookup must never stop a reminder.
+    }
+    const timezone = resolveAutomationTimezone(profileTimezone, orgTimezone);
+    this.timezones.set(organizationId, { timezone, at: Date.now() });
+    return timezone;
+  }
+
+  /**
+   * Whether the hourly tick should process this gym+key now: the saved
+   * (or default) execution time matches the gym-local hour. Scanners
+   * check this per organization before touching that org's rows; the
+   * per-member toggle check in deliver() still applies at send time.
+   */
+  async sendWindowOpen(
+    organizationId: string,
+    key: AutomationKey,
+    organizationTimezone?: string | null,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const setting = await this.settingFor(organizationId, key);
+    if (!setting.enabled) return false;
+    const runAt = setting.runAt ?? DEFAULT_RUN_AT[key] ?? null;
+    if (!runAt) return true;
+    const timezone = await this.timezoneFor(
+      organizationId,
+      organizationTimezone,
+    );
+    return isDueAt(timezone, runAt, now);
   }
 
   async deliver(message: MemberAutomationMessage): Promise<Delivery> {
