@@ -1,11 +1,17 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { Audited } from '../common/decorators/audited.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { effectiveBranch } from '../common/branch/branch-filter';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AutomationSettingsService } from './automation-settings.service';
+import { IrregularMembersService } from './irregular-members.service';
+import { WhatsappProfileService } from './whatsapp-profile.service';
 import { UpdateAutomationSettingDto } from './dto/automation-settings.dto';
+import { UpdateWhatsappProfileDto } from './dto/whatsapp-profile.dto';
+import { IrregularMembersQueryDto } from './dto/irregular-members-query.dto';
 
 /**
  * What the automation queue is doing for this gym.
@@ -22,6 +28,8 @@ export class AutomationController {
   constructor(
     private readonly overview: AutomationOverviewService,
     private readonly settings: AutomationSettingsService,
+    private readonly profiles: WhatsappProfileService,
+    private readonly irregular: IrregularMembersService,
   ) {}
 
   @Get()
@@ -45,5 +53,35 @@ export class AutomationController {
     @Body() dto: UpdateAutomationSettingDto,
   ) {
     return this.settings.update(user.organizationId!, key, dto, user.id);
+  }
+
+  @Get('whatsapp-profile')
+  @RequirePermissions('reports.view')
+  getWhatsappProfile(@CurrentUser() user: AuthenticatedUser) {
+    return this.profiles.get(user.organizationId!);
+  }
+
+  @Patch('whatsapp-profile')
+  @RequirePermissions('whatsapp.manage')
+  @Audited({ resource: 'whatsapp_profile', action: 'update' })
+  updateWhatsappProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateWhatsappProfileDto,
+  ) {
+    return this.profiles.update(user.organizationId!, dto);
+  }
+
+  @Get('irregular-members')
+  @RequirePermissions('reports.view')
+  getIrregularMembers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: IrregularMembersQueryDto,
+    @CurrentBranchScope() branchScope: string | null,
+  ) {
+    return this.irregular.getReport(
+      user.organizationId!,
+      query.rangeDays,
+      effectiveBranch(branchScope, query.branchId),
+    );
   }
 }

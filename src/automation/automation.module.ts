@@ -6,6 +6,8 @@ import { MemberIntelligenceModule } from '../member-intelligence/member-intellig
 import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AutomationSettingsService } from './automation-settings.service';
+import { IrregularMembersService } from './irregular-members.service';
+import { WhatsappProfileService } from './whatsapp-profile.service';
 import { QUEUE_NAMES } from '../queue/queue.constants';
 import { AutomationRunService } from './automation-run.service';
 import { MemberMessenger } from './member-messenger.service';
@@ -42,6 +44,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
   providers: [
     AutomationOverviewService,
     AutomationSettingsService,
+    IrregularMembersService,
+    WhatsappProfileService,
     AutomationRunService,
     MemberMessenger,
     AutomationSchedulerService,

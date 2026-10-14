@@ -48,6 +48,7 @@ export class AutomationSettingsService {
         cooldownDays: row?.cooldownDays ?? null,
         quietHoursStart: row?.quietHoursStart ?? null,
         quietHoursEnd: row?.quietHoursEnd ?? null,
+        runAt: row?.runAt ?? null,
         updatedAt: row?.updatedAt ?? null,
       };
     });
@@ -70,6 +71,7 @@ export class AutomationSettingsService {
       cooldownDays?: number | null;
       quietHoursStart?: string | null;
       quietHoursEnd?: string | null;
+      runAt?: string | null;
     } = {};
     if (dto.enabled !== undefined) data.enabled = dto.enabled;
     if (dto.channelOverride !== undefined)
@@ -78,6 +80,7 @@ export class AutomationSettingsService {
     if (dto.quietHoursStart !== undefined)
       data.quietHoursStart = dto.quietHoursStart;
     if (dto.quietHoursEnd !== undefined) data.quietHoursEnd = dto.quietHoursEnd;
+    if (dto.runAt !== undefined) data.runAt = dto.runAt;
     // A body with no fields changes nothing -- answer the current state
     // without writing a row for it.
     if (Object.keys(data).length === 0) {
@@ -90,6 +93,7 @@ export class AutomationSettingsService {
           cooldownDays: null,
           quietHoursStart: null,
           quietHoursEnd: null,
+          runAt: null,
         }
       );
     }

@@ -165,6 +165,7 @@ model Organization {
   notificationPreferences  NotificationPreference[]
   automationRuns           AutomationRun[]
   automationSettings       AutomationSetting[]
+  whatsappProfile          WhatsappProfile?
   aiActions                AiAction[]
   aiConversations          AiConversation[]
   memberDocumentVersions   MemberDocumentVersion[]
@@ -2833,6 +2834,10 @@ model AutomationSetting {
   channelOverride String?
   /// Cooldown override in days, null = the scanner's coded default.
   cooldownDays    Int?
+  /// Daily run time as HH:mm in the gym's timezone, null = the scanner's
+  /// coded default. The Automation Control Center PATCHes this per key;
+  /// without the column the strict ValidationPipe rejects the write.
+  runAt           String?
   /// Quiet hours as HH:mm 24h, both-or-neither, null = off. Stored, not
   /// enforced yet: enforcement lands with the quiet-hours task.
   quietHoursStart String?
@@ -2844,6 +2849,43 @@ model AutomationSetting {
   @@unique([organizationId, key])
   @@index([organizationId])
   @@map("automation_settings")
+}
+
+/// Per-gym WhatsApp delivery preferences edited on the settings/whatsapp
+/// screen (Important settings + Customer salutation cards). One row per
+/// organization, created on first PATCH -- reads answer merged defaults
+/// so an unconfigured gym sees a working form, never a 404. Timezone is
+/// intentionally NOT stored: the API answers the organization's own
+/// timezone, keeping a single source of truth.
+model WhatsappProfile {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Greeting word for templated messages. Validated against the
+  /// salutation list the UI offers (Dear/Hello/Respected/Hi/Hey/Greetings).
+  salutation String @default("Hello")
+  /// Retry a WhatsApp send that fails, with a short backoff. Opt-in:
+  /// a gym that never asked for retries must not get them silently.
+  autoResend Boolean @default(false)
+  /// Used only while autoResend is on. The UI allows 1-8.
+  maxResendAttempts Int @default(3)
+  /// Prepended to local phone numbers without a country code.
+  defaultCountryCode String @default("91")
+  /// Null = the built-in bill template. Only {{variables}} from
+  /// BILL_VARIABLES (whatsapp-profile.dto.ts) are accepted.
+  customBillMessage String?
+  /// Inactivity threshold (days) the irregular-members preview defaults
+  /// to. The MEMBER_INACTIVE_RECOVERY scanner keeps its own coded
+  /// default until it is wired to this column.
+  irregularThresholdDays Int @default(14)
+  irregularCustomDays    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("whatsapp_profiles")
 }
 
 /// -- src/ai-actions/ (P3 "Gym Brain": Action Center) ---------------------
