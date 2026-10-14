@@ -29,6 +29,12 @@ describe('ClassesService weekly class limit', () => {
   };
 
   beforeEach(() => {
+    // Freeze wall-clock time: the service under test reads `new Date()`
+    // (not `Date.now()`), so spying on Date.now alone lets the mocked
+    // Wednesday session expire in real time and the suite becomes a
+    // time bomb past 2026-10-14T11:00:00Z.
+    jest.useFakeTimers();
+    jest.setSystemTime(MONDAY_10AM);
     prisma = {
       member: { findFirst: jest.fn().mockResolvedValue({ id: 'm-1' }) },
       classSession: { findFirst: jest.fn().mockResolvedValue(session) },
@@ -46,10 +52,12 @@ describe('ClassesService weekly class limit', () => {
       $transaction: (cb: (tx: any) => unknown) => cb(prisma),
     };
     service = new ClassesService(prisma as unknown as PrismaService);
-    jest.spyOn(Date, 'now').mockReturnValue(MONDAY_10AM.getTime());
   });
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('allows booking under the weekly cap', async () => {
     prisma.classBooking.count.mockResolvedValueOnce(1).mockResolvedValueOnce(5);
