@@ -24,6 +24,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "dotenv -e .env.test -- jest --config ./test/jest-e2e.json --runInBand",
     "test:e2e:p1": "dotenv -e .env.test -- jest --config ./test/jest-e2e.json --runInBand --detectOpenHandles test/whatsapp-web.e2e-spec.ts test/whatsapp-p1-media.e2e-spec.ts test/automation.e2e-spec.ts",
+    "test:e2e:web": "e2e run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
@@ -79,6 +80,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@e2e-dev/web": "^0.14.0",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",
@@ -97,8 +99,10 @@
     "@types/smtp-server": "^3.5.13",
     "@types/supertest": "^7.0.0",
     "@types/uuid": "^10.0.0",
+    "ai": "^7.0.0",
     "dotenv": "^17.4.2",
     "dotenv-cli": "^11.0.0",
+    "e2e": "^0.20.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
