@@ -52,6 +52,14 @@ export function phoneLookupKey(
  * (field untouched on PATCH) and explicit `null` stays `null` (field
  * cleared -- the clear semantic pinned by members-contact-fields.spec.ts);
  * blank strings become `undefined` so empty input never persists as ''.
+ *
+ * Email is lowercased/trimmed (mailbox identity). Phone numbers are NOT
+ * reformatted for storage: downstream consumers (SMS/WhatsApp delivery,
+ * call-log echoes, OTP challenge rows keyed by the stored value) depend
+ * on the submitted representation, so the raw string is preserved and
+ * digit-identity is enforced comparison-side in assertContactUnique.
+ * A canonical `phoneDigits` column remains the future enforcement vehicle
+ * (see the D-DB02 decision); it is out of scope for this change.
  */
 export function normalizeMemberContact<
   T extends {
@@ -63,10 +71,18 @@ export function normalizeMemberContact<
 >(dto: T): void {
   if (dto.email !== undefined && dto.email !== null)
     dto.email = normalizeEmail(dto.email) ?? undefined;
-  if (dto.phone !== undefined && dto.phone !== null)
-    dto.phone = normalizePhoneDigits(dto.phone) ?? undefined;
-  if (dto.alternatePhone !== undefined && dto.alternatePhone !== null)
-    dto.alternatePhone = normalizePhoneDigits(dto.alternatePhone) ?? undefined;
+  if (
+    dto.phone !== undefined &&
+    dto.phone !== null &&
+    normalizePhoneDigits(dto.phone) === null
+  )
+    dto.phone = undefined;
+  if (
+    dto.alternatePhone !== undefined &&
+    dto.alternatePhone !== null &&
+    normalizePhoneDigits(dto.alternatePhone) === null
+  )
+    dto.alternatePhone = undefined;
   if (
     dto.emergencyContactEmail !== undefined &&
     dto.emergencyContactEmail !== null

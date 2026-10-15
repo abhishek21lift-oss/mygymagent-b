@@ -31,7 +31,7 @@ describe('contact normalization', () => {
     expect(phoneLookupKey(null)).toBeNull();
   });
 
-  it('normalizes identity fields in place, preserving undefined as untouched', () => {
+  it('normalizes email but preserves phone formatting for storage', () => {
     const dto: any = {
       email: 'A@B.CO',
       phone: '+91 98765 43210',
@@ -41,7 +41,7 @@ describe('contact normalization', () => {
     normalizeMemberContact(dto);
     expect(dto).toEqual({
       email: 'a@b.co',
-      phone: '919876543210',
+      phone: '+91 98765 43210',
       alternatePhone: undefined,
       firstName: 'Asha',
     });
