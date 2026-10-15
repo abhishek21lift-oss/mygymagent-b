@@ -14,6 +14,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import {
   AssignedOnlyUnless,
+  RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
 import { ListPtSessionsDto } from './dto/list-pt-sessions.dto';
@@ -48,11 +49,15 @@ export class PtSessionsController {
    * the PT panel on every member's page.
    */
   @Get()
-  @RequirePermissions('pt-sessions.read')
+  // A trainer holds only `pt-sessions.read_assigned`: they read the
+  // sessions they train and their assigned clients' sessions, never the
+  // organization's. Broad readers (`pt-sessions.read`) are unscoped.
+  @RequireAnyPermission('pt-sessions.read', 'pt-sessions.read_assigned')
   async list(
     @Query() query: ListPtSessionsDto,
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
     return this.ptSessionsService.list(
       requireOrgId(user),
@@ -63,17 +68,24 @@ export class PtSessionsController {
       query.startFrom ? new Date(query.startFrom) : undefined,
       query.endTo ? new Date(query.endTo) : undefined,
       branchScope,
+      assignmentScope,
     );
   }
 
   @Get(':id')
-  @RequirePermissions('pt-sessions.read')
+  @RequireAnyPermission('pt-sessions.read', 'pt-sessions.read_assigned')
   async getOne(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
     @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
   ) {
-    return this.ptSessionsService.getOne(requireOrgId(user), id, branchScope);
+    return this.ptSessionsService.getOne(
+      requireOrgId(user),
+      id,
+      branchScope,
+      assignmentScope,
+    );
   }
 
   @Post()

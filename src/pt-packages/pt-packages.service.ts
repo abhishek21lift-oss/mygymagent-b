@@ -37,12 +37,19 @@ export class PtPackagesService {
     organizationId: string,
     memberId?: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const packages = await this.prisma.ptPackage.findMany({
       where: {
         organizationId,
         ...(memberId ? { memberId } : {}),
         ...(branchScope ? { branchId: branchScope } : {}),
+        // `*_read_assigned` callers (trainers) read only packages that
+        // belong to their assigned clients; a client-supplied memberId
+        // narrows within that scope, never around it.
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
       },
       orderBy: { endDate: 'asc' },
     });
@@ -53,12 +60,16 @@ export class PtPackagesService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const pkg = await this.prisma.ptPackage.findFirst({
       where: {
         id,
         organizationId,
         ...(branchScope ? { branchId: branchScope } : {}),
+        ...(assignmentScope
+          ? { member: { assignedTrainerId: assignmentScope } }
+          : {}),
       },
     });
     if (!pkg) throw new NotFoundException('PT package not found');
@@ -78,8 +89,14 @@ export class PtPackagesService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
-    const pkg = await this.getOne(organizationId, id, branchScope);
+    const pkg = await this.getOne(
+      organizationId,
+      id,
+      branchScope,
+      assignmentScope,
+    );
     const window = { gte: pkg.startDate, lt: pkg.endDate };
     const sessionScope = {
       organizationId,

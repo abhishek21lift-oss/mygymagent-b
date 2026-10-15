@@ -47,12 +47,26 @@ export class PtSessionsService {
     startFrom?: Date,
     endTo?: Date,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     // A branch-scoped caller reads only their own branch, whatever branch
     // they ask for; this list used to answer for the whole organization.
     const and: Prisma.PtSessionWhereInput[] = [
       ...(branchId ? [{ branchId }] : []),
       ...(branchScope ? [{ branchId: branchScope }] : []),
+      // `*_read_assigned` callers (trainers) read only the sessions they
+      // train or their assigned clients' -- the same two branches
+      // `assertSessionWithinAssignment` enforces on writes.
+      ...(assignmentScope
+        ? [
+            {
+              OR: [
+                { trainer: { userId: assignmentScope } },
+                { member: { assignedTrainerId: assignmentScope } },
+              ],
+            },
+          ]
+        : []),
       ...(startFrom ? [{ startTime: { gte: startFrom } }] : []),
       ...(endTo ? [{ endTime: { lte: endTo } }] : []),
     ];
@@ -94,6 +108,7 @@ export class PtSessionsService {
     organizationId: string,
     id: string,
     branchScope: string | null = null,
+    assignmentScope: string | null = null,
   ) {
     const session = await this.prisma.ptSession.findFirst({
       where: {
@@ -120,6 +135,13 @@ export class PtSessionsService {
       },
     });
     if (!session) throw new NotFoundException('PT session not found');
+    // The write-path rule, applied to reads: a scoped caller cannot open
+    // a session outside their assignment by guessing its id.
+    await this.assertSessionWithinAssignment(
+      organizationId,
+      assignmentScope,
+      session,
+    );
     return session;
   }
 
@@ -205,6 +227,18 @@ export class PtSessionsService {
       throw new BadRequestException('Trainer not found in this organization');
   }
 
+  /** A scoped caller's own StaffProfile id, when they have one. */
+  private async staffProfileIdForUser(
+    organizationId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const profile = await this.prisma.staffProfile.findFirst({
+      where: { organizationId, userId },
+      select: { id: true },
+    });
+    return profile?.id ?? null;
+  }
+
   /** `trainerId` is a StaffProfile id; the shared check is keyed by user. */
   private async assertTrainerFreeAcrossCalendar(
     organizationId: string,
@@ -255,13 +289,21 @@ export class PtSessionsService {
       throw new BadRequestException(
         'Session end time must be after start time',
       );
+    // A caller limited to their own clients (a trainer) holds no
+    // `users.read`, so the booking form shows them no trainer picker and
+    // `dto.trainerId` stays unset -- while `assertWithinAssignment` above
+    // already forbids naming anyone but themselves. Default the session to
+    // the caller's own staff profile: unassigned sessions read as
+    // "Unassigned" and `generateCommissions` never credits them.
+    const trainerId =
+      dto.trainerId ??
+      (assignmentScope
+        ? await this.staffProfileIdForUser(organizationId, assignmentScope)
+        : null);
     const overlapping = await this.prisma.ptSession.findFirst({
       where: {
         organizationId,
-        OR: [
-          { memberId: dto.memberId },
-          ...(dto.trainerId ? [{ trainerId: dto.trainerId }] : []),
-        ],
+        OR: [{ memberId: dto.memberId }, ...(trainerId ? [{ trainerId }] : [])],
         // Any branch: a trainer or member cannot be in two places at once,
         // and matching on this branch only let a trainer be booked at two
         // branches for the same hour.
@@ -277,10 +319,10 @@ export class PtSessionsService {
         'Time conflicts with an existing session for member, trainer, or branch',
       );
     // The same trainer can also be booked through an appointment.
-    if (dto.trainerId)
+    if (trainerId)
       await this.assertTrainerFreeAcrossCalendar(
         organizationId,
-        dto.trainerId,
+        trainerId,
         new Date(dto.startTime),
         new Date(dto.endTime),
       );
@@ -289,7 +331,7 @@ export class PtSessionsService {
         data: {
           organizationId,
           memberId: dto.memberId,
-          trainerId: dto.trainerId ?? null,
+          trainerId,
           branchId: dto.branchId,
           startTime: new Date(dto.startTime),
           endTime: new Date(dto.endTime),

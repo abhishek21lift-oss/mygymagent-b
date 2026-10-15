@@ -26,6 +26,14 @@ import { createTestApp, grantActiveMembership } from './utils/test-app';
  * All five are fixed alongside this suite; the cases below are what proves
  * it, and the owner assertions are the control showing the fix didn't just
  * break the broad-permission path instead.
+ *
+ * F-API05/F-API06 (navigation audit): the trainer's own screens -- PT
+ * sessions, Workout plans and the member PT wallet -- were dead ends,
+ * because their reads required the flat `*read` keys a TRAINER never
+ * holds, and every request answered 403. Those reads now also accept the
+ * matching `*_read_assigned` variants -- scoped to the caller wherever
+ * the rows are member-linked -- and the final describe block proves the
+ * scope holds while the owner's view is unchanged.
  */
 describe('Assignment scoping outside Members (e2e, F-05)', () => {
   let app: INestApplication;
@@ -514,6 +522,216 @@ describe('Assignment scoping outside Members (e2e, F-05)', () => {
           `/appointments/${mine.body.data.id}/complete`,
         ),
       ).expect(200);
+    });
+  });
+
+  describe('trainer reads on the trainer surfaces (F-API05/F-API06)', () => {
+    // Each read below used to require the flat key (`pt-sessions.read`,
+    // `workouts.read`, `pt-packages.read`), which a TRAINER never holds,
+    // so the Sessions page, the Workout plans page and the member PT
+    // wallet answered 403 for the one role they exist for. The reads now
+    // accept the matching `*_read_assigned` variant: member-linked rows
+    // (sessions, packages) stay scoped to the caller, and the exercise /
+    // workout-plan libraries -- org reference data with no member linkage
+    // -- are readable under either key, which is what building a plan and
+    // assigning it requires.
+    const inAnHour = (hours: number) =>
+      new Date(Date.now() + hours * 3_600_000).toISOString();
+    let mySessionId: string;
+    let trainerOwnedSessionId: string;
+    let hiddenSessionId: string;
+    let planId: string;
+    let myPackageId: string;
+    let theirPackageId: string;
+
+    beforeAll(async () => {
+      // A session for the trainer's client, booked by the trainer...
+      const mine = await asTrainer(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: assignedMemberId,
+            branchId,
+            startTime: inAnHour(70),
+            endTime: inAnHour(71),
+          }),
+      ).expect(201);
+      mySessionId = mine.body.data.id;
+
+      // ...one where the trainer is the session's trainer...
+      const staffProfile = await prisma.staffProfile.findFirstOrThrow({
+        where: { userId: trainerId },
+      });
+      // The no-trainer booking above defaulted to the caller's own staff
+      // profile: a scoped booker holds no `users.read`, can never name
+      // anyone but themselves, and unassigned sessions are never credited
+      // by commission generation.
+      expect(mine.body.data.trainerId).toBe(staffProfile.id);
+      const own = await asTrainer(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: assignedMemberId,
+            branchId,
+            trainerId: staffProfile.id,
+            startTime: inAnHour(72),
+            endTime: inAnHour(73),
+          }),
+      ).expect(201);
+      trainerOwnedSessionId = own.body.data.id;
+
+      // ...and one the trainer has no part in.
+      const hidden = await asOwner(
+        request(app.getHttpServer())
+          .post('/pt-sessions')
+          .send({
+            memberId: unassignedMemberId,
+            branchId,
+            startTime: inAnHour(74),
+            endTime: inAnHour(75),
+          }),
+      ).expect(201);
+      hiddenSessionId = hidden.body.data.id;
+
+      const exercise = await asOwner(
+        request(app.getHttpServer())
+          .post('/exercises')
+          .send({ name: `Goblet Squat ${Date.now()}`, muscleGroup: 'LEGS' }),
+      ).expect(201);
+      const plan = await asOwner(
+        request(app.getHttpServer())
+          .post('/workout-plans')
+          .send({
+            name: 'Trainer Read Plan',
+            exercises: [
+              {
+                exerciseId: exercise.body.data.id,
+                order: 1,
+                sets: 4,
+                reps: '8',
+              },
+            ],
+          }),
+      ).expect(201);
+      planId = plan.body.data.id;
+
+      const packageBody = (memberId: string, name: string) => ({
+        memberId,
+        branchId,
+        name,
+        totalSessions: 5,
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        price: 500,
+      });
+      const myPackage = await asOwner(
+        request(app.getHttpServer())
+          .post('/pt-packages')
+          .send(packageBody(assignedMemberId, 'Mine pack')),
+      ).expect(201);
+      myPackageId = myPackage.body.data.id;
+      const theirPackage = await asOwner(
+        request(app.getHttpServer())
+          .post('/pt-packages')
+          .send(packageBody(unassignedMemberId, 'Not mine pack')),
+      ).expect(201);
+      theirPackageId = theirPackage.body.data.id;
+    });
+
+    it('lists only the trainer’s own or assigned-client PT sessions', async () => {
+      const trainerView = await asTrainer(
+        request(app.getHttpServer()).get('/pt-sessions'),
+      ).expect(200);
+      const ids = trainerView.body.data.items.map((s: { id: string }) => s.id);
+      expect(ids).toContain(mySessionId);
+      expect(ids).toContain(trainerOwnedSessionId);
+      expect(ids).not.toContain(hiddenSessionId);
+
+      // The owner control: the scope narrows trainers, not the org view.
+      const ownerView = await asOwner(
+        request(app.getHttpServer()).get('/pt-sessions'),
+      ).expect(200);
+      expect(
+        ownerView.body.data.items.map((s: { id: string }) => s.id),
+      ).toEqual(
+        expect.arrayContaining([
+          mySessionId,
+          trainerOwnedSessionId,
+          hiddenSessionId,
+        ]),
+      );
+    });
+
+    it('narrows, never widens, when the trainer filters by client', async () => {
+      const res = await asTrainer(
+        request(app.getHttpServer())
+          .get('/pt-sessions')
+          .query({ memberId: unassignedMemberId }),
+      ).expect(200);
+      expect(res.body.data.items).toHaveLength(0);
+    });
+
+    it('serves a session to its trainer and 404s one they are not part of', async () => {
+      await asTrainer(
+        request(app.getHttpServer()).get(`/pt-sessions/${mySessionId}`),
+      ).expect(200);
+      await asTrainer(
+        request(app.getHttpServer()).get(`/pt-sessions/${hiddenSessionId}`),
+      ).expect(404);
+      await asOwner(
+        request(app.getHttpServer()).get(`/pt-sessions/${hiddenSessionId}`),
+      ).expect(200);
+    });
+
+    it('reads the exercise and workout-plan libraries a plan builder needs', async () => {
+      const exercises = await asTrainer(
+        request(app.getHttpServer()).get('/exercises'),
+      ).expect(200);
+      expect(Array.isArray(exercises.body.data)).toBe(true);
+
+      const plans = await asTrainer(
+        request(app.getHttpServer()).get('/workout-plans'),
+      ).expect(200);
+      expect(plans.body.data.items.map((p: { id: string }) => p.id)).toContain(
+        planId,
+      );
+
+      await asTrainer(
+        request(app.getHttpServer()).get(`/workout-plans/${planId}`),
+      ).expect(200);
+    });
+
+    it('lists only PT packages for assigned clients', async () => {
+      const list = await asTrainer(
+        request(app.getHttpServer()).get('/pt-packages'),
+      ).expect(200);
+      const memberIds = list.body.data.map(
+        (p: { memberId: string }) => p.memberId,
+      );
+      expect(memberIds).toContain(assignedMemberId);
+      expect(memberIds).not.toContain(unassignedMemberId);
+
+      const filtered = await asTrainer(
+        request(app.getHttpServer())
+          .get('/pt-packages')
+          .query({ memberId: unassignedMemberId }),
+      ).expect(200);
+      expect(filtered.body.data).toHaveLength(0);
+
+      await asTrainer(
+        request(app.getHttpServer()).get(`/pt-packages/${myPackageId}`),
+      ).expect(200);
+      await asTrainer(
+        request(app.getHttpServer()).get(`/pt-packages/${myPackageId}/wallet`),
+      ).expect(200);
+      await asTrainer(
+        request(app.getHttpServer()).get(`/pt-packages/${theirPackageId}`),
+      ).expect(404);
+      await asTrainer(
+        request(app.getHttpServer()).get(
+          `/pt-packages/${theirPackageId}/wallet`,
+        ),
+      ).expect(404);
     });
   });
 });

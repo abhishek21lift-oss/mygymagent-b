@@ -12,6 +12,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
 import {
   AssignedOnlyUnless,
+  RequireAnyPermission,
   RequirePermissions,
 } from '../common/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -26,7 +27,11 @@ export class WorkoutPlansController {
   constructor(private readonly workoutPlansService: WorkoutPlansService) {}
 
   @Get()
-  @RequirePermissions('workouts.read')
+  // Plans are the org's shared library -- a plan row carries no member
+  // data -- and a trainer builds and assigns from it (`workouts.create`,
+  // `workouts.assign`), so the assigned-read grant covers library reads
+  // too. Member-linked rows (assignments) are scoped separately.
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: PaginationQueryDto,
@@ -35,7 +40,7 @@ export class WorkoutPlansController {
   }
 
   @Get(':id')
-  @RequirePermissions('workouts.read')
+  @RequireAnyPermission('workouts.read', 'workouts.read_assigned')
   getOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.workoutPlansService.getOne(user.organizationId!, id);
   }
