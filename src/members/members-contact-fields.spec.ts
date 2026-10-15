@@ -79,6 +79,10 @@ describe('MembersService contact enhancement', () => {
     prisma = {
       member: {
         count: jest.fn().mockResolvedValue(0),
+        // D-DB02: the service now probes findFirst (email) + findMany
+        // (phone suffix) for per-organization conflicts before writing.
+        // This fixture tenant holds no conflicting contacts.
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockImplementation(async (args: any) => {
           // Referrer lookup: tenant members are visible only when the
           // caller's branch scope (if any) matches their home branch.

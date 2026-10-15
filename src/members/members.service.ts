@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   assignableTrainerWhere,
 } from '../common/validators/tenant-reference.validator';
 import type { CreateMemberDto } from './dto/create-member.dto';
+import { normalizeMemberContact } from './contact-normalization';
 import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
 
@@ -205,6 +207,17 @@ export class MembersService {
       dto.assignedTrainerId,
     );
     this.validateContactFields(dto);
+    // D-DB02: normalize identity fields so `Rahul@Gym.com` and
+    // `rahul@gym.com` (or `+91 98765 43210` vs `9876543210`) compare as
+    // one identity, then reject a conflicting identity deterministically.
+    // Lead conversion funnels through create(), so it inherits this.
+    // Residual race (two concurrent creates) is closed by the forthcoming
+    // partial unique indexes; until then the loser is triaged, not lost.
+    normalizeMemberContact(dto);
+    await this.assertContactUnique(tx ?? this.prisma, organizationId, {
+      email: dto.email,
+      phone: dto.phone,
+    });
     if (dto.referrerMemberId) {
       await this.validateReferrer(
         organizationId,
@@ -472,6 +485,15 @@ export class MembersService {
       dto.assignedTrainerId,
     );
     this.validateContactFields(dto, before);
+    // D-DB02: same normalization + conflict rule as create(); the member's
+    // own row is excluded so unchanged values never self-conflict.
+    normalizeMemberContact(dto);
+    await this.assertContactUnique(
+      this.prisma,
+      organizationId,
+      { email: dto.email ?? undefined, phone: dto.phone ?? undefined },
+      id,
+    );
     if (dto.referrerMemberId) {
       if (dto.referrerMemberId === id) {
         throw new BadRequestException('A member cannot refer themselves');
@@ -726,6 +748,13 @@ export class MembersService {
     });
   }
 
+  // Member removal is soft-delete ONLY (deletedAt + INACTIVE). There is no
+  // hard-delete endpoint: every member-child FK (payments, invoices,
+  // attendance, memberships, and all other history) is ON DELETE RESTRICT
+  // (migration 20261014184923_member_history_restrict), so a raw
+  // DELETE FROM members with surviving children fails loudly instead of
+  // silently wiping the ledger. Do not add a hard delete here without a
+  // GDPR-anonymization design that retains ledger rows.
   async remove(
     organizationId: string,
     id: string,
@@ -861,6 +890,71 @@ export class MembersService {
       } else if (pin.length < 3 || pin.length > 12) {
         throw new BadRequestException('Postal code looks invalid');
       }
+    }
+  }
+
+  /**
+   * D-DB02: deterministic per-organization identity conflicts.
+   *
+   * Same normalized email (exact match -- writers normalize, so stored
+   * values converge) or same handset phone (suffix candidates re-compared
+   * on the last ten digits, the OTP lookup convention) in the same live
+   * organization rejects with 409 CONFLICT. Soft-deleted rows are
+   * invisible (a rejoining member reuses their old contact freely) and
+   * other organizations never collide (tenant boundary). `excludeId`
+   * keeps PATCH from conflicting with the row being edited.
+   *
+   * Check-then-act: two requests racing past this check can both insert;
+   * the forthcoming partial unique indexes turn the loser into the same
+   * 409 via P2002. Until then, concurrent duplicates are possible but
+   * sequential ones are impossible.
+   */
+  private async assertContactUnique(
+    client: Prisma.TransactionClient | PrismaService,
+    organizationId: string,
+    contact: { email?: string; phone?: string },
+    excludeId?: string,
+  ): Promise<void> {
+    const notSelf = excludeId ? { id: { not: excludeId } } : {};
+    if (contact.email) {
+      const clash = await client.member.findFirst({
+        where: {
+          organizationId,
+          deletedAt: null,
+          email: contact.email,
+          ...notSelf,
+        },
+        select: { id: true },
+      });
+      if (clash)
+        throw new ConflictException(
+          'A member with this email already exists in your organization',
+        );
+    }
+    // Suffix candidates re-compared on the last ten digits (the OTP
+    // lookup convention): `+91 98765 43210` and `9876543210` are the same
+    // handset, while anything sharing fewer digits never reaches here.
+    const digits = contact.phone ? contact.phone.replace(/\D/g, '') : '';
+    const key = digits.slice(-10);
+    if (key) {
+      const candidates = await client.member.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          phone: { endsWith: key },
+          ...notSelf,
+        },
+        select: { id: true, phone: true },
+        take: 11,
+      });
+      if (
+        candidates.some(
+          (m) => (m.phone ?? '').replace(/\D/g, '').slice(-10) === key,
+        )
+      )
+        throw new ConflictException(
+          'A member with this phone number already exists in your organization',
+        );
     }
   }
 

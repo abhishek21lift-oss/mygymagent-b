@@ -52,8 +52,20 @@ export class DataService {
    * (`id` is the tiebreaker: name ordering alone is not stable, and an
    * unstable cursor skips or repeats rows across pages) and the
    * controller writes each chunk as it arrives.
+   *
+   * D-SEC01: `scope` carries the PermissionsGuard-enforced branch and
+   * assignment scopes (never client headers). When present they narrow
+   * the chunk query, so a branch-scoped `data.export` holder exports
+   * only their own branch; org-wide holders (both null) keep the full
+   * org export. Tenant isolation always applies via `organizationId`.
    */
-  async *exportMemberChunks(org: string): AsyncGenerator<string> {
+  async *exportMemberChunks(
+    org: string,
+    scope?: {
+      branchScope?: string | null;
+      assignmentScope?: string | null;
+    },
+  ): AsyncGenerator<string> {
     const headers = [
       'id',
       'firstName',
@@ -72,7 +84,14 @@ export class DataService {
     let cursor: string | undefined;
     for (;;) {
       const rows = await this.prisma.member.findMany({
-        where: { organizationId: org, deletedAt: null },
+        where: {
+          organizationId: org,
+          deletedAt: null,
+          ...(scope?.branchScope ? { primaryBranchId: scope.branchScope } : {}),
+          ...(scope?.assignmentScope
+            ? { assignedTrainerId: scope.assignmentScope }
+            : {}),
+        },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
         take: EXPORT_CHUNK,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

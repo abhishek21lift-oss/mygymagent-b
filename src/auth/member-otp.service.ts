@@ -114,12 +114,29 @@ export class MemberOtpService {
     if (!last10) return generic;
 
     // Matched on the last ten digits so a member typing 9876543210 finds
-    // the record stored as +919876543210.
-    const members = await this.prisma.member.findMany({
-      where: { phone: { endsWith: last10 }, deletedAt: null },
-      select: { id: true, phone: true, organizationId: true },
-      take: 2,
-    });
+    // the record stored as +919876543210. D-DB02: prefer an exact digit
+    // match first -- a number stored exactly as typed resolves to its own
+    // row even when another organization's member happens to share the
+    // same suffix (which would otherwise refuse both parties a code).
+    // Anything the exact query misses falls through to the suffix query
+    // below, so behavior for formatted/stored-differently numbers is
+    // unchanged, and multiples still fail closed either way.
+    const digitsOnly = rawPhone.replace(/\D/g, '');
+    let members =
+      digitsOnly === ''
+        ? []
+        : await this.prisma.member.findMany({
+            where: { phone: digitsOnly, deletedAt: null },
+            select: { id: true, phone: true, organizationId: true },
+            take: 2,
+          });
+    if (members.length === 0) {
+      members = await this.prisma.member.findMany({
+        where: { phone: { endsWith: last10 }, deletedAt: null },
+        select: { id: true, phone: true, organizationId: true },
+        take: 2,
+      });
+    }
 
     if (members.length === 0) return generic;
     if (members.length > 1) {

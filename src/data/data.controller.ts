@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { CurrentAssignmentScope } from '../common/decorators/assignment-scope.decorator';
+import { CurrentBranchScope } from '../common/decorators/branch-scope.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import type { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -20,13 +22,22 @@ export class DataController {
   @RequirePermissions('data.export')
   async exportMembers(
     @CurrentUser() u: AuthenticatedUser,
+    @CurrentBranchScope() branchScope: string | null,
+    @CurrentAssignmentScope() assignmentScope: string | null,
     @Res() res: Response,
   ) {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="members.csv"');
     // Streamed, not buffered: the export used to materialize the whole
     // org's member table (and its CSV) in memory before the first byte.
-    for await (const chunk of this.data.exportMemberChunks(u.organizationId!)) {
+    // D-SEC01: the enforced branch/assignment scopes travel into the
+    // chunk query, so a branch-scoped data.export holder receives only
+    // their own branch (org-wide holders keep the full-org export).
+    // The scopes come from PermissionsGuard, never from client headers.
+    for await (const chunk of this.data.exportMemberChunks(u.organizationId!, {
+      branchScope,
+      assignmentScope,
+    })) {
       res.write(chunk);
     }
     res.end();
