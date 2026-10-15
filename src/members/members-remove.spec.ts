@@ -70,7 +70,14 @@ describe('MembersService remove (history preservation)', () => {
     expect(prisma.member.update).toHaveBeenCalledTimes(1);
     expect(prisma.member.update).toHaveBeenCalledWith({
       where: { id: 'm1' },
-      data: { deletedAt: expect.any(Date), status: 'INACTIVE' },
+      data: {
+        deletedAt: expect.any(Date),
+        status: 'INACTIVE',
+        // D-DB02: soft-delete releases the identity keys (the raw
+        // contact stays for history).
+        emailKey: null,
+        phoneKey: null,
+      },
     });
   });
 

@@ -3,6 +3,7 @@ import { Gender, MemberStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PlatformBillingService } from '../platform-billing/platform-billing.service';
 import { TenantReferenceValidator } from '../common/validators/tenant-reference.validator';
+import { emailKeyOf, phoneKeyOf } from '../members/contact-normalization';
 import type { ImportMemberRowDto } from './dto/import-members.dto';
 
 const ALLOWED_MEMBER_STATUSES = new Set(['ACTIVE', 'INACTIVE']);
@@ -308,6 +309,9 @@ export class DataService {
                 lastName: c.lastName,
                 email: c.email,
                 phone: c.phone,
+                // D-DB02: identity keys follow the imported contacts.
+                emailKey: emailKeyOf(c.email),
+                phoneKey: phoneKeyOf(c.phone),
                 dateOfBirth: c.dateOfBirth,
                 gender: c.gender,
                 status: c.status,

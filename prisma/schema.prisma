@@ -768,6 +768,13 @@ model Member {
   email     String?
   phone     String?
   alternatePhone String?
+  /// D-DB02 enforcement keys: the normalized identity of a LIVE member
+  /// (lowercased email; last-ten-digit phone key). Soft-deleted rows
+  /// hold NULL keys, so a rejoining member reuses the old contact
+  /// freely -- the same contract as `assertContactUnique`. Maintained
+  /// by the member write sites; released by `remove()` and merge.
+  emailKey  String?
+  phoneKey  String?
 
   dateOfBirth DateTime?
   gender      Gender?
@@ -863,6 +870,8 @@ model Member {
   paymentPromises PaymentPromise[]
 
   @@unique([organizationId, memberCode])
+  @@unique([organizationId, emailKey])
+  @@unique([organizationId, phoneKey])
   @@index([organizationId, primaryBranchId])
   @@index([assignedTrainerId])
   @@index([organizationId, status])

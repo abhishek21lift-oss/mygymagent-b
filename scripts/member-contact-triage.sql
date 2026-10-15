@@ -4,10 +4,13 @@
 --   psql "$SCRATCH_URL" -f scripts/member-contact-triage.sql
 --
 -- Reports per-organization duplicate normalized emails and phones among
--- live members, plus OTP-ambiguous suffix groups. Outputs counts and
--- member ids/codes only -- never raw emails or phone numbers.
--- A uniqueness migration must NOT be written until these groups are
--- triaged (staff merge via the member-duplicates preview/execute path).
+-- live members, the enforcement-key suffix groups (the last-ten-digit
+-- predicate the uniqueness migration applies), plus OTP-ambiguous
+-- cross-organization suffix groups. Outputs counts and member
+-- ids/codes only -- never raw emails or phone numbers.
+-- A uniqueness migration must NOT be applied until every query returns
+-- zero rows (or the flagged groups are merged via the member-duplicates
+-- preview/execute path).
 
 -- Duplicate normalized emails per organization (live members only).
 SELECT m."organizationId" AS "organizationId",
@@ -59,4 +62,25 @@ FROM (
 WHERE length(suffix) = 10
 GROUP BY suffix
 HAVING count(DISTINCT "organizationId") > 1
+ORDER BY count(*) DESC;
+
+-- Duplicate last-ten-digit phone keys per organization (live members
+-- only): the exact grouping the `members.phoneKey` unique enforces. Two
+-- members whose formats differ but whose suffixes collide
+-- (`+91 98765 43210` vs `9876543210`) block the migration even though
+-- the full digit strings above are distinct.
+SELECT m."organizationId" AS "organizationId",
+       count(*) AS "members",
+       array_agg(m.id) AS "memberIds"
+FROM (
+  SELECT id, "organizationId",
+         right(regexp_replace(phone, '\D', '', 'g'), 10) AS suffix
+  FROM members
+  WHERE "deletedAt" IS NULL
+    AND phone IS NOT NULL
+    AND btrim(phone) <> ''
+) m
+WHERE m.suffix <> ''
+GROUP BY m."organizationId", m.suffix
+HAVING count(*) > 1
 ORDER BY count(*) DESC;

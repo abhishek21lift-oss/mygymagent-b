@@ -46,6 +46,29 @@ export function phoneLookupKey(
   return digits.slice(-10);
 }
 
+/** D-DB02 enforcement key for email: the normalized mailbox of a LIVE
+ * member (see `Member.emailKey`). `undefined` passes through (PATCH
+ * semantics: untouched); null clears the key. */
+export function emailKeyOf(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  return normalizeEmail(value);
+}
+
+/** D-DB02 enforcement key for phone: the last-ten-digit handset key
+ * (shorter numbers key on all their digits), matching
+ * `assertContactUnique`'s suffix comparison so the database constraint
+ * and the service check agree on identity. See `Member.phoneKey`.
+ * `undefined` passes through (PATCH semantics). */
+export function phoneKeyOf(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  const digits = normalizePhoneDigits(value);
+  return digits === null ? null : digits.slice(-10);
+}
+
 /**
  * Normalize the identity fields of a member create/update payload in
  * place (request-scoped DTO objects only). `undefined` stays `undefined`
@@ -57,9 +80,10 @@ export function phoneLookupKey(
  * reformatted for storage: downstream consumers (SMS/WhatsApp delivery,
  * call-log echoes, OTP challenge rows keyed by the stored value) depend
  * on the submitted representation, so the raw string is preserved and
- * digit-identity is enforced comparison-side in assertContactUnique.
- * A canonical `phoneDigits` column remains the future enforcement vehicle
- * (see the D-DB02 decision); it is out of scope for this change.
+ * digit-identity is enforced comparison-side in assertContactUnique --
+ * and, since D-DB02 step 3, by the live-only `emailKey`/`phoneKey`
+ * columns (`emailKeyOf`/`phoneKeyOf` above) that carry the same identity
+ * the comparison uses, nulled when the member is soft-deleted.
  */
 export function normalizeMemberContact<
   T extends {

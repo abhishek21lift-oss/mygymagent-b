@@ -10,10 +10,10 @@ import { createTestApp, type RegisteredAccount } from './utils/test-app';
  * Requires the standard e2e prerequisites (Postgres via .env.test, Redis,
  * s3rver). BLOCKED locally until the test database is reachable; runs in CI.
  *
- * The parallel-duplicate case is intentionally skipped: closing the
- * check-then-act race needs the partial unique indexes (D-DB02 step 3),
- * which land only after the duplicate triage they require. Un-skip it
- * together with that migration.
+ * The parallel-duplicate case closes the check-then-act race: the
+ * organization-scoped emailKey/phoneKey uniques (D-DB02 step 3, triaged
+ * clean against production 2026-10-15) reject the losers with P2002,
+ * which the global filter maps to the same 409 as the sequential check.
  */
 describe('Member contact conflicts (e2e)', () => {
   let app: INestApplication;
@@ -138,9 +138,9 @@ describe('Member contact conflicts (e2e)', () => {
     ).expect(201);
   });
 
-  it.skip('parallel duplicate creates admit exactly one winner', async () => {
-    // Requires the D-DB02 partial unique indexes (deferred until the
-    // duplicate triage in scripts/member-contact-triage.sql is resolved).
+  it('parallel duplicate creates admit exactly one winner', async () => {
+    // Closed by the D-DB02 enforcement keys: the losers fail P2002 and
+    // the global filter answers 409, matching the sequential check.
     const email = `race-${suffix()}@example.com`;
     const phone = `966666${suffix()}`.slice(0, 10);
     const attempts = await Promise.allSettled(

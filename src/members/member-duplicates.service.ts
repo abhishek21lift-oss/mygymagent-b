@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { emailKeyOf, phoneKeyOf } from './contact-normalization';
 import type { ExecuteMergeDto } from './dto/member-merge.dto';
 
 /// Scalar member fields a merge is allowed to pick a winner for.
@@ -282,6 +283,12 @@ export class MemberDuplicatesService {
     }
     // Move portal login only when the target has none to conflict with.
     if (source.userId && !target.userId) scalarData['userId'] = source.userId;
+    // D-DB02: identity keys follow whatever contact fields the merge
+    // resolves to the source.
+    if ('email' in scalarData)
+      scalarData['emailKey'] = emailKeyOf(scalarData['email'] as string | null);
+    if ('phone' in scalarData)
+      scalarData['phoneKey'] = phoneKeyOf(scalarData['phone'] as string | null);
 
     await this.prisma.$transaction(async (tx) => {
       const move = (model: string, field = 'memberId') =>
@@ -337,6 +344,13 @@ export class MemberDuplicatesService {
           });
         }
       }
+
+      // D-DB02: release the source's identity keys before the target can
+      // take its contact fields; the source is soft-deleted just below.
+      await tx.member.update({
+        where: { id: source.id },
+        data: { emailKey: null, phoneKey: null },
+      });
 
       await tx.member.update({
         where: { id: target.id },

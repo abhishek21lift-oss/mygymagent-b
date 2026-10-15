@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { emailKeyOf, phoneKeyOf } from '../members/contact-normalization';
 import {
   classifyRow,
   clean,
@@ -234,6 +235,9 @@ export class CustomerEnquiryImportService {
           lastName: name.lastName,
           email,
           phone,
+          // D-DB02: identity keys follow the row's contacts.
+          emailKey: emailKeyOf(email),
+          phoneKey: phoneKeyOf(phone),
           dateOfBirth,
           gender: mapGender(row['Gender']),
           // Only what the row actually says. The previous version

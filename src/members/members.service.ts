@@ -18,7 +18,11 @@ import {
   assignableTrainerWhere,
 } from '../common/validators/tenant-reference.validator';
 import type { CreateMemberDto } from './dto/create-member.dto';
-import { normalizeMemberContact } from './contact-normalization';
+import {
+  emailKeyOf,
+  normalizeMemberContact,
+  phoneKeyOf,
+} from './contact-normalization';
 import type { ListMembersQueryDto } from './dto/list-members-query.dto';
 import type { UpdateMemberDto } from './dto/update-member.dto';
 
@@ -211,8 +215,9 @@ export class MembersService {
     // `rahul@gym.com` (or `+91 98765 43210` vs `9876543210`) compare as
     // one identity, then reject a conflicting identity deterministically.
     // Lead conversion funnels through create(), so it inherits this.
-    // Residual race (two concurrent creates) is closed by the forthcoming
-    // partial unique indexes; until then the loser is triaged, not lost.
+    // Residual race (two concurrent creates) is closed by the
+    // organization-scoped emailKey/phoneKey uniques (D-DB02 step 3): the
+    // loser fails P2002 and the global filter answers the same 409.
     normalizeMemberContact(dto);
     await this.assertContactUnique(tx ?? this.prisma, organizationId, {
       email: dto.email,
@@ -348,6 +353,10 @@ export class MembersService {
         ...memberFields,
         organizationId,
         memberCode,
+        // D-DB02: identity keys follow the contact fields (undefined
+        // passes through, so an omitted field stores no key).
+        emailKey: emailKeyOf(memberFields.email),
+        phoneKey: phoneKeyOf(memberFields.phone),
         dateOfBirth,
         // Flat snapshot mirrors the primary emergency contact.
         emergencyContactEmail: emergencyContactEmail ?? undefined,
@@ -521,6 +530,10 @@ export class MembersService {
         data: {
           ...memberFields,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+          // D-DB02: identity keys follow the contact fields (undefined
+          // passes through, so unchanged contacts keep their keys).
+          emailKey: emailKeyOf(memberFields.email),
+          phoneKey: phoneKeyOf(memberFields.phone),
           // Explicit email snapshot; omitted optional fields stay untouched.
           ...(emergencyContactEmail !== undefined
             ? { emergencyContactEmail }
@@ -763,7 +776,14 @@ export class MembersService {
     await this.getOne(organizationId, id, branchScope);
     return this.prisma.member.update({
       where: { id },
-      data: { deletedAt: new Date(), status: 'INACTIVE' },
+      // D-DB02: release the identity keys so a rejoining member reuses
+      // the contact freely; the raw email/phone stay for history.
+      data: {
+        deletedAt: new Date(),
+        status: 'INACTIVE',
+        emailKey: null,
+        phoneKey: null,
+      },
     });
   }
 
@@ -905,9 +925,10 @@ export class MembersService {
    * keeps PATCH from conflicting with the row being edited.
    *
    * Check-then-act: two requests racing past this check can both insert;
-   * the forthcoming partial unique indexes turn the loser into the same
-   * 409 via P2002. Until then, concurrent duplicates are possible but
-   * sequential ones are impossible.
+   * the organization-scoped emailKey/phoneKey uniques turn the loser into
+   * the same 409 via P2002 (mapped in the global exception filter), and
+   * the keys are nulled on soft-delete so the check's visibility rule and
+   * the constraint's occupancy rule stay identical.
    */
   private async assertContactUnique(
     client: Prisma.TransactionClient | PrismaService,

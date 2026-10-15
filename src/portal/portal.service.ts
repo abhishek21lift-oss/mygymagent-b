@@ -17,6 +17,7 @@ import {
   MEMBER_NOTIFICATION_CATEGORY_KEYS,
 } from '../notifications/notification-categories';
 import { generateOpaqueToken, hashOpaqueToken } from '../auth/tokens.service';
+import { phoneKeyOf } from '../members/contact-normalization';
 import type { UpdatePortalProfileDto } from './dto/update-portal-profile.dto';
 import type { ListPortalClassesDto } from './dto/portal-classes.dto';
 import type { RequestRenewalDto } from './dto/request-renewal.dto';
@@ -682,6 +683,11 @@ export class PortalService {
     );
     if (Object.keys(changes).length === 0) {
       throw new BadRequestException('Nothing to update');
+    }
+    // D-DB02: the uniqueness key follows a changed phone; a number taken
+    // by a sibling member answers 409 from the global P2002 mapping.
+    if (typeof changes.phone === 'string') {
+      changes.phoneKey = phoneKeyOf(changes.phone);
     }
     await this.prisma.member.update({ where: { id }, data: changes });
     return this.me(userId);

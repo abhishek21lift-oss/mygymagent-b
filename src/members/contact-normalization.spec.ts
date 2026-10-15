@@ -1,7 +1,9 @@
 import {
+  emailKeyOf,
   normalizeEmail,
   normalizeMemberContact,
   normalizePhoneDigits,
+  phoneKeyOf,
   phoneLookupKey,
 } from './contact-normalization';
 
@@ -29,6 +31,24 @@ describe('contact normalization', () => {
     expect(phoneLookupKey('9876543210')).toBe('9876543210');
     expect(phoneLookupKey('12345')).toBeNull();
     expect(phoneLookupKey(null)).toBeNull();
+  });
+
+  it('derives email enforcement keys; undefined passes through', () => {
+    expect(emailKeyOf('Rahul@Gym.COM ')).toBe('rahul@gym.com');
+    expect(emailKeyOf('')).toBeNull();
+    expect(emailKeyOf(null)).toBeNull();
+    expect(emailKeyOf(undefined)).toBeUndefined();
+  });
+
+  it('derives phone enforcement keys as the handset suffix', () => {
+    expect(phoneKeyOf('+91 98765 43210')).toBe('9876543210');
+    expect(phoneKeyOf('9876543210')).toBe('9876543210');
+    // Shorter numbers key on all their digits, matching the service's
+    // `digits.slice(-10)` comparison.
+    expect(phoneKeyOf('12345')).toBe('12345');
+    expect(phoneKeyOf('---')).toBeNull();
+    expect(phoneKeyOf(null)).toBeNull();
+    expect(phoneKeyOf(undefined)).toBeUndefined();
   });
 
   it('normalizes email but preserves phone formatting for storage', () => {
