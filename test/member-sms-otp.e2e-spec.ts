@@ -276,7 +276,21 @@ describe('Auth / member SMS OTP (e2e)', () => {
   it('will not guess between two members sharing one number', async () => {
     const shared = `+9198760${suffix.slice(0, 5)}`;
     await makeMember(shared);
-    await makeMember(shared);
+    // The second holder is legacy data: two rows on one number, as they
+    // were stored before `assertContactUnique` existed. POST /members now
+    // answers 409 here (and should), so the row is seeded directly -- the
+    // refusal this test pins is the OTP lookup's, and it has to hold for
+    // pairs the API can no longer create.
+    await prisma.member.create({
+      data: {
+        organizationId: org.organizationId,
+        primaryBranchId: org.branchId,
+        memberCode: `SMS-LEGACY-${suffix}`,
+        firstName: 'Sms',
+        lastName: 'Legacy',
+        phone: shared,
+      },
+    });
     await clearCooldown(shared);
 
     await requestCode(shared).expect(201);
